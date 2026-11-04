@@ -8,17 +8,39 @@ jstyle은 화면을 만들고 다듬는 AI 에이전트를 위한 스킬입니�
 
 ![jstyle 패턴 라이브러리에서 빛 궤적 효과를 살펴보는 실제 화면](assets/readme/pattern-library.png)
 
+## 설치
+
+Node.js와 `npx`가 필요합니다. 현재 프로젝트에서 사용할 스킬은 해당 프로젝트 폴더에서 설치합니다.
+
+```bash
+npx skills add x-mesh/jstyle
+```
+
+설치할 에이전트를 고르면 해당 에이전트의 스킬 폴더에 `jstyle`이 추가됩니다. Codex에만 설치하려면 다음 명령을 사용합니다.
+
+```bash
+npx skills add x-mesh/jstyle --agent codex --skill jstyle
+```
+
+모든 프로젝트에서 사용하려면 `-g`를 붙입니다.
+
+```bash
+npx skills add x-mesh/jstyle -g
+```
+
+저장소가 비공개이므로 GitHub 접근 권한과 Git, GitHub CLI 또는 SSH 인증이 필요합니다. 이미 내려받은 폴더에서 설치하려면 해당 폴더 안에서 `npx skills add .`을 실행합니다.
+
 ## 먼저 써 보기
 
-프로젝트 폴더를 에이전트가 읽을 수 있는 곳에 두고, 다음처럼 요청합니다.
+설치한 뒤 에이전트에게 다음처럼 요청합니다.
 
 ```text
-이 폴더의 SKILL.md를 읽고, 기존 대시보드의 메뉴와 빈 화면을 다듬어 주세요.
+jstyle을 사용해 기존 대시보드의 메뉴와 빈 화면을 다듬어 주세요.
 ```
 
 에이전트는 [SKILL.md](SKILL.md)에서 작업 범위와 필요한 참고 문서를 찾습니다. 기존 화면을 살펴보기만 해 달라고 요청할 수도 있습니다.
 
-패턴을 직접 보려면 프로젝트 루트에서 로컬 서버를 실행합니다. Python 3가 필요합니다.
+패턴을 직접 보려면 이 저장소를 내려받은 뒤, 저장소 루트에서 로컬 서버를 실행합니다. Python 3가 필요합니다.
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1

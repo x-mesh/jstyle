@@ -8,15 +8,38 @@ The library has 25 card patterns and nine visual and entry effects. Select an ef
 
 ![The jstyle pattern library with the light orbit effect](assets/readme/pattern-library.png)
 
-## Get started
+## Install
 
-Place this folder where your agent can read it. Ask the agent to use `SKILL.md`:
+Install Node.js and `npx`. Run this command in your project folder:
 
-```text
-Read SKILL.md in this folder and improve the navigation and empty state of my dashboard.
+```bash
+npx skills add x-mesh/jstyle
 ```
 
-To open the pattern library, run this command from the project root. The server needs Python 3.
+Select the agents that will use the skill. To install only for Codex, run:
+
+```bash
+npx skills add x-mesh/jstyle --agent codex --skill jstyle
+```
+
+To install for all projects, add `-g`:
+
+```bash
+npx skills add x-mesh/jstyle -g
+```
+
+The repository is private. You need access and Git, GitHub CLI, or SSH authentication.
+To install from a local copy, run `npx skills add .` in that folder.
+
+## Get started
+
+After installation, ask the agent to use jstyle:
+
+```text
+Use jstyle to improve the navigation and empty state of my dashboard.
+```
+
+Download this repository to open the pattern library. Run this command from its root folder. The server needs Python 3.
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1

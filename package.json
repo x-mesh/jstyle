@@ -1,0 +1,26 @@
+{
+  "name": "jstyle",
+  "version": "0.32.0-local.1",
+  "private": true,
+  "description": "화면을 만들고 다듬는 스킬과 직접 써 볼 수 있는 UI 패턴 모음",
+  "license": "MIT",
+  "files": [
+    "SKILL.md",
+    "references/",
+    "scripts/*.py",
+    "scripts/*.mjs",
+    "scripts/*.sh",
+    "assets/",
+    "LICENSE",
+    "README.md",
+    "README.en.md",
+    "README.ko.md",
+    "README.local.md",
+    "tests/*.py",
+    "tests/*.mjs"
+  ],
+  "scripts": {
+    "check": "node --check assets/extended/patterns.js",
+    "test:patterns": "node --test tests/test_extended_patterns.mjs"
+  }
+}

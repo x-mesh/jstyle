@@ -1,0 +1,152 @@
+name: tests
+
+# 기본 검사는 운영체제별로, 브라우저 검사는 Chrome·Edge와 인코딩별로 나눕니다.
+# PR에서 문서만 바뀌면 브라우저 검사를 건너뛰고, 코드·도구·테스트가 바뀌면 모두 실행합니다.
+on:
+  push:
+    branches: [main]
+    paths: ["scripts/**", "tests/**", "assets/**", "references/**", "SKILL.md", ".github/workflows/tests.yml"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      browser: ${{ steps.select_browser.outputs.browser }}
+    steps:
+      - name: 줄바꿈 유지
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: select_browser
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "browser=1" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only origin/main...HEAD | grep -E '^(scripts/|tests/|assets/|\.github/workflows/tests\.yml$)' >/dev/null; then
+            echo "browser=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser=0" >> "$GITHUB_OUTPUT"
+          fi
+
+  core:
+    name: ${{ matrix.os }} · 기본 검사
+    needs: select
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: 줄바꿈 유지
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 브라우저 없이 검사
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys, unittest
+          sys.path.insert(0, os.path.abspath("tests"))
+          modules = ["test_measure_reference", "test_curate_media", "test_workdir", "test_extension_resources"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful())
+          PY
+
+  browser:
+    name: ${{ matrix.name }}
+    needs: select
+    if: needs.select.outputs.browser == '1'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "linux · chrome", os: ubuntu-latest }
+          - { name: "linux · chrome · GBK", os: ubuntu-latest, locale: zh_CN.GBK }
+          - { name: "windows · chrome · 어두운 테마", os: windows-latest, theme: dark, node: 24 }
+          - { name: "windows · edge", os: windows-latest, browser: edge }
+    env:
+      # CI의 두 코어와 소프트웨어 그리기는 0.36초 반응을 놓칠 수 있어 해당 실시간 검사는 로컬에서만 합니다.
+      JSTYLE_SHOOT_SLOW_HOST: "1"
+    steps:
+      - name: 줄바꿈 유지
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node || 22 }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Linux：ffmpeg 설치와 Chrome 샌드박스 준비
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg fonts-noto-cjk
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Linux：GBK 인코딩 사용
+        if: matrix.locale
+        run: |
+          sudo locale-gen ${{ matrix.locale }}
+          echo "JSTYLE_TEST_LOCALE=${{ matrix.locale }}" >> "$GITHUB_ENV"
+      - name: Windows：ffmpeg 설치
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - name: Windows：시스템을 어두운 테마로 바꾸기
+        if: matrix.theme == 'dark'
+        shell: pwsh
+        run: |
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name AppsUseLightTheme -Value 0 -Type DWord
+          Set-ItemProperty -Path $key -Name SystemUsesLightTheme -Value 0 -Type DWord
+      - name: Windows：Edge 사용
+        if: matrix.browser == 'edge'
+        shell: pwsh
+        run: |
+          $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $edge) { throw "Edge를 찾을 수 없습니다" }
+          "CHROME_PATH=$edge" >> $env:GITHUB_ENV
+          Write-Output "Edge $((Get-Item $edge).VersionInfo.ProductVersion)"
+      - name: 브라우저 검사 실행
+        # GBK Windows의 텍스트 인코딩을 흉내 내되 파일 시스템과 Node argv는 Unicode로 유지합니다.
+        # Python 시작 전에 Linux 전체를 GBK로 바꾸면 파일 이름과 인수가 먼저 바뀌므로
+        # Node의 UTF-8 읽기가 깨져 실제 Windows의 동작과 달라집니다.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import locale, os, sys, unittest
+          if os.environ.get("JSTYLE_TEST_LOCALE"):
+              locale.setlocale(locale.LC_CTYPE, os.environ["JSTYLE_TEST_LOCALE"])
+          print(f"text={locale.getencoding()} filesystem={sys.getfilesystemencoding()}", flush=True)
+          sys.path.insert(0, os.path.abspath("tests"))
+          modules = ["test_build_explorer", "test_prep_image", "test_shoot"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful())
+          PY
+      - name: Check independent interaction patterns
+        run: node --test tests/test_extended_patterns.mjs
+      - name: Windows：남은 브라우저 프로세스 확인
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('jstyle-shoot-') -and $_.CommandLine.Contains('user-data-dir') })
+          $left | Select-Object ProcessId, Name | Format-Table
+          if ($left.Count) { throw "남은 개수: $($left.Count)개 브라우저 프로세스가 끝나지 않았습니다" }

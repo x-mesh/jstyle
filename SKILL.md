@@ -1,6 +1,6 @@
 ---
 name: jstyle
-description: "웹사이트·앱·대시보드·컴포넌트의 화면을 만들고 다듬거나 살펴봅니다. 디자인 방향, 배치, 글꼴, 색, 움직임, 사용 흐름을 다루며 실제 화면으로 확인합니다. 순수한 업무 로직이나 API 개발, 화면 변화가 없는 코드 정리에는 쓰지 않습니다."
+description: "웹사이트·앱·대시보드·컴포넌트의 화면과 CLI·터미널 출력을 만들고 다듬거나 살펴봅니다. 디자인 방향, 배치, 글꼴, 색, 움직임, 사용 흐름을 다루며 실제 화면으로 확인합니다. 순수한 업무 로직이나 API 개발, 화면 변화가 없는 코드 정리에는 쓰지 않습니다."
 metadata:
   version: "0.32.0-local.1"
   compatibility: "특정 모델이나 다른 스킬 없이 쓸 수 있는 글 중심의 흐름입니다. 비교 화면 생성기는 Python 3.10 이상, 브라우저 도구는 Node 22 이상과 Chrome·Chromium·Edge가 필요합니다. 화면을 보거나 직접 다룰 수 없는 경우에는 확인하지 못한 범위를 밝힙니다."
@@ -41,6 +41,7 @@ metadata:
 - 여러 페이지·DESIGN.md·규칙 충돌: [디자인 규칙](references/extended/design-system.md).
 - 카드·컴포넌트·펼침: [컴포넌트](references/extended/components.md).
 - 시각·시작 효과: [효과](references/extended/effects.md).
+- CLI 출력·도움말·진행 표시·TUI: [CLI와 터미널 출력](references/cli.md).
 - 완성한 화면과 흐름: [살펴보기와 고치기](references/extended/review-loop.md).
 - 바꾸지 않고 살펴보기만 할 때: [읽기 전용 점검](references/task-review.md).
 - 크기를 맞추거나 참고 그림을 따라 만들 때: [화면 배치와 크기](references/layout-and-viewport.md).
@@ -55,6 +56,7 @@ metadata:
 ## 범위 정하기
 
 관련 화면·규칙·참고만 읽고 프로젝트 전체를 먼저 훑지 않습니다.
+웹과 CLI가 함께 있으면 사용자가 CLI를 말했거나 전체 스타일 통일을 부탁했을 때만 CLI를 고칩니다.
 작업 과정 파일은 기존 약속을 따르며, 정해진 곳이 없으면 `.jstyle/<작업 이름>`을 씁니다.
 정식 코드와 서비스 파일은 프로젝트의 정해진 위치에 둡니다.
 대답과 설명은 사용자 언어를 따르고 화면은 제품 사용자의 언어를 따릅니다. 따로 정하지 않으면 한국어로 씁니다.

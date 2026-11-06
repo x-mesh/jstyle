@@ -254,6 +254,7 @@ test("independent patterns: inputs, recovery, focus, reflow, and reduced motion"
       const exported = await send('Target.createTarget', {url:'data:text/html;charset=utf-8,' + encodeURIComponent(source)});
       const attached = await send('Target.attachToTarget', {targetId:exported.targetId, flatten:true});
       try {
+        await send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'no-preference'}]}, attached.sessionId);
         const result = await send('Runtime.evaluate', {expression:`(async () => {
           if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once:true}));
           const sample = document.querySelector('.effect-sample');

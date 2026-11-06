@@ -30,7 +30,6 @@ To install for all projects, add `-g`:
 npx skills add x-mesh/jstyle -g
 ```
 
-The repository is private. You need access and Git, GitHub CLI, or SSH authentication.
 To install from a local copy, run `npx skills add .` in that folder.
 
 ### Use the command
@@ -129,7 +128,7 @@ npm run check
 node --test "tests/test_*.mjs"
 ```
 
-The pattern browser test needs Node 22 or later and Chrome, Chromium, or Edge. The package name is `jstyle`. It is a private local package.
+The pattern browser test needs Node 22 or later and Chrome, Chromium, or Edge. The package name is `jstyle`. The package is not on the npm registry. Install it from GitHub.
 
 ## License
 

@@ -30,7 +30,7 @@ npx skills add x-mesh/jstyle --agent codex --skill jstyle
 npx skills add x-mesh/jstyle -g
 ```
 
-저장소가 비공개이므로 GitHub 접근 권한과 Git, GitHub CLI 또는 SSH 인증이 필요합니다. 이미 내려받은 폴더에서 설치하려면 해당 폴더 안에서 `npx skills add .`을 실행합니다.
+이미 내려받은 폴더에서 설치하려면 해당 폴더 안에서 `npx skills add .`을 실행합니다.
 
 ### 명령으로 쓰기
 
@@ -128,7 +128,7 @@ npm run check
 node --test "tests/test_*.mjs"
 ```
 
-패턴의 브라우저 검사에는 Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다. `package.json`의 이름은 `jstyle`이며 현재 로컬 비공개 패키지입니다.
+패턴의 브라우저 검사에는 Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다. `package.json`의 이름은 `jstyle`이며, npm 레지스트리에는 올리지 않고 GitHub에서 바로 설치합니다.
 
 ## 라이선스
 

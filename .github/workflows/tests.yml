@@ -84,6 +84,8 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY
+      - name: HTML 파서 검사
+        run: node --test tests/test_html_parser.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴

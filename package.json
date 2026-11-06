@@ -10,6 +10,7 @@
     "scripts/*.py",
     "scripts/*.mjs",
     "scripts/*.sh",
+    "scripts/lib/",
     "assets/",
     "LICENSE",
     "README.md",

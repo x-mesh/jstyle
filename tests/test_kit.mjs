@@ -83,6 +83,14 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
     assert.equal(await evaluate("document.activeElement.id"), "tab-docs");
     assert.equal(await evaluate("document.querySelector('#panel-docs').hidden"), false);
 
+    await click("#kit-detail-tab-billing");
+    assert.equal(await evaluate("document.querySelector('#kit-detail-panel-activity').hidden"), true);
+    assert.equal(await evaluate("document.querySelector('#kit-detail-panel-billing').hidden"), false);
+    await key("ArrowLeft");
+    assert.equal(await evaluate("document.activeElement.id"), "kit-detail-tab-docs");
+    await click("#kit-detail-tab-activity");
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.jk-detail-sheet-title')).display"), "grid");
+
     await click('[aria-controls="kit-acc-2"]');
     assert.equal(await evaluate("document.querySelector('#kit-acc-2').hidden"), false);
     await click('[aria-controls="kit-acc-1"]');

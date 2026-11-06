@@ -74,7 +74,7 @@ featuring <two or three relevant visual elements>, clean abstract icons, no thir
 이미지는 스타일·색·큰 배치의 기준입니다. 압축된 세로 여백과 깨진 작은 글자는 그대로 베끼지 않습니다.
 
 ```bash
-python3 <skill>/scripts/measure_reference.py design.png --color bg=20,20,100,40 --box main=40,120,960,640 --css-width 1440
+node <skill>/bin/jstyle.mjs measure design.png --color bg=20,20,100,40 --box main=40,120,960,640 --css-width 1440
 ```
 
 `--color`로 색, `--box`로 가로 비율을 보고, 실제로 필요한 사진·그림만 `--extract`로 뽑습니다.

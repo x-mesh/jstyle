@@ -2,7 +2,6 @@
 
 import base64
 from contextlib import redirect_stderr
-import importlib.util
 from html.parser import HTMLParser
 import io
 import json
@@ -19,9 +18,12 @@ from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("build_explorer", ROOT / "scripts" / "build_explorer.py")
-builder = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(builder)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import node_builder as builder  # noqa: E402
+
+
+def builder_command(scripts=ROOT / "scripts"):
+    return [shutil.which("node"), str(scripts / "build_explorer.mjs")]
 
 
 class ExplorerBuildTests(unittest.TestCase):
@@ -951,7 +953,7 @@ console.log(JSON.stringify(result));
             with self.subTest(edition=edition):
                 (copy / "SKILL.md").write_text("---\nname: " + name + "\n---\n", encoding="utf-8")
                 output = self.folder / (edition + ".html")
-                run = subprocess.run([sys.executable, str(copy / "scripts/build_explorer.py"), str(self.manifest),
+                run = subprocess.run([*builder_command(copy / "scripts"), str(self.manifest),
                                       "--output", str(output)], cwd=self.folder, capture_output=True, text=True, encoding="utf-8")
                 self.assertEqual(run.returncode, 0, run.stderr)
                 page = output.read_text(encoding="utf-8")
@@ -984,30 +986,29 @@ console.log(JSON.stringify(result));
         self.assertIn("안 a：palette", str(caught.exception))
 
     def test_output_defaults_to_a_file_beside_the_manifest(self):
-        run = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_explorer.py"), str(self.manifest)], capture_output=True, text=True, encoding="utf-8")
+        run = subprocess.run([*builder_command(), str(self.manifest)], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(run.returncode, 0, run.stderr)
         expected = self.folder.resolve() / "style-explorer.html"
         self.assertEqual(Path(json.loads(run.stdout)["output"]), expected)
         self.assertTrue(expected.is_file())
-        again = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_explorer.py"), str(self.manifest)], capture_output=True, text=True, encoding="utf-8")
+        again = subprocess.run([*builder_command(), str(self.manifest)], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(again.returncode, 1)
         self.assertIn("--force", again.stderr)
 
     def test_missing_and_malformed_manifests_say_what_to_do(self):
-        script = str(ROOT / "scripts" / "build_explorer.py")
-        missing = subprocess.run([sys.executable, script, str(self.folder / "nope.json")], capture_output=True, text=True, encoding="utf-8")
+        missing = subprocess.run([*builder_command(), str(self.folder / "nope.json")], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(missing.returncode, 1)
         self.assertIn("찾을 수 없습니다 manifest", missing.stderr)
         self.assertNotIn("Errno", missing.stderr)
         broken = self.folder / "broken.json"
         broken.write_text('{"schemaVersion": 1,', encoding="utf-8")
-        malformed = subprocess.run([sys.executable, script, str(broken)], capture_output=True, text=True, encoding="utf-8")
+        malformed = subprocess.run([*builder_command(), str(broken)], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(malformed.returncode, 1)
         self.assertRegex(malformed.stderr, r"올바르지 않음: JSON： \d+ 줄의 \d+ 열")
         self.assertNotIn("Traceback", malformed.stderr)
 
     def test_help_shows_a_complete_example(self):
-        run = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_explorer.py"), "--help"], capture_output=True, text=True, encoding="utf-8")
+        run = subprocess.run([*builder_command(), "--help"], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(run.returncode, 0)
         for expected in ("manifest.json", '"candidates": [{"source": "a.html"}', "--force", "style-explorer.html"):
             self.assertIn(expected, run.stdout)

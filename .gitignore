@@ -8,3 +8,7 @@ __pycache__/
 .curate-cache.json.*.tmp
 
 .jstyle/
+
+# Agent session state: other sessions worktrees and xm traces.
+.claude/
+.xm/

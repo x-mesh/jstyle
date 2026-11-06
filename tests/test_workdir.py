@@ -10,7 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SHOOT = ROOT / 'scripts/shoot.mjs'
 CURATE = ROOT / 'scripts/curate-media.mjs'
-EXPLORER = ROOT / 'scripts/build_explorer.py'
+EXPLORER = ROOT / 'scripts/build_explorer.mjs'
 PREP = ROOT / 'scripts/prep-image.mjs'
 NODE = shutil.which('node')
 GIT = shutil.which('git')
@@ -163,21 +163,21 @@ console.error('CANDIDATE_LOADED');
         candidates = work / 'explore'
         candidates.mkdir(parents=True)
         (candidates / 'a.html').write_text('<!doctype html><html><head><meta charset="utf-8"><title>안 A</title></head><body>A</body></html>', encoding='utf-8')
-        result = subprocess.run([sys.executable, str(EXPLORER), 'explore'], cwd=work,
+        result = subprocess.run([shutil.which('node'), str(EXPLORER), 'explore'], cwd=work,
                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((candidates / 'style-explorer.html').is_file())
         self.assertFalse((work / 'style-explorer.html').exists())
         explicit = self.project / 'delivery' / 'comparison.html'
         explicit.parent.mkdir()
-        result = subprocess.run([sys.executable, str(EXPLORER), 'explore', '--output', str(explicit)], cwd=work,
+        result = subprocess.run([shutil.which('node'), str(EXPLORER), 'explore', '--output', str(explicit)], cwd=work,
                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(explicit.is_file())
         other = self.project / '.jstyle' / '다른 작업'
         (other / 'explore').mkdir(parents=True)
         (other / 'explore/b.html').write_text('<!doctype html><html><head><meta charset="utf-8"><title>안 B</title></head><body>B</body></html>', encoding='utf-8')
-        result = subprocess.run([sys.executable, str(EXPLORER), 'explore'], cwd=other,
+        result = subprocess.run([shutil.which('node'), str(EXPLORER), 'explore'], cwd=other,
                                 capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((candidates / 'style-explorer.html').is_file())

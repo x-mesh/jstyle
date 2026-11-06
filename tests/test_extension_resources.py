@@ -54,11 +54,14 @@ class ExtensionResourcesTests(unittest.TestCase):
                 self.assertIsNone(match, "Use Korean or English in packaged text")
 
     def test_library_resources_and_navigation_resolve(self):
-        source = ROOT / "assets/extended/index.html"
+        for source in (ROOT / "assets/extended/index.html", ROOT / "assets/kit/index.html"):
+            self.check_resources_resolve(source)
+
+    def check_resources_resolve(self, source):
         parser = ResourceParser()
         parser.feed(source.read_text(encoding="utf-8"))
         for target in parser.targets:
-            with self.subTest(target=target):
+            with self.subTest(page=source.parent.name, target=target):
                 if target.startswith("#"):
                     self.assertIn(target[1:], parser.ids)
                 else:

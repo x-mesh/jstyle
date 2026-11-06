@@ -1,0 +1,130 @@
+/* Tokens measured from the public pages of a reference B2B SaaS site (2026-11-05): landing "l2024" variables and product UI "fx" components.
+   Names are rewritten with a --lnd- prefix so they never collide with a host project's tokens. */
+:root {
+  --lnd-font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+
+  --lnd-base: #111;
+  --lnd-base-pure: #000;
+  --lnd-solid-0: #171718;
+  --lnd-solid-4: #262627;
+  --lnd-solid-8: #2f2f30;
+  --lnd-solid-12: #383839;
+  --lnd-solid-24: #535354;
+  --lnd-solid-36: #6e6e6f;
+  --lnd-solid-48: #89898a;
+  --lnd-solid-60: #a4a4a5;
+  --lnd-solid-72: #bfbfc0;
+  --lnd-solid-84: #dadadb;
+  --lnd-solid-96: #f5f5f6;
+  --lnd-on-dark-96: rgb(255 255 255 / .96);
+  --lnd-on-dark-72: rgb(255 255 255 / .72);
+  --lnd-on-dark-48: rgb(255 255 255 / .48);
+  --lnd-on-dark-36: rgb(255 255 255 / .36);
+  --lnd-on-dark-12: rgb(255 255 255 / .12);
+  --lnd-on-dark-08: rgb(255 255 255 / .08);
+  --lnd-on-dark-04: rgb(255 255 255 / .04);
+  --lnd-on-light-72: rgb(17 17 17 / .72);
+  --lnd-on-light-48: rgb(17 17 17 / .48);
+  --lnd-on-light-24: rgb(17 17 17 / .24);
+  --lnd-on-light-10: rgb(17 17 17 / .1);
+  --lnd-on-light-04: rgb(17 17 17 / .04);
+  --lnd-block-light: #f5f5f7;
+  --lnd-block-dark: rgb(255 255 255 / .08);
+  --lnd-hover-dark: rgb(255 255 255 / .14);
+  --lnd-active-dark: rgb(255 255 255 / .2);
+  --lnd-hover-light: rgb(0 0 0 / .14);
+  --lnd-link-dark: #47a3ff;
+  --lnd-link-light: #06c;
+
+  /* Point colors: one per highlight, never more than one per sentence. */
+  --lnd-green: #0f4;
+  --lnd-lime: #e7ff12;
+  --lnd-yellow: #ffc526;
+  --lnd-orange: #ff6523;
+  --lnd-brown: #f48200;
+  --lnd-coral: #fc8b8b;
+  --lnd-pink: #ff748e;
+  --lnd-bright-pink: #ff70e0;
+  --lnd-lilac: #dc9bff;
+  --lnd-purple: #9572ff;
+  --lnd-cosmic-blue: #5b94ff;
+  --lnd-blue: #2f82ff;
+  --lnd-sky: #12d3ff;
+  --lnd-cyan: #00ffd4;
+
+  --lnd-ui-ink: #242a30;
+  --lnd-ui-text: #3e4449;
+  --lnd-ui-sub: #61666a;
+  --lnd-ui-hint: #96999c;
+  --lnd-ui-disabled: #cacccd;
+  --lnd-ui-line: rgb(0 0 0 / .08);
+  --lnd-ui-fill: #f6f6f7;
+  --lnd-ui-fill-strong: #f2f2f3;
+  --lnd-ui-danger: #f24b17;
+  --lnd-ui-success: #09bb1b;
+  --lnd-ui-success-tint: #e5fae8;
+  --lnd-ui-control-s: 28px;
+  --lnd-ui-control: 32px;
+  --lnd-ui-control-l: 36px;
+
+  /* Type scale (px). Korean display headings use negative tracking near -2%. */
+  --lnd-cover-xl: 80px;
+  --lnd-cover: 52px;
+  --lnd-h1: 48px;
+  --lnd-h2: 40px;
+  --lnd-h3: 36px;
+  --lnd-h4: 30px;
+  --lnd-h6: 24px;
+  --lnd-sub1: 22px;
+  --lnd-sub2: 18px;
+  --lnd-body-main: 17px;
+  --lnd-body1: 15px;
+  --lnd-body2: 14px;
+  --lnd-body3: 13.5px;
+  --lnd-body5: 11.5px;
+
+  --lnd-space-xxs: 7px;
+  --lnd-space-xs: 11px;
+  --lnd-space-s: 21px;
+  --lnd-space-m: 32px;
+  --lnd-space-l: 40px;
+  --lnd-space-xl: 48px;
+  --lnd-space-2xl: 56px;
+  --lnd-space-3xl: 72px;
+  --lnd-space-4xl: 96px;
+  --lnd-section-l: 72px;
+  --lnd-section-xl: 104px;
+  --lnd-section-xxl: 144px;
+  --lnd-max: 1024px;
+  --lnd-card-gap: 20px;
+  --lnd-header: 69px;
+
+  --lnd-radius-s: 8px;
+  --lnd-radius: 12px;
+  --lnd-radius-l: 16px;
+  --lnd-radius-xl: 24px;
+  --lnd-radius-pill: 999px;
+
+  --lnd-shadow-popover: 0 0 0 1px rgb(0 0 0 / .03), 0 10px 14px rgb(0 0 0 / .06), 0 14px 32px rgb(0 0 0 / .12);
+  --lnd-shadow-modal: 0 0 0 1px rgb(0 0 0 / .04), 0 24px 72px rgb(36 42 48 / .22);
+  --lnd-shadow-glass: 0 32px 40px rgb(0 0 0 / .08), inset 0 -4px 18px rgb(255 255 255 / .08), inset 0 4px 18px rgb(0 0 0 / .08);
+  --lnd-shadow-dark-lift: inset 0 1px 1px rgb(255 255 255 / .12), 0 10px 120px #000;
+
+  --lnd-ease-out: cubic-bezier(.16, 1, .3, 1);
+  --lnd-ease-soft: cubic-bezier(.2, 1, .8, 1);
+  --lnd-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --lnd-fast: 150ms;
+  --lnd-open: 180ms;
+  --lnd-panel: 240ms;
+
+  --lnd-brand: var(--lnd-green);
+  --lnd-brand-alt: var(--lnd-green);
+  --lnd-brand-soft: #dcffaa;
+}
+
+/* Each product theme owns one CTA color, one alt color and one soft tint. */
+[data-lnd-theme="agent"] { --lnd-brand: #288ffe; --lnd-brand-alt: #1570ef; --lnd-brand-soft: #afd2ff; }
+[data-lnd-theme="employee"] { --lnd-brand: #9169ff; --lnd-brand-alt: #7828ff; --lnd-brand-soft: #c8b4ff; }
+[data-lnd-theme="talent"] { --lnd-brand: #c8f832; --lnd-brand-alt: #28d25f; --lnd-brand-soft: #dcffaa; }
+[data-lnd-theme="payroll"] { --lnd-brand: #f8cd2d; --lnd-brand-alt: #fff591; --lnd-brand-soft: #ffffc8; }
+[data-lnd-theme="finance"] { --lnd-brand: #ff6432; --lnd-brand-alt: #f04b46; --lnd-brand-soft: #ffd2a5; }

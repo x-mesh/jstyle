@@ -12,6 +12,9 @@ import { findChrome } from "../scripts/chrome.mjs";
 import { HTMLParser } from "../scripts/lib/html-parser.mjs";
 import { PyError, PyFloat, isValueError, jsonDumps } from "../scripts/lib/pycompat.mjs";
 
+// Hangul and Han: the English UI and the template shell must contain neither.
+const KOREAN_OR_HAN = /[\p{Script=Hangul}\p{Script=Han}]/u;
+
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const WINDOWS = process.platform === "win32";
 const SLOW = Boolean(process.env.JSTYLE_SHOOT_SLOW_HOST);
@@ -402,14 +405,14 @@ test("interface strings are complete and centralized", () => {
   for (const key of keys) {
     assert.ok(table.ko[key], key);
     assert.ok(table.en[key], key);
-    assert.doesNotMatch(table.en[key], /[\u3400-\u9fff]/, key);
+    assert.doesNotMatch(table.en[key], KOREAN_OR_HAN, key);
     assert.deepEqual(placeholders(table.ko[key]), placeholders(table.en[key]), key);
   }
   // Both locales are shipped for browser detection; neither may leak into
   // markup or JavaScript outside this single table (comments are not UI).
   let shell = template.replaceAll(tableText, () => "{}");
   shell = shell.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/[^\n]*/gm, "");
-  assert.doesNotMatch(shell, /[\u3400-\u9fff]/);
+  assert.doesNotMatch(shell, KOREAN_OR_HAN);
 });
 
 test("browser language fallback and copied sentence", (t) => {
@@ -509,7 +512,7 @@ test("rendered interfaces do not mix languages", { skip: CHROME_SKIP("rendered i
         const other = table[lang === "ko" ? "en" : "ko"][name];
         assert.ok(!strings.includes(other), name);
       }
-      if (lang === "en") assert.doesNotMatch(strings.join("\n"), /[\u3400-\u9fff]/);
+      if (lang === "en") assert.doesNotMatch(strings.join("\n"), KOREAN_OR_HAN);
       assert.deepEqual(observed.copied, lang === "ko" ? ["01회: 기존 화면 Direction A 안을 고릅니다"]
         : ["Round 01: Go with Current Direction A"]);
     });

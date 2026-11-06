@@ -1,6 +1,6 @@
 # 업무 화면 컴포넌트 키트
 
-목록, 표, 설정, 일정, 승인처럼 정보가 빽빽한 업무용 SaaS 화면을 빌드 없이 만들 때 씁니다. 예시 문구는 프로젝트, 작업, 고객, 청구서 같은 일반 소재를 씁니다. 실행 예시와 복사할 코드는 [컴포넌트 키트](../../assets/kit/index.html)에 있습니다.
+목록, 표, 설정, 일정, 승인처럼 정보가 빽빽한 업무용 SaaS 화면을 만들 때 씁니다. 빌드 없는 HTML에서는 CSS와 JS를 그대로 붙이고, React·Vue 같은 프레임워크에서는 아래 "프레임워크에서 쓰기"를 따릅니다. 예시 문구는 프로젝트, 작업, 고객, 청구서 같은 일반 소재를 씁니다. 실행 예시와 복사할 코드는 [컴포넌트 키트](../../assets/kit/index.html)에 있습니다.
 
 ## 붙이는 방법
 
@@ -8,6 +8,33 @@
 2. 키트 페이지의 `<svg class="jk-sprite">` 스프라이트를 문서 `<body>` 바로 안에 옮깁니다. `file://`에서는 외부 SVG 파일의 `<use href="파일#id">`가 막히므로 스프라이트는 문서 안에 둡니다.
 3. 컴포넌트를 담는 요소에 `class="jk"`를 줍니다. 글꼴, 글자색, 줄 간격, 초점 표시, 한국어 줄바꿈이 이 범위에만 적용됩니다.
 4. 키트 페이지에서 필요한 예시의 **코드 보기**를 열어 마크업을 복사합니다. `doc.css`와 `doc.js`는 문서 페이지 전용이므로 복사하지 않습니다.
+
+## 프레임워크에서 쓰기
+
+`kit.css`는 프레임워크와 관계없이 그대로 씁니다. 앱 진입점에서 한 번 불러오고, 마크업의 `class`는 `className`처럼 프레임워크 문법으로 옮깁니다. 아이콘 스프라이트는 앱 최상위나 HTML 셸에 한 번만 둡니다.
+
+`kit.js`는 DOM을 직접 바꾸므로 프레임워크가 상태를 가진 화면에서는 쓰지 않습니다. `aria-selected`, `aria-expanded`, `aria-pressed`, `hidden`, 글자를 직접 고치고, `append`는 노드를 붙이며 `tokens`는 노드를 지웁니다. 프레임워크가 같은 요소를 렌더하면 프레임워크의 상태와 화면이 어긋납니다. 탭, 펼침, 선택, 목록 상자, 대화 상자, 토큰, 전체 선택, 일괄 처리, 상태 단추, 항목 추가, 폼 검사는 프레임워크 상태로 다시 만들고, 아래 "동작 속성" 표에 적힌 ARIA 속성과 키보드 동작을 그대로 렌더합니다. 그러면 `kit.css`의 상태 스타일이 그대로 맞습니다.
+
+프레임워크가 다시 렌더하지 않는 정적 영역(꾸미기 효과, 설명용 예시)에만 `kit.js`를 붙일 수 있습니다.
+
+- `kit.js`는 불러오는 즉시 `document`를 읽습니다. 서버 렌더링을 쓰면 HTML 셸의 `<script src="kit.js" defer>`나 클라이언트에서만 실행되는 코드에서 불러옵니다.
+- 불러올 때 문서 전체를 한 번 연결하므로, 나중에 마운트된 마크업은 마운트 뒤에 `window.jk.init(container)`로 연결합니다. `init`은 넘긴 요소의 하위만 찾으므로 `data-jk`가 붙은 요소가 아니라 그 부모를 넘깁니다. 같은 요소를 다시 넘겨도 한 번만 연결됩니다.
+- 연결을 푸는 함수는 없습니다. `data-jk-dismiss`가 있는 펼침, `data-jk-checkall`, `data-jk-bulk`는 `document`에 리스너를 남기므로 자주 마운트되고 해제되는 영역에는 쓰지 않습니다.
+- `jk:change`는 사용자 정의 이벤트라 React의 `on...` 속성으로 받지 않습니다. ref에 `addEventListener`로 붙이고 정리 함수에서 뗍니다.
+
+```jsx
+function KitArea({ onChange, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const root = ref.current;
+    window.jk.init(root);
+    const handle = (event) => onChange(event.detail);
+    root.addEventListener("jk:change", handle);
+    return () => root.removeEventListener("jk:change", handle);
+  }, [onChange]);
+  return <div ref={ref} className="jk">{children}</div>;
+}
+```
 
 ## 이름 규칙
 

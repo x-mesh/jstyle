@@ -69,7 +69,7 @@ test("independent patterns: inputs, recovery, focus, reflow, and reduced motion"
     // Chrome reports the host's animation setting as prefers-reduced-motion. Pin the starting preference so the
     // playback checks do not depend on the host; the reduce case is emulated explicitly further down.
     t.diagnostic(`host prefers-reduced-motion: ${await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'no-preference'")}`);
-    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }, { name: "prefers-reduced-motion", value: "no-preference" }] });
     await cdp("Page.navigate", { url: pageUrl });
     await waitFor("document.readyState === 'complete' && document.querySelector('#effects-result')?.textContent === '효과 정지됨'");
     assert.equal(await evaluate("document.querySelectorAll('#cards article').length"), 25);
@@ -254,7 +254,7 @@ test("independent patterns: inputs, recovery, focus, reflow, and reduced motion"
       const exported = await send('Target.createTarget', {url:'data:text/html;charset=utf-8,' + encodeURIComponent(source)});
       const attached = await send('Target.attachToTarget', {targetId:exported.targetId, flatten:true});
       try {
-        await send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'no-preference'}]}, attached.sessionId);
+        await send('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme', value:'light'}, {name:'prefers-reduced-motion', value:'no-preference'}]}, attached.sessionId);
         const result = await send('Runtime.evaluate', {expression:`(async () => {
           if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, {once:true}));
           const sample = document.querySelector('.effect-sample');
@@ -289,7 +289,7 @@ test("independent patterns: inputs, recovery, focus, reflow, and reduced motion"
     const pausedTransforms = await evaluate("(async () => { const sample = () => getComputedStyle(document.querySelector('.aurora-one')).transform; await Promise.all(document.querySelector('.effect-sample').getAnimations({subtree:true}).map(animation => animation.ready)); await new Promise(resolve => requestAnimationFrame(resolve)); const before = sample(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); return [before, sample()]; })()");
     assert.equal(pausedTransforms[0], pausedTransforms[1]);
     await click('#effects-toggle');
-    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }, { name: "prefers-reduced-motion", value: "reduce" }] });
     await waitFor("document.querySelector('#effects-result').textContent.includes('동작 감소')");
     assert.equal(await evaluate("document.querySelector('#effects').classList.contains('playing')"), false);
     assert.equal(await evaluate("getComputedStyle(document.querySelector('.aurora-one')).animationName"), "none");

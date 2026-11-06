@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jstyle kit</title>
 <meta name="description" content="업무용 SaaS 화면에 쓰는 정적 컴포넌트 키트">
+<meta name="color-scheme" content="light dark">
+<script>
+  // Set the scheme before the stylesheets paint so a dark visitor never sees a light flash.
+  (() => {
+    let saved = null;
+    try { saved = localStorage.getItem("jk-doc-scheme"); } catch { /* Storage may be blocked; fall back to the system setting. */ }
+    const dark = saved === "dark" || (saved !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.jkScheme = dark ? "dark" : "light";
+  })();
+</script>
 <link rel="stylesheet" href="kit.css">
 <link rel="stylesheet" href="decor.css">
 <link rel="stylesheet" href="doc.css">
@@ -101,6 +111,7 @@
 <div class="doc">
 <nav class="doc-nav" aria-label="컴포넌트">
   <div class="doc-brand"><b>jstyle kit</b><span class="jk-hint">업무 화면 컴포넌트</span></div>
+  <div class="jk-period doc-scheme" role="group" aria-label="화면 모드" data-doc-scheme><button type="button" value="system" aria-pressed="true">자동</button><button type="button" value="light" aria-pressed="false">밝게</button><button type="button" value="dark" aria-pressed="false">어둡게</button></div>
   <ol>
     <li><a href="#foundations">기초</a></li>
     <li><a href="#layout">레이아웃</a></li>
@@ -146,6 +157,7 @@
     <h1>jstyle kit</h1>
     <p>목록, 표, 설정, 일정, 승인처럼 정보가 빽빽한 업무용 SaaS 화면을 위한 컴포넌트입니다. 빌드 없이 <code>kit.css</code>와 <code>kit.js</code>를 붙이고, 컴포넌트를 담는 요소에 <code>class="jk"</code>를 줍니다. 아이콘은 이 페이지의 SVG 스프라이트를 문서 안에 그대로 옮겨 씁니다.</p>
     <p>동작은 <code>data-jk</code> 속성으로 켭니다. 값은 <code>tabs</code>, <code>disclosure</code>, <code>pressed</code>, <code>tokens</code>, <code>listbox</code>, <code>count</code>, <code>dialog</code>이고, 전체 선택은 <code>data-jk-checkall</code>, 선택한 행 수에 따라 나타나는 막대는 <code>data-jk-bulk</code>입니다. 상태가 바뀌면 <code>jk:change</code> 이벤트가 올라오고, 나중에 넣은 마크업은 <code>jk.init(요소)</code>로 연결합니다.</p>
+    <p><code>&lt;html&gt;</code>이나 <code>class="jk"</code> 요소에 <code>data-jk-scheme="dark"</code>를 주면 다크 모드가 됩니다. 메뉴 위의 자동·밝게·어둡게 스위치로 이 페이지에서 바로 확인할 수 있습니다.</p>
   </header>
 
   <section class="doc-section" id="foundations" aria-labelledby="foundations-title">
@@ -560,7 +572,7 @@
 
   <section class="doc-section" id="decor" aria-labelledby="decor-title">
     <h2 id="decor-title">꾸미기</h2>
-    <p>표지, 빈 화면, 소개 화면에 쓰는 움직이는 배경과 시작 효과, 히어로입니다. 효과는 키트의 밝은 바탕과 카드 위에 그리고, 강조색은 테마 색을 따릅니다. <code>kit.css</code> 뒤에 <code>decor.css</code>를 붙여 씁니다. 효과는 스스로 재생하지 않고 재생 단추로 시작하며, 화면 밖으로 나가면 멈춥니다. 동작 줄이기 설정에서는 배경이 멈추고 시작 효과는 완성된 모습으로 보입니다. 업무 화면 안에서는 한 화면에 하나만 씁니다.</p>
+    <p>표지, 빈 화면, 소개 화면에 쓰는 움직이는 배경과 시작 효과, 히어로입니다. 효과는 키트의 바탕과 카드 위에 그리고, 강조색은 테마 색을 따르며, 다크 모드에서는 함께 어두워집니다. <code>kit.css</code> 뒤에 <code>decor.css</code>를 붙여 씁니다. 효과는 스스로 재생하지 않고 재생 단추로 시작하며, 화면 밖으로 나가면 멈춥니다. 동작 줄이기 설정에서는 배경이 멈추고 시작 효과는 완성된 모습으로 보입니다. 업무 화면 안에서는 한 화면에 하나만 씁니다.</p>
     <div class="doc-example">
       <h3>01 강조 테두리 · 중요한 카드 하나에 시선 모으기</h3>
       <div class="doc-demo doc-demo-flush">
@@ -1358,7 +1370,7 @@
       <div class="doc-demo">
         <div class="doc-grid-2">
           <div class="jk-gallery" role="img" aria-label="첨부 이미지 6장 가운데 3장 미리보기">
-            <span style="background-image:repeating-linear-gradient(0deg,#e6e7e8 0 1px,transparent 1px 18px),repeating-linear-gradient(90deg,#e6e7e8 0 1px,#f3f3f4 1px 18px)"></span>
+            <span style="background-image:repeating-linear-gradient(0deg,var(--jk-p-e6e7e8) 0 1px,transparent 1px 18px),repeating-linear-gradient(90deg,var(--jk-p-e6e7e8) 0 1px,var(--jk-fill) 1px 18px)"></span>
             <span style="background:#3a3d41"></span>
             <span class="jk-gallery-more" style="background:#c9cccf"><span>+3</span></span>
           </div>
@@ -2023,7 +2035,7 @@
       <h3>알림 목록과 알림 카드</h3>
       <div class="doc-demo doc-demo-canvas">
         <div class="doc-grid-2">
-          <ul class="jk-notices" style="background:#fff;border-radius:12px">
+          <ul class="jk-notices" style="background:var(--jk-surface);border-radius:12px">
             <li class="jk-notice"><span class="jk-tile" style="--jk-tile:#f2f3d6"><svg class="jk-i" aria-hidden="true"><use href="#i-award"/></svg></span><small>리뷰</small><p>요청받은 디자인 리뷰 2건을 아직 끝내지 않았습니다.</p><footer>1시간 전 · <a class="jk-link jk-link-blue" href="#notices">2건 더 보기</a></footer></li>
             <li class="jk-notice is-read"><span class="jk-tile" style="--jk-tile:#e3effc"><svg class="jk-i" aria-hidden="true"><use href="#i-doc"/></svg></span><small>요청</small><p>서하늘님이 구독 요청을 승인했습니다.</p><footer>어제</footer></li>
           </ul>

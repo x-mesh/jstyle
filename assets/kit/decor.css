@@ -1,7 +1,17 @@
 /* jstyle kit decor: animated surfaces, entrance effects, hero and landing blocks.
-   Optional: load after kit.css only on pages that need it. Effects use the kit's light surfaces and follow
-   --jk-primary, so [data-jk-theme] recolors them. Every animation stops under prefers-reduced-motion,
+   Optional: load after kit.css only on pages that need it. Effects use the kit's surfaces and follow
+   --jk-primary, so [data-jk-theme] recolors them and data-jk-scheme="dark" darkens them. Every animation stops under prefers-reduced-motion,
    and entrance effects then show their finished state. */
+/* Palette steps for decor; [data-jk-scheme="dark"] redefines them. */
+:root {
+  --jk-p-c9eef8: #c9eef8;
+  --jk-p-d4d6d8: #d4d6d8;
+  --jk-p-f1f2f4: #f1f2f4;
+  --jk-p-ffe58a: #ffe58a;
+  --jk-p-ffe7b0: #ffe7b0;
+  --jk-p-ffffff: #fff;
+}
+
 .jk-fx { position: relative; isolation: isolate; overflow: hidden; height: var(--jk-fx-height, 400px); background: var(--jk-canvas); color: var(--jk-ink); font-family: var(--jk-font); --jk-speed: 1; --jk-play-state: paused; }
 .jk-fx[data-playing=true]:not([data-offscreen]) { --jk-play-state: running; }
 .jk-fx-art { position: absolute; inset: 0; z-index: 0; }
@@ -40,14 +50,14 @@
 /* 03 Soft gradient: three pastel fields drift slowly behind a message */
 .jk-fx-gradient { background: var(--jk-surface); }
 .jk-fx-blob { position: absolute; border-radius: 50%; filter: blur(48px); opacity: .9; animation: jk-fx-drift calc(14s / var(--jk-speed, 1)) ease-in-out infinite alternate; animation-play-state: var(--jk-play-state, paused); }
-.jk-fx-blob:nth-child(1) { width: 46%; height: 80%; right: 4%; top: -18%; background: color-mix(in srgb, var(--jk-primary) 38%, #fff); }
-.jk-fx-blob:nth-child(2) { width: 40%; height: 70%; right: 22%; bottom: -26%; background: #ffe7b0; animation-delay: -5s; animation-direction: alternate-reverse; }
-.jk-fx-blob:nth-child(3) { width: 34%; height: 64%; right: -6%; bottom: -10%; background: #c9eef8; animation-delay: -9s; }
+.jk-fx-blob:nth-child(1) { width: 46%; height: 80%; right: 4%; top: -18%; background: color-mix(in srgb, var(--jk-primary) 38%, var(--jk-p-ffffff)); }
+.jk-fx-blob:nth-child(2) { width: 40%; height: 70%; right: 22%; bottom: -26%; background: var(--jk-p-ffe7b0); animation-delay: -5s; animation-direction: alternate-reverse; }
+.jk-fx-blob:nth-child(3) { width: 34%; height: 64%; right: -6%; bottom: -10%; background: var(--jk-p-c9eef8); animation-delay: -9s; }
 @keyframes jk-fx-drift { to { transform: translate(-10%, 8%) scale(1.12); } }
 
 /* 04 Spotlight: soft light slides over one metric card */
-.jk-fx-spotlight { background: #f1f2f4; }
-.jk-fx-spot-light { position: absolute; z-index: 0; width: 560px; height: 560px; right: -6%; top: -36%; border-radius: 50%; background: radial-gradient(circle, #fff 0, rgb(255 255 255 / .7) 30%, transparent 66%); animation: jk-fx-sweep calc(8s / var(--jk-speed, 1)) ease-in-out infinite alternate; animation-play-state: var(--jk-play-state, paused); }
+.jk-fx-spotlight { background: var(--jk-p-f1f2f4); }
+.jk-fx-spot-light { position: absolute; z-index: 0; width: 560px; height: 560px; right: -6%; top: -36%; border-radius: 50%; background: radial-gradient(circle, var(--jk-p-ffffff) 0, rgb(255 255 255 / .7) 30%, transparent 66%); animation: jk-fx-sweep calc(8s / var(--jk-speed, 1)) ease-in-out infinite alternate; animation-play-state: var(--jk-play-state, paused); }
 .jk-fx-spot-card { position: absolute; z-index: 1; right: 10%; top: calc(50% - 110px); display: grid; gap: 6px; width: 280px; padding: 22px 24px; border: 1px solid var(--jk-line); border-radius: 16px; background: var(--jk-surface); box-shadow: 0 20px 44px rgb(36 42 48 / .1); }
 .jk-fx-spot-card span { color: var(--jk-sub); font-size: 13px; font-weight: 600; }
 .jk-fx-spot-card b { color: var(--jk-ink); font-size: 36px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
@@ -84,7 +94,7 @@
 .jk-fx-stagger { background: var(--jk-canvas); }
 .jk-fx-stagger-frame { display: grid; align-content: center; gap: 10px; }
 .jk-fx-stagger-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--jk-line); border-radius: var(--jk-radius-l); background: var(--jk-surface); box-shadow: var(--jk-shadow-card); }
-.jk-fx-stagger-row > i { flex-shrink: 0; display: grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid #d4d6d8; border-radius: 50%; }
+.jk-fx-stagger-row > i { flex-shrink: 0; display: grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid var(--jk-p-d4d6d8); border-radius: 50%; }
 .jk-fx-stagger-row.is-done > i { border-color: var(--jk-primary); background: var(--jk-primary); }
 .jk-fx-stagger-row.is-done > i::before { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--jk-on-primary); border-bottom: 2px solid var(--jk-on-primary); transform: translateY(-1px) rotate(-45deg); }
 .jk-fx-stagger-row div { display: grid; flex: 1; min-width: 0; }
@@ -252,7 +262,7 @@ button[aria-expanded="true"] .jk-lp-plus { transform: rotate(45deg); }
 .jk-lp-thumb { display: grid; place-items: center; align-content: center; gap: 12px; aspect-ratio: 16 / 9; padding: 16px; border: 1px solid var(--jk-line); border-radius: var(--jk-radius-l); background: var(--jk-canvas); color: var(--jk-ink); text-align: center; }
 .jk-lp-thumb.is-tint { background: var(--jk-primary-tint); border-color: transparent; }
 .jk-lp-thumb p { font-size: clamp(16px, 2vw, 21px); font-weight: 800; line-height: 1.45; letter-spacing: -.02em; }
-.jk-lp-thumb mark { padding: 0 3px; border-radius: 3px; background: #ffe58a; color: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.jk-lp-thumb mark { padding: 0 3px; border-radius: 3px; background: var(--jk-p-ffe58a); color: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .jk-lp-thumb.is-tint mark { background: var(--jk-surface); }
 .jk-lp-posts .jk-hint { display: block; margin-top: 12px; }
 .jk-lp-posts strong { display: block; margin-top: 4px; color: var(--jk-ink); font-size: 15.5px; font-weight: 700; }
@@ -332,3 +342,16 @@ button[aria-expanded="true"] .jk-lp-plus { transform: rotate(45deg); }
   .jk-lp-menu { animation: none; }
   .jk-lp-faq-panel, .jk-lp-plus, .jk-lp-nav-body, .jk-lp-nav-links button .jk-i { transition: none; }
 }
+
+/* Dark scheme: put data-jk-scheme="dark" on <html> or on a .jk root. */
+[data-jk-scheme="dark"] {
+  --jk-p-c9eef8: #1d3e46;
+  --jk-p-d4d6d8: #464849;
+  --jk-p-f1f2f4: #2c2d2e;
+  --jk-p-ffe58a: #4d3500;
+  --jk-p-ffe7b0: #463200;
+  --jk-p-ffffff: #1b1c1f;
+}
+/* White light reads as a glare on a dark stage; keep only a faint lift. */
+:where([data-jk-scheme="dark"]) .jk-fx-spot-light { background: radial-gradient(circle, rgb(255 255 255 / .1) 0, rgb(255 255 255 / .05) 30%, transparent 66%); }
+/* End of dark scheme. */

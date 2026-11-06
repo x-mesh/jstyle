@@ -34,19 +34,40 @@
     const [r, g, b] = digits.map((d) => parseInt(d, 16) / 255);
     return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
   };
-  document.querySelectorAll("[data-token]").forEach((element) => {
+  const printTokens = () => document.querySelectorAll("[data-token]").forEach((element) => {
     const token = element.dataset.token;
     const value = getComputedStyle(element).getPropertyValue(token).trim();
     const label = element.querySelector("code") || element;
     if (element.matches(".doc-theme span")) {
       element.style.setProperty("--c", `var(${token})`);
-      element.style.color = isLight(value) ? "var(--jk-ink)" : "#fff";
+      element.style.color = isLight(value) ? "#242a30" : "#fff";
       element.textContent = value;
       return;
     }
     element.style.setProperty(element.matches(".doc-sw") ? "--c" : "--v", `var(${token})`);
     label.textContent = value;
   });
+
+  // Docs-only scheme switch. The inline <head> script applies the saved choice before the first paint.
+  const schemeGroup = document.querySelector("[data-doc-scheme]");
+  const systemDark = matchMedia("(prefers-color-scheme: dark)");
+  const savedScheme = () => {
+    try { return localStorage.getItem("jk-doc-scheme") || "system"; } catch { return "system"; }
+  };
+  const applyScheme = (choice) => {
+    const dark = choice === "dark" || (choice === "system" && systemDark.matches);
+    document.documentElement.dataset.jkScheme = dark ? "dark" : "light";
+    schemeGroup.querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.value === choice)));
+    printTokens();
+  };
+  schemeGroup.addEventListener("click", (event) => {
+    const button = event.target.closest("button[value]");
+    if (!button) return;
+    try { localStorage.setItem("jk-doc-scheme", button.value); } catch { /* Private windows can block storage; the choice still applies to this visit. */ }
+    applyScheme(button.value);
+  });
+  systemDark.addEventListener("change", () => { if (savedScheme() === "system") applyScheme("system"); });
+  applyScheme(savedScheme());
 
   const links = [...document.querySelectorAll(".doc-nav a")];
   const sections = links.map((link) => document.querySelector(link.getAttribute("href")));

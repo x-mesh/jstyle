@@ -1,7 +1,8 @@
 PYTHON ?= python3
 HOST ?= 0.0.0.0
 PORT ?= 8765
-SERVE = $(PYTHON) scripts/serve.py --host $(HOST) --port $(PORT)
+JSTYLE = node bin/jstyle.mjs
+VIEW = --host $(HOST) --port $(PORT)
 
 .DEFAULT_GOAL := help
 .PHONY: help open effects cards landing product-ui kit explorer serve test
@@ -11,32 +12,32 @@ help: ## 사용 가능한 명령 표시
 	@echo "  변수: HOST=$(HOST) (127.0.0.1이면 이 컴퓨터에서만 접속), PORT=$(PORT)"
 
 open: ## 패턴 라이브러리 열기
-	@$(SERVE) assets/extended/index.html
+	@$(JSTYLE) library $(VIEW)
 
 effects: ## 꾸미기·시작 효과 보기 열기
-	@$(SERVE) 'assets/extended/index.html#effects'
+	@$(JSTYLE) library effects $(VIEW)
 
 cards: ## 카드 패턴 보기 열기
-	@$(SERVE) 'assets/extended/index.html#cards'
+	@$(JSTYLE) library cards $(VIEW)
 
 landing: ## 랜딩 연구 보기 열기
-	@$(SERVE) 'assets/extended/index.html#landing'
+	@$(JSTYLE) library landing $(VIEW)
 
 product-ui: ## 제품 UI 연구 보기 열기
-	@$(SERVE) 'assets/extended/index.html#product-ui'
+	@$(JSTYLE) library product-ui $(VIEW)
 
 kit: ## 컴포넌트 키트 열기
-	@$(SERVE) assets/kit/index.html
+	@$(JSTYLE) kit $(VIEW)
 
 explorer: ## 스타일 탐색기 열기
-	@$(SERVE) assets/style-explorer.html
+	@$(JSTYLE) serve --root . assets/style-explorer.html $(VIEW)
 
 serve: ## 브라우저를 열지 않고 서버만 실행
-	@$(SERVE) --no-open
+	@$(JSTYLE) library --no-open $(VIEW)
 
 test: ## 패턴과 리소스 테스트 실행
 	node --check assets/extended/patterns.js
 	node --check assets/kit/kit.js
-	node --test tests/test_extended_patterns.mjs tests/test_kit.mjs tests/test_html_parser.mjs
+	node --test tests/test_extended_patterns.mjs tests/test_kit.mjs tests/test_html_parser.mjs tests/test_cli.mjs
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 	JSTYLE_BUILDER=node $(PYTHON) -m unittest discover -s tests -p 'test_build_explorer.py'

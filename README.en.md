@@ -31,6 +31,20 @@ npx skills add x-mesh/jstyle -g
 The repository is private. You need access and Git, GitHub CLI, or SSH authentication.
 To install from a local copy, run `npx skills add .` in that folder.
 
+### Use the command
+
+The comparison page generator and the screenshot tool are also available as the `jstyle` command. The command needs Node 22 or later.
+
+```bash
+npm i -g github:x-mesh/jstyle
+jstyle explore ./designs
+```
+
+`jstyle explore` puts the HTML drafts of a folder on one comparison page. Then it starts a local server and opens the page in the browser.
+To open the page on another device in the same network, add `--host 0.0.0.0`. Then open the `Other devices` address in the terminal output.
+If you do not install the command, run `node bin/jstyle.mjs explore ./designs` in the skill folder.
+Run `jstyle --help` to see all commands. Run `jstyle doctor` to check the tools that the commands need.
+
 ## Get started
 
 After installation, ask the agent to use jstyle:
@@ -39,13 +53,13 @@ After installation, ask the agent to use jstyle:
 Use jstyle to improve the navigation and empty state of my dashboard.
 ```
 
-Download this repository to open the pattern library. Run this command from its root folder. The server needs Python 3.
+Download this repository to open the pattern library. Run this command from its root folder. The command needs Node 22 or later.
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1
+node bin/jstyle.mjs library
 ```
 
-Open the [pattern library](http://127.0.0.1:8765/assets/extended/index.html). Select an effect and press the play button. Open the code panel to copy the standalone HTML. Use search or a category filter to find a card pattern.
+The pattern library opens in the browser. If it does not open, open the address in the terminal output. Select an effect and press the play button. Open the code panel to copy the standalone HTML. Use search or a category filter to find a card pattern.
 
 The examples use mock data. The page keeps edits in memory until you refresh it. The examples do not connect to authentication or server storage.
 
@@ -59,7 +73,7 @@ The agent can compare design directions or review an existing screen without fil
 
 ## Tools
 
-- [Comparison page generator](references/style-explorer.md): Compare design options on one page. It needs Python 3.10 or later.
+- [Comparison page generator](references/style-explorer.md): Compare design options on one page. It needs Node 22 or later.
 - [Screenshot tool](references/tools.md): Capture screens and animation frames. It needs Node 22 or later and Chrome, Chromium, or Edge.
 - [Image tools](references/media.md): Find and resize image assets.
 
@@ -72,6 +86,7 @@ Run these commands from the project root:
 ```bash
 npm run check
 npm run test:patterns
+node --test tests/test_html_parser.mjs tests/test_cli.mjs
 python3 -m unittest discover -s tests
 ```
 

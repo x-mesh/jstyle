@@ -20,14 +20,16 @@ HTML 파일이 모인 폴더나 여러 HTML 파일을 입력할 수 있습니다
 직접 만든 움직이는 시안은 `"interactive": true`, 서버 페이지는 `"kind": "url"`과 `url`을 둡니다.
 서버 실행 안내는 위쪽 `serve`, 기존 화면은 `"baseline": true`, 스크린샷은 `"kind": "image"`와 `source`를 씁니다.
 방향 설명이 있으면 `name`, `concept`, `typography`, `palette`, `traits`도 적습니다. 비운 항목은 보이지 않습니다.
-자세한 필드는 생성기의 `--help`를 읽습니다.
+자세한 필드는 `explore --help-build`를 읽습니다.
 
 ```text
-python3 <skill>/scripts/build_explorer.py <비교할 파일 폴더>
+node <skill>/bin/jstyle.mjs explore <비교할 파일 폴더>
 ```
 
-여러 HTML이나 manifest도 입력할 수 있습니다. Python 명령은 환경에 따라 `python`이나 `py -3`를 씁니다.
+여러 HTML이나 manifest도 입력할 수 있습니다. `jstyle` 명령이 설치되어 있으면 `jstyle explore`가 같은 일을 합니다.
 기본 출력은 입력 옆의 `style-explorer.html`입니다. 안을 바꿨다면 `--force`로 다시 만듭니다.
+결과 JSON 한 줄은 stdout으로 나옵니다. 터미널에서 직접 실행하면 만든 뒤 로컬 서버로 띄워 열고, 에이전트가 실행하면 만들기만 합니다.
+사용자에게 보여 줄 때는 `jstyle serve <결과 파일>`을 백그라운드로 실행하고 터미널에 나온 주소를 알립니다.
 생성기가 없으면 안을 직접 볼 수 있게 남기고 비교 화면을 만들지 못했다고 알립니다. 새 도구를 임의로 쓰지 않습니다.
 로컬 URL을 쓰면 개발 서버를 켜 둡니다.
 나중에 비교 화면을 열어 달라는 부탁을 받으면 `serve.cwd`에서 `serve.command`를 실행하고 `serve.url`의 응답을 기다립니다.

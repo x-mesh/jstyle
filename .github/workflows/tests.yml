@@ -79,13 +79,13 @@ jobs:
           python - <<'PY'
           import os, sys, unittest
           sys.path.insert(0, os.path.abspath("tests"))
-          modules = ["test_measure_reference", "test_curate_media", "test_workdir", "test_extension_resources", "test_serve"]
+          modules = ["test_measure_reference", "test_curate_media", "test_workdir", "test_extension_resources"]
           suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY
-      - name: HTML 파서 검사
-        run: node --test tests/test_html_parser.mjs
+      - name: HTML 파서와 jstyle 명령 검사
+        run: node --test tests/test_html_parser.mjs tests/test_cli.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴

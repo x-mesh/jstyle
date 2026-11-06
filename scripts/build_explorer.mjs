@@ -1146,9 +1146,8 @@ export function build(source, output, { force = false, stderr = process.stderr }
   return { output, candidates: data.candidates.length, fingerprint: data.fingerprint, bytes: fs.statSync(output).size };
 }
 
-const PROG = "build_explorer.mjs";
-const USAGE = `usage: ${PROG} [-h] [--output OUTPUT] [--force] inputs [inputs ...]`;
-const HELP = `${USAGE}
+const usageLine = (prog) => `usage: ${prog} [-h] [--output OUTPUT] [--force] inputs [inputs ...]`;
+const helpText = (prog, command) => `${usageLine(prog)}
 
 디자인 안을 오프라인 비교 화면으로 모읍니다
 
@@ -1161,9 +1160,9 @@ options:
   --force          이미 있는 출력 파일 덮어쓰기
 
 사용법:
-  node build_explorer.mjs <비교할 파일 폴더>
-  node build_explorer.mjs a.html b.html c.html
-  node build_explorer.mjs manifest.json
+  ${command} <비교할 파일 폴더>
+  ${command} a.html b.html c.html
+  ${command} manifest.json
 기본 출력은 입력 옆 style-explorer.html입니다. --force는 덮어쓰기, --output은 다른 경로입니다.
 
 가장 작은 manifest:
@@ -1267,7 +1266,14 @@ function writeLine(stream, text) {
   stream.write(platformText(text + "\n"));
 }
 
-export function main(argv = process.argv.slice(2)) {
+// style-explorer.html beside the first input, or inside it when it is a folder.
+export function defaultOutput(inputs) {
+  const first = resolvePath(inputs[0]);
+  return joinPath(isDirectory(first) ? first : parentOf(first), "style-explorer.html");
+}
+
+// prog and command name the caller in usage text; onBuilt receives the build result.
+export function main(argv = process.argv.slice(2), { prog = "build_explorer.mjs", command = "node build_explorer.mjs", onBuilt } = {}) {
   if (Number(process.versions.node.split(".")[0]) < 22) {
     writeLine(process.stderr, "Node 22 이상이 필요합니다");
     return 2;
@@ -1277,18 +1283,18 @@ export function main(argv = process.argv.slice(2)) {
     args = parseArgs(argv);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
-    process.stderr.write(platformText(`${USAGE}\n${PROG}: error: ${error.message}\n`));
+    process.stderr.write(platformText(`${usageLine(prog)}\n${prog}: error: ${error.message}\n`));
     return 2;
   }
   if (args.help) {
-    process.stdout.write(platformText(HELP));
+    process.stdout.write(platformText(helpText(prog, command)));
     return 0;
   }
-  const first = resolvePath(args.inputs[0]);
-  const outputDir = isDirectory(first) ? first : parentOf(first);
-  const output = args.output ?? joinPath(outputDir, "style-explorer.html");
+  const output = args.output ?? defaultOutput(args.inputs);
   try {
-    writeLine(process.stdout, jsonDumps(build(args.inputs, output, { force: args.force })));
+    const result = build(args.inputs, output, { force: args.force });
+    writeLine(process.stdout, jsonDumps(result));
+    onBuilt?.(result);
     return 0;
   } catch (error) {
     const caught = fromNodeError(error);

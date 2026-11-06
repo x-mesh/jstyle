@@ -30,6 +30,17 @@ npx skills add x-mesh/jstyle -g
 
 저장소가 비공개이므로 GitHub 접근 권한과 Git, GitHub CLI 또는 SSH 인증이 필요합니다. 이미 내려받은 폴더에서 설치하려면 해당 폴더 안에서 `npx skills add .`을 실행합니다.
 
+### 명령으로 쓰기
+
+비교 화면 생성기와 캡처 도구는 `jstyle` 명령으로도 쓸 수 있습니다. Node 22 이상이 필요합니다.
+
+```bash
+npm i -g github:x-mesh/jstyle
+jstyle explore ./designs
+```
+
+`jstyle explore`는 폴더 안의 HTML 시안을 비교 화면 한 장으로 만들고, 로컬 서버로 띄워 브라우저에서 엽니다. 같은 네트워크의 다른 기기에서 보려면 `--host 0.0.0.0`을 붙이고 터미널에 나온 `Other devices` 주소를 엽니다. 설치하지 않았다면 스킬 폴더에서 `node bin/jstyle.mjs explore ./designs`로 같은 일을 합니다. 전체 명령은 `jstyle --help`, 필요한 도구의 설치 상태는 `jstyle doctor`로 확인합니다.
+
 ## 먼저 써 보기
 
 설치한 뒤 에이전트에게 다음처럼 요청합니다.
@@ -40,13 +51,13 @@ jstyle을 사용해 기존 대시보드의 메뉴와 빈 화면을 다듬어 주
 
 에이전트는 [SKILL.md](SKILL.md)에서 작업 범위와 필요한 참고 문서를 찾습니다. 기존 화면을 살펴보기만 해 달라고 요청할 수도 있습니다.
 
-패턴을 직접 보려면 이 저장소를 내려받은 뒤, 저장소 루트에서 로컬 서버를 실행합니다. Python 3가 필요합니다.
+패턴을 직접 보려면 이 저장소를 내려받은 뒤, 저장소 루트에서 다음 명령을 실행합니다. Node 22 이상이 필요합니다.
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1
+node bin/jstyle.mjs library
 ```
 
-브라우저에서 [패턴 라이브러리](http://127.0.0.1:8765/assets/extended/index.html)를 엽니다. 왼쪽에서 효과를 고르고 **재생**을 누르면 미리보기가 움직입니다. **코드 보기**에서 해당 효과의 독립 HTML을 복사할 수 있습니다. 카드 패턴은 이름과 용도로 검색할 수 있습니다.
+브라우저에서 패턴 라이브러리가 열립니다. 열리지 않으면 터미널에 나온 주소를 엽니다. 왼쪽에서 효과를 고르고 **재생**을 누르면 미리보기가 움직입니다. **코드 보기**에서 해당 효과의 독립 HTML을 복사할 수 있습니다. 카드 패턴은 이름과 용도로 검색할 수 있습니다.
 
 예제의 내용과 바꾼 값은 브라우저 메모리에만 있으며, 새로고침하면 처음 상태로 돌아갑니다. 예제는 인증이나 서버 저장에 연결되지 않았습니다.
 
@@ -60,7 +71,7 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 ## 함께 들어 있는 도구
 
-- [비교 화면 생성기](references/style-explorer.md): 여러 디자인 안을 한 페이지에 모아 비교합니다. Python 3.10 이상이 필요합니다.
+- [비교 화면 생성기](references/style-explorer.md): 여러 디자인 안을 한 페이지에 모아 비교합니다. Node 22 이상이 필요합니다.
 - [캡처 도구](references/tools.md): 화면 크기별 스크린샷과 움직임의 연속 프레임을 만듭니다. Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다.
 - [이미지 도구](references/media.md): 이미지 자료를 찾고 크기를 바꾸는 방법을 안내합니다.
 
@@ -73,6 +84,7 @@ python3 -m http.server 8765 --bind 127.0.0.1
 ```bash
 npm run check
 npm run test:patterns
+node --test tests/test_html_parser.mjs tests/test_cli.mjs
 python3 -m unittest discover -s tests
 ```
 

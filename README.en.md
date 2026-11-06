@@ -1,10 +1,12 @@
 # jstyle
 
+[한국어](README.md)
+
 jstyle is a UI design skill for AI agents. It helps an agent set a design direction and check a real interface.
 
 ![An illustration of a wireframe, an effect preview, and a component card](assets/readme/jstyle-workflow.png)
 
-The library has 25 card patterns and nine visual and entry effects. Select an effect, change its speed, and copy its standalone HTML.
+The pattern library has nine visual and entry effects, 25 card patterns, 14 landing studies, and 12 product UI studies. Select an effect, change its speed, and copy its standalone HTML.
 
 ![The jstyle pattern library with the light orbit effect](assets/readme/pattern-library.png)
 
@@ -59,6 +61,18 @@ node bin/jstyle.mjs library
 
 The pattern library opens in the browser. If it does not open, open the address in the terminal output. Select an effect and press the play button. Open the code panel to copy the standalone HTML. Use search or a category filter to find a card pattern.
 
+The landing and product UI studies rebuild tokens and screen patterns from public pages and product screens. All person and team names are mock data. The library pages are in Korean.
+
+![The product UI study with a member profile sheet](assets/readme/product-ui-study.png)
+
+Use the component kit for dense business screens, such as lists, tables, settings, and approvals. Add `kit.css` and `kit.js` to a page. No build step is necessary. To open the kit documentation, run:
+
+```bash
+node bin/jstyle.mjs kit
+```
+
+![The first page of the jstyle kit documentation with color tokens](assets/readme/component-kit.png)
+
 The examples use mock data. The page keeps edits in memory until you refresh it. The examples do not connect to authentication or server storage.
 
 ## Compare design drafts
@@ -73,6 +87,8 @@ The agent first describes each direction in text. If you want to see the screens
 
 The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
 Press **Select** on the draft that you prefer. The page copies a sentence such as `Round 01: Go with 02 Name`. Send this sentence and your comments to the agent. The agent continues with the selected draft.
+
+![A comparison page with three drafts of an order dashboard side by side](assets/readme/style-explorer.en.png)
 
 If you already have drafts, make the comparison page yourself:
 

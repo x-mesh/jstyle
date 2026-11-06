@@ -40,7 +40,7 @@ metadata:
 - 대시보드·편집기·업무 도구: [작업 공간](references/extended/workspaces.md).
 - 여러 페이지·DESIGN.md·규칙 충돌: [디자인 규칙](references/extended/design-system.md).
 - 카드·컴포넌트·펼침: [컴포넌트](references/extended/components.md).
-- 목록·표·설정·일정·승인이 많은 업무용 SaaS 화면을 빌드 없이 조립: [컴포넌트 키트](references/extended/kit.md).
+- 목록·표·설정·일정·승인이 많은 업무용 SaaS 화면, "jstyle 키트"·"키트로"를 언급한 요청, React·Vue 프로젝트에서 키트를 쓰는 화면: [컴포넌트 키트](references/extended/kit.md).
 - 시각·시작 효과: [효과](references/extended/effects.md).
 - B2B SaaS 소개 페이지·어둡고 단정한 랜딩: [SaaS 스타일 시스템](references/extended/saas-system.md).
 - CLI 출력·도움말·진행 표시·TUI: [CLI와 터미널 출력](references/cli.md).

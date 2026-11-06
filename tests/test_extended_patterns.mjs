@@ -4,7 +4,7 @@ import { createChrome } from "../scripts/chrome.mjs";
 
 const pageUrl = new URL("../assets/extended/index.html", import.meta.url).href;
 
-test("independent patterns: inputs, recovery, focus, reflow, and reduced motion", { timeout: 60000 }, async () => {
+test("independent patterns: inputs, recovery, focus, reflow, and reduced motion", { timeout: 60000 }, async (t) => {
   const browser = createChrome({ prefix: "jstyle-pattern-test-" });
   let socket;
   let sequence = 0;
@@ -66,6 +66,10 @@ test("independent patterns: inputs, recovery, focus, reflow, and reduced motion"
     await cdp("Page.enable");
     await cdp("Runtime.enable");
     await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    // Chrome reports the host's animation setting as prefers-reduced-motion. Pin the starting preference so the
+    // playback checks do not depend on the host; the reduce case is emulated explicitly further down.
+    t.diagnostic(`host prefers-reduced-motion: ${await evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'no-preference'")}`);
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
     await cdp("Page.navigate", { url: pageUrl });
     await waitFor("document.readyState === 'complete' && document.querySelector('#effects-result')?.textContent === '효과 정지됨'");
     assert.equal(await evaluate("document.querySelectorAll('#cards article').length"), 25);

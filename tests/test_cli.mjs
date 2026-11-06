@@ -84,7 +84,8 @@ test("explore builds without serving when it is not run from a terminal", (t) =>
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout);
   assert.equal(result.candidates, 2);
-  assert.equal(fs.realpathSync(result.output), fs.realpathSync(path.join(folder, "style-explorer.html")));
+  // .native expands Windows 8.3 short names (RUNNER~1) as the builder's path resolution does.
+  assert.equal(fs.realpathSync.native(result.output), fs.realpathSync.native(path.join(folder, "style-explorer.html")));
   assert.match(run.stderr, /next: jstyle serve /);
   const again = jstyle(["explore", folder]);
   assert.equal(again.status, 1);

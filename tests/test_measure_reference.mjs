@@ -59,7 +59,7 @@ test("direct mode reads colors, maps boxes to CSS and keys out the extract backg
   assert.equal(regions.paper.color.median_hex, "#FAF8F1");
   assert.equal(regions.ink.color.median_hex, "#303C35");
   assert.deepEqual(regions.card.css_box, [20, 20, 40, 40]);
-  assert.match(result.stdout, /"css_box": \[\n\s+20\.0,/);
+  assert.match(result.stdout, /"css_box": \[\r?\n\s+20\.0,/);
   const badge = decodePng(fs.readFileSync(path.join(out, "badge.png")));
   assert.deepEqual([badge.width, badge.height], [30, 30]);
   assert.equal(badge.getpixel(0, 0)[3], 0);

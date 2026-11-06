@@ -266,11 +266,14 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
     await click("#late");
     assert.equal(await evaluate("document.querySelector('#late-panel').hidden"), false);
 
-    await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
-    await cdp("Page.reload");
-    await waitFor("document.readyState === 'complete' && document.querySelectorAll('.doc-code').length > 0");
-    assert.equal(await evaluate("document.documentElement.scrollWidth"), 390);
-    assert.deepEqual(await evaluate("[...document.querySelectorAll('.doc-main *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && !element.closest('.jk-table-wrap, .jk-grid-wrap, .jk-org-wrap, .jk-shell-nav ul, .jk-fx, .jk-lp-marquee, .jk-lp-app, .doc-code pre, .jk-tabs')).map((element) => element.className)"), []);
+    // 340px adds the margin that wider Windows Korean fonts take at 390px.
+    for (const width of [390, 340]) {
+      await cdp("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 2, mobile: true });
+      await cdp("Page.reload");
+      await waitFor("document.readyState === 'complete' && document.querySelectorAll('.doc-code').length > 0");
+      assert.equal(await evaluate("document.documentElement.scrollWidth"), width);
+      assert.deepEqual(await evaluate("[...document.querySelectorAll('.doc-main *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && !element.closest('.jk-table-wrap, .jk-grid-wrap, .jk-org-wrap, .jk-shell-nav ul, .jk-fx, .jk-lp-marquee, .jk-lp-app, .doc-code pre, .jk-tabs')).map((element) => element.className)"), [], `Overflow at ${width}px`);
+    }
 
     assert.deepEqual(exceptions, []);
   } finally {

@@ -182,6 +182,21 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY
+      - name: Node 비교 화면 생성기 검사
+        # 같은 계약 테스트를 scripts/build_explorer.mjs에 돌려 Python 생성기와 결과를 맞춥니다.
+        shell: bash
+        env:
+          JSTYLE_BUILDER: node
+        run: |
+          python - <<'PY'
+          import locale, os, sys, unittest
+          if os.environ.get("JSTYLE_TEST_LOCALE"):
+              locale.setlocale(locale.LC_CTYPE, os.environ["JSTYLE_TEST_LOCALE"])
+          sys.path.insert(0, os.path.abspath("tests"))
+          suite = unittest.defaultTestLoader.loadTestsFromNames(["test_build_explorer"])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful())
+          PY
       - name: 키트와 패턴 검사
         run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
       - name: Windows：남은 브라우저 프로세스 확인

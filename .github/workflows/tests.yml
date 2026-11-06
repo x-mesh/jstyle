@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: 22
       - name: 기본 검사
-        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs tests/test_curate_media.mjs tests/test_workdir.mjs tests/test_extension_resources.mjs
+        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs tests/test_curate_media.mjs tests/test_workdir.mjs tests/test_extension_resources.mjs tests/test_recommend_once.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴

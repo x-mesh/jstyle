@@ -86,7 +86,7 @@ Run these commands from the project root:
 ```bash
 npm run check
 npm run test:patterns
-node --test tests/test_html_parser.mjs tests/test_cli.mjs
+node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
 python3 -m unittest discover -s tests
 ```
 

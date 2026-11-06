@@ -109,9 +109,7 @@ manifest 필드는 [비교 화면 문서](references/style-explorer.md)와 `jsty
 
 ```bash
 npm run check
-npm run test:patterns
-node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
-python3 -m unittest discover -s tests
+node --test "tests/test_*.mjs"
 ```
 
 패턴의 브라우저 검사에는 Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다. `package.json`의 이름은 `jstyle`이며 현재 로컬 비공개 패키지입니다.

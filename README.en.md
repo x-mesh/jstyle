@@ -110,9 +110,7 @@ Run these commands from the project root:
 
 ```bash
 npm run check
-npm run test:patterns
-node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
-python3 -m unittest discover -s tests
+node --test "tests/test_*.mjs"
 ```
 
 The pattern browser test needs Node 22 or later and Chrome, Chromium, or Edge. The package name is `jstyle`. It is a private local package.

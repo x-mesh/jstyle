@@ -69,6 +69,8 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
     await cdp("Page.enable");
     await cdp("Runtime.enable");
     await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    // A dark host (the Windows dark-theme CI job) must not switch the docs page; the dark scheme is tested explicitly.
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
     await cdp("Page.navigate", { url: pageUrl });
     await waitFor("document.readyState === 'complete' && window.jk && document.querySelectorAll('.doc-code').length > 0");
     assert.equal(await evaluate("document.querySelectorAll('.doc-nav a').length"), await evaluate("document.querySelectorAll('.doc-section').length"));
@@ -256,23 +258,53 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
     await evaluate("document.querySelector('[data-jk-reveal-line]').scrollIntoView({ block: 'center' })");
     await waitFor("document.querySelector('[data-jk-reveal-line]').hasAttribute('data-lit')");
 
-    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }, { name: "prefers-reduced-motion", value: "reduce" }] });
     await click("#fx-curtain .jk-fx-control");
     assert.equal(await attr("#fx-curtain", "data-playing"), "false");
     assert.equal(await evaluate("getComputedStyle(document.querySelector('#fx-curtain .jk-fx-curtain-cover')).animationName"), "none");
-    await cdp("Emulation.setEmulatedMedia", { features: [] });
+    await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
 
     await evaluate("(() => { const host = document.createElement('div'); host.innerHTML = '<button type=\"button\" id=\"late\" data-jk=\"disclosure\" aria-expanded=\"false\" aria-controls=\"late-panel\">x</button><p id=\"late-panel\" hidden>y</p>'; document.querySelector('.doc-main').append(host); jk.init(host); jk.init(host); })()");
     await click("#late");
     assert.equal(await evaluate("document.querySelector('#late-panel').hidden"), false);
 
-    // 340px adds the margin that wider Windows Korean fonts take at 390px.
-    for (const width of [390, 340]) {
-      await cdp("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 2, mobile: true });
-      await cdp("Page.reload");
-      await waitFor("document.readyState === 'complete' && document.querySelectorAll('.doc-code').length > 0");
-      assert.equal(await evaluate("document.documentElement.scrollWidth"), width);
-      assert.deepEqual(await evaluate("[...document.querySelectorAll('.doc-main *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && !element.closest('.jk-table-wrap, .jk-grid-wrap, .jk-org-wrap, .jk-shell-nav ul, .jk-fx, .jk-lp-marquee, .jk-lp-app, .doc-code pre, .jk-tabs')).map((element) => element.className)"), [], `Overflow at ${width}px`);
+    assert.equal(await evaluate("document.documentElement.dataset.jkScheme"), "light");
+    assert.equal(await attr('[data-doc-scheme] button[value="system"]', "aria-pressed"), "true");
+    // A dark .jk region under a light page must not inherit light values through var()-based tokens.
+    assert.deepEqual(await evaluate(`(() => {
+      const region = document.createElement("div");
+      region.className = "jk";
+      region.dataset.jkScheme = "dark";
+      document.querySelector(".doc-main").append(region);
+      const read = (name) => getComputedStyle(region).getPropertyValue(name).trim();
+      const values = [read("--jk-surface"), read("--jk-primary-text"), read("--jk-primary-tint")];
+      region.remove();
+      return values;
+    })()`), ["#1b1c1f", "#64c563", "#233025"]);
+    const surface = "getComputedStyle(document.querySelector('.doc-example')).backgroundColor";
+    assert.equal(await evaluate(surface), "rgb(255, 255, 255)");
+    await click('[data-doc-scheme] button[value="dark"]');
+    assert.equal(await evaluate("document.documentElement.dataset.jkScheme"), "dark");
+    assert.equal(await evaluate(surface), "rgb(27, 28, 31)");
+    assert.equal(await evaluate("getComputedStyle(document.body).backgroundColor"), "rgb(15, 16, 18)");
+    // Primary buttons keep white text on the same green in both schemes.
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.jk-btn-primary')).color"), "rgb(255, 255, 255)");
+    await cdp("Page.reload");
+    await waitFor("document.readyState === 'complete' && document.querySelectorAll('.doc-code').length > 0");
+    assert.equal(await evaluate("document.documentElement.dataset.jkScheme"), "dark");
+    assert.equal(await attr('[data-doc-scheme] button[value="dark"]', "aria-pressed"), "true");
+
+    // 340px adds the margin that wider Windows Korean fonts take at 390px. Both schemes share the layout checks.
+    for (const scheme of ["dark", "light"]) {
+      await evaluate(`localStorage.setItem("jk-doc-scheme", "${scheme}")`);
+      for (const width of [390, 340]) {
+        await cdp("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 2, mobile: true });
+        await cdp("Page.reload");
+        await waitFor("document.readyState === 'complete' && document.querySelectorAll('.doc-code').length > 0");
+        assert.equal(await evaluate("document.documentElement.dataset.jkScheme"), scheme);
+        assert.equal(await evaluate("document.documentElement.scrollWidth"), width);
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('.doc-main *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && !element.closest('.jk-table-wrap, .jk-grid-wrap, .jk-org-wrap, .jk-shell-nav ul, .jk-fx, .jk-lp-marquee, .jk-lp-app, .doc-code pre, .jk-tabs')).map((element) => element.className)"), [], `Overflow at ${width}px in ${scheme}`);
+      }
     }
 
     assert.deepEqual(exceptions, []);

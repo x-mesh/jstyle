@@ -1,8 +1,17 @@
 /* Documentation page chrome only. Consumers copy kit.css and kit.js, not this file. */
-body { margin: 0; background: #f4f4f5; }
+:root {
+  --jk-p-2f3439: #2f3439;
+  --jk-p-9cc8f5: #9cc8f5;
+  --jk-p-e3e4e6: #e3e4e6;
+  --jk-p-e6e6e8: #e6e6e8;
+  --jk-p-f4f4f5: #f4f4f5;
+  --jk-p-fbfbfc: #fbfbfc;
+}
+body { margin: 0; background: var(--jk-p-f4f4f5); }
 .doc { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh; }
 .doc-nav { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; padding: 28px 16px; border-right: 1px solid var(--jk-line); background: var(--jk-surface); }
-.doc-brand { display: grid; gap: 2px; padding: 0 10px 20px; }
+.doc-brand { display: grid; gap: 2px; padding: 0 10px 14px; }
+.doc-scheme { margin: 0 10px 18px; }
 .doc-brand b { color: var(--jk-ink); font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
 .doc-nav ol { list-style: none; padding: 0; display: grid; gap: 1px; }
 .doc-nav a { display: block; padding: 7px 10px; border-radius: var(--jk-radius-s); color: var(--jk-sub); font-size: 13.5px; font-weight: 500; text-decoration: none; }
@@ -14,10 +23,10 @@ body { margin: 0; background: #f4f4f5; }
 .doc-intro p { max-width: 62ch; color: var(--jk-sub); font-size: 14.5px; line-height: 1.7; }
 .doc-intro code, .doc-section code { padding: 1px 5px; border-radius: 5px; background: var(--jk-fill-2); color: var(--jk-ink); font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .doc-section { display: grid; gap: 14px; padding-top: 40px; scroll-margin-top: 8px; }
-.doc-section + .doc-section { margin-top: 32px; border-top: 1px solid #e6e6e8; }
+.doc-section + .doc-section { margin-top: 32px; border-top: 1px solid var(--jk-p-e6e6e8); }
 .doc-section > h2 { color: var(--jk-ink); font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
 .doc-section > p { max-width: 68ch; color: var(--jk-sub); font-size: 14px; line-height: 1.7; }
-.doc-example { overflow: hidden; border: 1px solid #e3e4e6; border-radius: 14px; background: var(--jk-surface); }
+.doc-example { overflow: hidden; border: 1px solid var(--jk-p-e3e4e6); border-radius: 14px; background: var(--jk-surface); }
 .doc-example { --doc-inset: 32px; }
 .doc-example > h3 { padding: 12px var(--doc-inset); border-bottom: 1px solid var(--jk-line-soft); color: var(--jk-sub); font-size: 12.5px; font-weight: 600; }
 .doc-demo { padding: 28px var(--doc-inset); }
@@ -27,13 +36,13 @@ body { margin: 0; background: #f4f4f5; }
 /* minmax(0, 1fr): a nowrap row inside must not widen the column past the demo on narrow screens. */
 .doc-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .doc-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; align-items: start; }
-.doc-code { border-top: 1px solid var(--jk-line-soft); background: #fbfbfc; }
+.doc-code { border-top: 1px solid var(--jk-line-soft); background: var(--jk-p-fbfbfc); }
 .doc-code summary { display: flex; align-items: center; gap: 6px; padding: 10px var(--doc-inset); color: var(--jk-sub); font-size: 12.5px; font-weight: 600; cursor: pointer; list-style: none; }
 .doc-code summary::-webkit-details-marker { display: none; }
 .doc-code summary::before { content: ""; width: 6px; height: 6px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(-45deg); transition: transform var(--jk-fast); }
 .doc-code[open] summary::before { transform: rotate(45deg); }
 .doc-code-body { position: relative; }
-.doc-code pre { max-height: 360px; margin: 0; padding: 4px var(--doc-inset) 18px; overflow: auto; color: #2f3439; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+.doc-code pre { max-height: 360px; margin: 0; padding: 4px var(--doc-inset) 18px; overflow: auto; color: var(--jk-p-2f3439); font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
 .doc-copy { position: absolute; top: -34px; right: var(--doc-inset); }
 .doc-boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
 .doc-boards > .doc-example { margin: 0; }
@@ -60,7 +69,7 @@ body { margin: 0; background: #f4f4f5; }
 .doc-type-scale small code { color: var(--jk-sub); }
 .doc-spaces { list-style: none; padding: 0; display: grid; gap: 10px; }
 .doc-spaces li { display: grid; grid-template-columns: 56px 52px 1fr; align-items: center; gap: 12px; }
-.doc-spaces i { height: 14px; width: var(--v); border-radius: 3px; background: #9cc8f5; }
+.doc-spaces i { height: 14px; width: var(--v); border-radius: 3px; background: var(--jk-p-9cc8f5); }
 .doc-spaces small { color: var(--jk-hint); font-size: 12px; }
 .doc-radii { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 22px; }
 .doc-radii figure { display: grid; justify-items: center; gap: 6px; margin: 0; color: var(--jk-sub); font-size: 12px; }
@@ -93,7 +102,9 @@ body { margin: 0; background: #f4f4f5; }
   .doc { grid-template-columns: minmax(0, 1fr); }
   .doc-nav { position: sticky; z-index: 2; height: auto; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--jk-line); }
   .doc-brand { display: none; }
-  .doc-nav ol { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .doc-nav { display: flex; align-items: center; gap: 10px; }
+  .doc-scheme { order: 2; flex-shrink: 0; margin: 0; }
+  .doc-nav ol { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
   .doc-nav a { white-space: nowrap; }
   .doc-main { padding: 28px 16px 80px; }
   .doc-section { scroll-margin-top: 64px; }
@@ -108,3 +119,14 @@ body { margin: 0; background: #f4f4f5; }
 .doc-theme-preview { display: grid; gap: 16px; max-width: 640px; }
 .doc-fx-note { padding: 14px var(--doc-inset) 16px; border-top: 1px solid var(--jk-line-soft); color: var(--jk-sub); font-size: 13px; line-height: 1.6; }
 .doc-fx-note span { display: block; margin-top: 4px; color: var(--jk-hint); font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Dark scheme: put data-jk-scheme="dark" on <html> or on a .jk root. */
+[data-jk-scheme="dark"] {
+  --jk-p-2f3439: #d8dee5;
+  --jk-p-9cc8f5: #335c83;
+  --jk-p-e3e4e6: #3a3a3c;
+  --jk-p-e6e6e8: #38383a;
+  --jk-p-f4f4f5: #0f1012;
+  --jk-p-fbfbfc: #222223;
+}
+/* End of dark scheme. */

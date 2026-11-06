@@ -1,7 +1,7 @@
 name: tests
 
 # 기본 검사는 운영체제별로 늘 실행합니다.
-# 운영체제·브라우저·인코딩에 따라 동작이 달라지는 캡처·탐색기 도구가 바뀌면 브라우저 검사를 모두 돌리고,
+# 운영체제·브라우저에 따라 동작이 달라지는 캡처·탐색기 도구가 바뀌면 브라우저 검사를 모두 돌리고,
 # 키트와 패턴 라이브러리만 바뀌면 Linux Chrome 하나로 확인합니다. 전체 브라우저 검사는 매주 한 번 따로 돌립니다.
 on:
   push:
@@ -35,8 +35,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
-          # 브라우저 Python 테스트는 scripts/, 이 세 테스트 파일, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
-          full='^(scripts/|bin/|tests/(test_(shoot|build_explorer|prep_image)\.py|node_builder\.py|build_explorer_bridge\.mjs)$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
+          # 브라우저 테스트는 scripts/, 이 세 테스트 파일과 공용 PNG 도구, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
+          full='^(scripts/|bin/|tests/(test_(shoot|build_explorer|prep_image)\.mjs|png-fixture\.mjs)$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
           quick='^(assets/|tests/)'
           case "$EVENT" in
             schedule|workflow_dispatch)
@@ -70,22 +70,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: 브라우저 없이 검사
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os, sys, unittest
-          sys.path.insert(0, os.path.abspath("tests"))
-          modules = ["test_curate_media", "test_workdir", "test_extension_resources"]
-          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful())
-          PY
-      - name: HTML 파서, 측정 도구, jstyle 명령 검사
-        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
+      - name: 기본 검사
+        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs tests/test_curate_media.mjs tests/test_workdir.mjs tests/test_extension_resources.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴
@@ -119,7 +105,6 @@ jobs:
       matrix:
         include:
           - { name: "linux · chrome", os: ubuntu-latest }
-          - { name: "linux · chrome · GBK", os: ubuntu-latest, locale: zh_CN.GBK }
           - { name: "windows · chrome · 어두운 테마", os: windows-latest, theme: dark, node: 24 }
           - { name: "windows · edge", os: windows-latest, browser: edge }
     env:
@@ -132,20 +117,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node || 22 }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Linux：ffmpeg 설치와 Chrome 샌드박스 준비
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q ffmpeg fonts-noto-cjk
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Linux：GBK 인코딩 사용
-        if: matrix.locale
-        run: |
-          sudo locale-gen ${{ matrix.locale }}
-          echo "JSTYLE_TEST_LOCALE=${{ matrix.locale }}" >> "$GITHUB_ENV"
       - name: Windows：ffmpeg 설치
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
@@ -166,22 +143,7 @@ jobs:
           "CHROME_PATH=$edge" >> $env:GITHUB_ENV
           Write-Output "Edge $((Get-Item $edge).VersionInfo.ProductVersion)"
       - name: 브라우저 검사 실행
-        # GBK Windows의 텍스트 인코딩을 흉내 내되 파일 시스템과 Node argv는 Unicode로 유지합니다.
-        # Python 시작 전에 Linux 전체를 GBK로 바꾸면 파일 이름과 인수가 먼저 바뀌므로
-        # Node의 UTF-8 읽기가 깨져 실제 Windows의 동작과 달라집니다.
-        shell: bash
-        run: |
-          python - <<'PY'
-          import locale, os, sys, unittest
-          if os.environ.get("JSTYLE_TEST_LOCALE"):
-              locale.setlocale(locale.LC_CTYPE, os.environ["JSTYLE_TEST_LOCALE"])
-          print(f"text={locale.getencoding()} filesystem={sys.getfilesystemencoding()}", flush=True)
-          sys.path.insert(0, os.path.abspath("tests"))
-          modules = ["test_build_explorer", "test_prep_image", "test_shoot"]
-          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful())
-          PY
+        run: node --test tests/test_build_explorer.mjs tests/test_prep_image.mjs tests/test_shoot.mjs
       - name: 키트와 패턴 검사
         run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
       - name: Windows：남은 브라우저 프로세스 확인

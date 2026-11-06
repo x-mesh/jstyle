@@ -6,12 +6,35 @@ from pathlib import Path
 import argparse
 import socket
 import threading
+from urllib.parse import urlsplit
 import webbrowser
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class NoCacheHandler(SimpleHTTPRequestHandler):
+    # The repository root has no index.html, so a bare host URL opened on
+    # another device would show a directory listing instead of the page.
+    def __init__(self, *args, start_page, **kwargs):
+        self.start_page = start_page
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        if not self.redirect_root():
+            super().do_GET()
+
+    def do_HEAD(self):
+        if not self.redirect_root():
+            super().do_HEAD()
+
+    def redirect_root(self):
+        if urlsplit(self.path).path != "/":
+            return False
+        self.send_response(302)
+        self.send_header("Location", "/" + self.start_page)
+        self.end_headers()
+        return True
+
     # Without this header browsers reuse an old patterns.js after an edit,
     # which leaves new sidebar entries visible but inert.
     def end_headers(self):
@@ -30,7 +53,7 @@ def main():
     if not (ROOT / args.page.split("#", 1)[0]).is_file():
         parser.error(f"{args.page} does not exist under {ROOT}")
 
-    handler = partial(NoCacheHandler, directory=str(ROOT))
+    handler = partial(NoCacheHandler, directory=str(ROOT), start_page=args.page)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     wildcard = args.host in ("0.0.0.0", "::", "")
     url = f"http://{'127.0.0.1' if wildcard else args.host}:{args.port}/{args.page}"

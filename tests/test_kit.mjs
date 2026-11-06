@@ -172,12 +172,12 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
 
     await click('#lists [data-jk="append"] input');
     await key("Enter");
-    assert.equal(await evaluate("document.querySelectorAll('#kit-templates li').length"), 1);
+    assert.equal(await evaluate("document.querySelectorAll('#kit-templates li').length"), 2);
     await cdp("Input.insertText", { text: "분기 회고" });
     await key("Enter");
     assert.equal(await evaluate("[...document.querySelectorAll('#kit-templates li')].at(-1).textContent.trim()"), "분기 회고");
     assert.equal(await evaluate("document.querySelector('#lists [data-jk=append] input').value"), "");
-    assert.match(await text("#kit-templates-status"), /모두 2개/);
+    assert.match(await text("#kit-templates-status"), /모두 3개/);
     await click('#rules [data-jk="append"]');
     assert.equal(await evaluate("document.querySelectorAll('#kit-rules .jk-rule').length"), 2);
     assert.equal(await evaluate("document.activeElement.closest('#kit-rules') !== null"), true);

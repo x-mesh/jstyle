@@ -1,0 +1,65 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "gradient-text",
+        "value": "*",
+        "files": [
+          "assets/extended/landing.css"
+        ],
+        "createdAt": "2026-11-05T07:50:43.392Z",
+        "reason": "Claude: reproduces gradient heading measured on the reference sign-up page for the landing study panel"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "assets/extended/product-ui.css",
+          "assets/kit/kit.css"
+        ],
+        "createdAt": "2026-11-05T09:11:15.597Z",
+        "reason": "Claude: .pui-count::after and .jk-node-count::after draw a zero-size CSS triangle caret with border tricks, not an accent border on a rounded card"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "#ffffff on #f4f4f5",
+        "files": [
+          "assets/kit/index.html"
+        ],
+        "createdAt": "2026-11-06T00:00:00.000Z",
+        "reason": "Claude: white controls sit on the dark .jk-cover gradient; the detector resolves the page background instead of the cover"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "#ffffff on #0abe3a",
+        "files": [
+          "assets/kit/index.html"
+        ],
+        "createdAt": "2026-11-06T00:00:00.000Z",
+        "reason": "User asked to keep the product button green #0abe3a measured from captures; trade-off documented in references/extended/kit.md"
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "assets/kit/decor.css",
+          "assets/kit/index.html"
+        ],
+        "createdAt": "2026-11-06T00:00:00.000Z",
+        "reason": "User asked to port the landing logo band (now in the kit tone); it pauses on hover and focus and stops into a wrapped list under prefers-reduced-motion"
+      },
+      {
+        "rule": "radial-halo",
+        "value": "*",
+        "files": [
+          "assets/kit/decor.css",
+          "assets/kit/index.html"
+        ],
+        "createdAt": "2026-11-06T00:00:00.000Z",
+        "reason": "Optional decor only: faint --jk-primary-tint washes behind the prompt hero and highlight-border effect on light surfaces; product UI in kit.css does not use radial washes"
+      }
+    ]
+  }
+}

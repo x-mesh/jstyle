@@ -378,11 +378,17 @@ function chooseEffect(id) {
 let currentView = "effects";
 function setView() {
   const fragment = location.hash.slice(1);
-  if (fragment === "cards" || fragment === "effects") currentView = fragment;
+  const studyViews = ["landing", "product-ui"];
+  const studyTarget = fragment && !studyViews.includes(fragment) ? document.querySelector(`:is(#landing, #product-ui) #${CSS.escape(fragment)}`) : null;
+  if (fragment === "cards" || fragment === "effects" || studyViews.includes(fragment)) currentView = fragment;
   else if (patternCards.some((card) => card.id === fragment)) currentView = "cards";
+  else if (studyTarget) currentView = studyTarget.closest("#landing, #product-ui").id;
   const view = currentView;
   select("#effects").hidden = view !== "effects";
   select("#cards").hidden = view !== "cards";
+  studyViews.forEach((id) => { select(`#${id}`).hidden = view !== id; });
+  // The target was hidden when the browser tried to scroll to it on load.
+  if (studyTarget) studyTarget.scrollIntoView({ block: "start" });
   select("#effect-navigation").hidden = view !== "effects";
   document.querySelectorAll("[data-view]").forEach((link) => {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page");

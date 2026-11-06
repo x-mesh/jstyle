@@ -40,14 +40,16 @@ metadata:
 - 대시보드·편집기·업무 도구: [작업 공간](references/extended/workspaces.md).
 - 여러 페이지·DESIGN.md·규칙 충돌: [디자인 규칙](references/extended/design-system.md).
 - 카드·컴포넌트·펼침: [컴포넌트](references/extended/components.md).
+- 목록·표·설정·일정·승인이 많은 업무용 SaaS 화면을 빌드 없이 조립: [컴포넌트 키트](references/extended/kit.md).
 - 시각·시작 효과: [효과](references/extended/effects.md).
+- B2B SaaS 소개 페이지·어둡고 단정한 랜딩: [SaaS 스타일 시스템](references/extended/saas-system.md).
 - CLI 출력·도움말·진행 표시·TUI: [CLI와 터미널 출력](references/cli.md).
 - 완성한 화면과 흐름: [살펴보기와 고치기](references/extended/review-loop.md).
 - 바꾸지 않고 살펴보기만 할 때: [읽기 전용 점검](references/task-review.md).
 - 크기를 맞추거나 참고 그림을 따라 만들 때: [화면 배치와 크기](references/layout-and-viewport.md).
 - 파일과 실행 명령: [작업 파일](references/workdir.md), [도구](references/tools.md).
 
-실행 가능한 카드 25개와 효과 9종은 [패턴 라이브러리](assets/extended/index.html)에 있습니다.
+실행 가능한 카드 25개, 효과 9종, 랜딩 연구 패턴 14종, 제품 UI 컴포넌트 연구 12종은 [패턴 라이브러리](assets/extended/index.html)에 있습니다. 레이아웃 7종, 꾸미기 효과 9종과 히어로 2종, 소개 화면 블록 12종, 업무 화면 컴포넌트 33묶음은 [컴포넌트 키트](assets/kit/index.html)에 있습니다.
 필요한 코드만 프로젝트의 기술과 토큰에 맞게 옮깁니다. 전체 예제를 제품에 넣지 않습니다.
 새 디자인이 필요 없는 작업에는 방향 탐색과 이미지 만들기를 억지로 적용하지 않습니다.
 읽기 전용 부탁을 파일을 고치는 흐름으로 바꾸지 않습니다.

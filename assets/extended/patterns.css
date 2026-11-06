@@ -163,8 +163,8 @@ dialog p { margin: 16px 0 24px; }
   .app-shell { display: block; }
   .sidebar { padding: 12px 20px 0; border: 0; min-height: 0; }
   .sidebar > .nav-heading, #effect-navigation > .nav-heading, .sidebar-note { display: none; }
-  .view-nav { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
-  .view-nav a { gap: 20px; padding: 8px 12px; }
+  .view-nav { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; overflow-x: auto; }
+  .view-nav a { gap: 20px; padding: 8px 12px; flex-shrink: 0; white-space: nowrap; }
   #effect-navigation { margin: 14px 0 0; }
   .effect-options { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .effect-options button { padding: 8px; gap: 8px; font-size: 12px; }

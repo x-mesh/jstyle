@@ -1,13 +1,16 @@
 name: tests
 
-# 기본 검사는 운영체제별로, 브라우저 검사는 Chrome·Edge와 인코딩별로 나눕니다.
-# PR에서 문서만 바뀌면 브라우저 검사를 건너뛰고, 코드·도구·테스트가 바뀌면 모두 실행합니다.
+# 기본 검사는 운영체제별로 늘 실행합니다.
+# 운영체제·브라우저·인코딩에 따라 동작이 달라지는 캡처·탐색기 도구가 바뀌면 브라우저 검사를 모두 돌리고,
+# 키트와 패턴 라이브러리만 바뀌면 Linux Chrome 하나로 확인합니다. 전체 브라우저 검사는 매주 한 번 따로 돌립니다.
 on:
   push:
     branches: [main]
     paths: ["scripts/**", "tests/**", "assets/**", "references/**", "SKILL.md", ".github/workflows/tests.yml"]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "0 18 * * 0"
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +21,8 @@ jobs:
   select:
     runs-on: ubuntu-latest
     outputs:
-      browser: ${{ steps.select_browser.outputs.browser }}
+      full: ${{ steps.select_browser.outputs.full }}
+      quick: ${{ steps.select_browser.outputs.quick }}
     steps:
       - name: 줄바꿈 유지
         run: git config --global core.autocrlf false
@@ -27,13 +31,27 @@ jobs:
           fetch-depth: 0
       - id: select_browser
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "browser=1" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only origin/main...HEAD | grep -E '^(scripts/|tests/|assets/|\.github/workflows/tests\.yml$)' >/dev/null; then
-            echo "browser=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "browser=0" >> "$GITHUB_OUTPUT"
+          # 브라우저 Python 테스트는 scripts/, 이 세 테스트 파일, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
+          full='^(scripts/|tests/test_(shoot|build_explorer|prep_image)\.py$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
+          quick='^(assets/|tests/)'
+          case "$EVENT" in
+            schedule|workflow_dispatch)
+              echo "full=1" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            pull_request)
+              changed=$(git diff --name-only origin/main...HEAD) ;;
+            *)
+              # 새 브랜치나 강제 push는 비교할 이전 커밋이 없으므로 모두 실행합니다.
+              if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "full=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+              changed=$(git diff --name-only "$BEFORE" HEAD) ;;
+          esac
+          if grep -qE "$full" <<< "$changed"; then
+            echo "full=1" >> "$GITHUB_OUTPUT"
+          elif grep -qE "$quick" <<< "$changed"; then
+            echo "quick=1" >> "$GITHUB_OUTPUT"
           fi
 
   core:
@@ -67,10 +85,31 @@ jobs:
           sys.exit(not result.wasSuccessful())
           PY
 
+  quick:
+    name: linux · chrome · 키트와 패턴
+    needs: select
+    if: needs.select.outputs.quick == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 줄바꿈 유지
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 한글 글꼴과 Chrome 샌드박스 준비
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fonts-noto-cjk
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: 키트와 패턴 검사
+        run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
+
   browser:
     name: ${{ matrix.name }}
     needs: select
-    if: needs.select.outputs.browser == '1'
+    if: needs.select.outputs.full == '1'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
@@ -141,8 +180,8 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY
-      - name: Check independent interaction patterns
-        run: node --test tests/test_extended_patterns.mjs
+      - name: 키트와 패턴 검사
+        run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
       - name: Windows：남은 브라우저 프로세스 확인
         if: always() && runner.os == 'Windows'
         shell: pwsh

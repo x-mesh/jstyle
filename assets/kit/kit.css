@@ -1088,6 +1088,25 @@ a.jk-stat:hover { background: var(--jk-canvas); }
 .jk-with-panel { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
 .jk-with-panel > :first-child { min-width: 0; padding: 22px 28px 28px; }
 .jk-with-panel > aside { padding: 24px 20px; border-left: 1px solid var(--jk-line); background: var(--jk-surface); }
+.jk-detail-sheet { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); max-height: 640px; overflow: hidden; border-radius: var(--jk-radius-l); background: var(--jk-surface); box-shadow: var(--jk-shadow-modal); }
+.jk-detail-sheet-head { display: flex; align-items: center; gap: 14px; padding: 22px 20px 16px 28px; }
+.jk-detail-sheet-head > .jk-tile, .jk-detail-sheet-head > .jk-avatar { width: 52px; height: 52px; border-radius: 16px; }
+.jk-detail-sheet-title { display: grid; gap: 4px; min-width: 0; }
+.jk-detail-sheet-title h2 { margin: 0; color: var(--jk-ink); font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.jk-detail-sheet-title p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--jk-hint); font-size: 12.5px; }
+.jk-detail-sheet-tools { display: flex; gap: 2px; margin-left: auto; align-self: flex-start; }
+.jk-detail-sheet-tabbar { display: flex; align-items: center; gap: 12px; padding: 0 20px 0 28px; border-bottom: 1px solid var(--jk-line); }
+.jk-detail-sheet-tabbar .jk-tabs { flex: 1; min-width: 0; border-bottom: 0; }
+.jk-detail-sheet-tabbar > div:last-child { display: flex; gap: 2px; }
+.jk-detail-sheet-action { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: none; color: var(--jk-sub); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.jk-detail-sheet-action:hover { background: var(--jk-fill-2); color: var(--jk-ink); }
+.jk-detail-sheet-action .jk-i { width: 14px; height: 14px; }
+.jk-detail-sheet-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+.jk-detail-sheet-body > :first-child { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 20px 28px 28px; overflow: auto; background: var(--jk-canvas); }
+.jk-detail-sheet-body > aside { min-width: 0; overflow: auto; border-left: 1px solid var(--jk-line); }
+.jk-detail-sheet-body > aside > section { display: grid; gap: 14px; padding: 22px 24px; }
+.jk-detail-sheet-body > aside > section + section { border-top: 1px solid var(--jk-line); }
+.jk-detail-sheet-empty { padding: 28px; color: var(--jk-hint); font-size: 13px; }
 .jk-master-detail { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 360px; }
 .jk-master-detail > :first-child { padding: 20px 12px; border-right: 1px solid var(--jk-line); background: var(--jk-band); }
 .jk-master-detail > :last-child { min-width: 0; padding: 26px 28px; }
@@ -1162,6 +1181,15 @@ button.jk-status:hover { filter: brightness(.97); }
   .jk-with-aside > :first-child { border-right: 0; border-bottom: 1px solid var(--jk-line); }
   .jk-with-panel > aside { border-left: 0; border-top: 1px solid var(--jk-line); }
   .jk-master-detail > :first-child { border-right: 0; border-bottom: 1px solid var(--jk-line); }
+  /* One column: let the page scroll instead of nesting two scroll areas. */
+  .jk-detail-sheet { max-height: none; }
+  .jk-detail-sheet-body { grid-template-columns: minmax(0, 1fr); }
+  .jk-detail-sheet-body > :first-child, .jk-detail-sheet-body > aside { overflow: visible; }
+  .jk-detail-sheet-body > aside { border-left: 0; border-top: 1px solid var(--jk-line); }
+  .jk-detail-sheet-head { padding: 18px 12px 12px 16px; }
+  .jk-detail-sheet-tabbar { padding: 0 8px 0 16px; }
+  .jk-detail-sheet-body > :first-child { padding: 16px; }
+  .jk-detail-sheet-body > aside > section { padding: 18px 16px; }
   .jk-page { padding: 20px 16px 32px; }
 }
 

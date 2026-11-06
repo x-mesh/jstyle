@@ -76,6 +76,7 @@ function KitArea({ onChange, children }) {
 | `jk-with-aside` | 본문과 오른쪽 측면 272px | 한 대상의 상세 정보와 요약 |
 | `jk-master-detail` | 왼쪽 목록 300px과 상세 | 기록, 버전, 받은 편지함처럼 하나를 골라 보는 화면 |
 | `jk-with-panel` | 본문과 오른쪽 처리 패널 300px | 요청 상세와 승인 단계 |
+| `jk-detail-sheet` | 머리, 탭 줄, 기록 피드와 오른쪽 측면 300px. 최대 높이 640px 안에서 두 열이 따로 스크롤 | 목록에서 연 고객·프로젝트 상세. 탭 줄 오른쪽에 정렬·필터(`jk-detail-sheet-action`) |
 | `jk-form-preview` | 폼과 미리보기를 나란히 | 입력하면서 결과를 보는 화면, 모바일 화면 틀 `jk-phone` |
 | `jk-board` | 왼쪽 메뉴 236px와 카드 격자 | 표시할 지표를 고르는 대시보드 |
 | `jk-sticky-foot` | 스크롤 영역 아래에 붙는 동작 줄 | 긴 폼의 저장, 취소 |

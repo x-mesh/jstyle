@@ -89,7 +89,7 @@ jobs:
       - name: 한글 글꼴과 Chrome 샌드박스 준비
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q fonts-noto-cjk
+          sudo apt-get install -y -q -o Acquire::http::Timeout=30 -o Acquire::Retries=3 fonts-noto-cjk
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: 키트와 패턴 검사
         run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
@@ -121,7 +121,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg fonts-noto-cjk
+          sudo apt-get install -y -q -o Acquire::http::Timeout=30 -o Acquire::Retries=3 ffmpeg fonts-noto-cjk
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Windows：ffmpeg 설치
         if: runner.os == 'Windows'
@@ -143,7 +143,8 @@ jobs:
           "CHROME_PATH=$edge" >> $env:GITHUB_ENV
           Write-Output "Edge $((Get-Item $edge).VersionInfo.ProductVersion)"
       - name: 브라우저 검사 실행
-        run: node --test tests/test_build_explorer.mjs tests/test_prep_image.mjs tests/test_shoot.mjs
+        # 브라우저를 여는 파일을 동시에 돌리면 두 코어 runner에서 CDP 응답이 30초를 넘습니다.
+        run: node --test --test-concurrency=1 tests/test_build_explorer.mjs tests/test_prep_image.mjs tests/test_shoot.mjs
       - name: 키트와 패턴 검사
         run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
       - name: Windows：남은 브라우저 프로세스 확인

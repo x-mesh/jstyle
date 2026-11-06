@@ -1180,7 +1180,8 @@ test("output defaults to a file beside the manifest", (t) => {
   const f = new Fixture(t);
   const executed = run([...builderCommand(), f.manifest]);
   assert.equal(executed.status, 0, executed.stderr);
-  const expected = path.join(fs.realpathSync(f.folder), "style-explorer.html");
+  // .native expands Windows 8.3 short names (RUNNER~1) as the builder's path resolution does.
+  const expected = path.join(fs.realpathSync.native(f.folder), "style-explorer.html");
   assert.equal(path.normalize(JSON.parse(executed.stdout).output), expected);
   assert.ok(fs.statSync(expected).isFile());
   const again = run([...builderCommand(), f.manifest]);

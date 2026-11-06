@@ -87,7 +87,8 @@ const asUri = (file) => pathToFileURL(file).href;
 
 const tempDir = (t) => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "tmp"));
-  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  // On Windows a browser probe's profile can stay locked for a moment after the probe exits (EBUSY).
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
   return folder;
 };
 

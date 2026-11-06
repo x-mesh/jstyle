@@ -913,12 +913,12 @@ a.jk-stat:hover { background: var(--jk-canvas); }
 .jk-score-tiles span { color: var(--jk-ink); font-size: 14px; font-weight: 700; }
 .jk-score-tiles b { color: var(--jk-green-text); font-size: 26px; font-weight: 800; letter-spacing: -.01em; }
 .jk-score-tiles small { color: var(--jk-hint); font-size: 14px; font-variant-numeric: tabular-nums; }
-.jk-matrix { display: grid; grid-template-columns: 36px repeat(3, minmax(110px, 1fr)); border: 1px solid var(--jk-line); border-radius: var(--jk-radius-s); overflow: hidden; font-size: 13px; }
+.jk-matrix { display: grid; grid-template-columns: 64px repeat(3, minmax(110px, 1fr)); border: 1px solid var(--jk-line); border-radius: var(--jk-radius-s); overflow: hidden; font-size: 13px; }
 .jk-matrix > * { display: grid; align-content: center; gap: 2px; min-height: 64px; padding: 8px 12px; border-right: 1px solid var(--jk-line); border-bottom: 1px solid var(--jk-line); }
 .jk-matrix > :nth-child(4n) { border-right: 0; }
 .jk-matrix > :nth-last-child(-n + 4) { border-bottom: 0; }
 .jk-matrix > .is-head { min-height: 36px; background: #fafafa; color: var(--jk-sub); font-size: 12px; font-weight: 600; text-align: center; }
-.jk-matrix > .is-axis { padding: 0; background: #fafafa; color: var(--jk-sub); font-size: 12px; font-weight: 600; writing-mode: vertical-rl; text-align: center; }
+.jk-matrix > .is-axis { padding: 0 8px; background: #fafafa; color: var(--jk-sub); font-size: 12px; font-weight: 600; text-align: center; }
 .jk-matrix b { display: flex; align-items: center; gap: 6px; color: var(--jk-ink); font-size: 13.5px; }
 .jk-matrix b::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 .jk-matrix small { color: var(--jk-sub); }
@@ -1038,10 +1038,10 @@ a.jk-stat:hover { background: var(--jk-canvas); }
 .jk-slots > .is-name b { color: var(--jk-ink); font-size: 13px; }
 .jk-slots > .is-name small { color: var(--jk-hint); font-size: 11px; }
 .jk-slot { display: grid; place-items: center; min-height: 34px; border-radius: 4px; background: var(--bg, #f0f1f2); color: var(--fg, #61666a); font-weight: 700; }
-.jk-slot.is-full { --bg: #fbe4ea; --fg: #a83a5b; }
-.jk-slot.is-close { --bg: #daf0f3; --fg: #13707a; }
-.jk-slot.is-open { --bg: #eae2fa; --fg: #6b45b8; }
-.jk-slot.is-mid { --bg: #dbe8fd; --fg: #2a5fb8; }
+.jk-slot.is-trip { --bg: #fbe4ea; --fg: #a83a5b; }
+.jk-slot.is-site { --bg: #daf0f3; --fg: #13707a; }
+.jk-slot.is-office { --bg: #eae2fa; --fg: #6b45b8; }
+.jk-slot.is-remote { --bg: #dbe8fd; --fg: #2a5fb8; }
 .jk-day-bars { display: grid; gap: 10px; }
 .jk-day-bar { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 10px; color: var(--jk-text); font-size: 12.5px; }
 .jk-day-bar > i { position: relative; height: 8px; border-radius: 4px; background: #efefef; }
@@ -1184,6 +1184,10 @@ button.jk-status:hover { filter: brightness(.97); }
   .jk-rows-action { grid-column: 2; grid-row: 1 / span 2; }
   .jk-diff, .jk-meta { grid-template-columns: minmax(0, 1fr); }
   .jk-diff dd, .jk-meta dd { margin-bottom: 6px; }
+  .jk-score-tiles { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .jk-score-tiles > div { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 12px 16px; }
+  .jk-score-tiles b { grid-column: 2; grid-row: 1 / span 2; font-size: 22px; }
+  .jk-score-tiles small { grid-column: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .jk *, .jk *::before, .jk *::after { transition-duration: 0s; }

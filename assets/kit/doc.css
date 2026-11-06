@@ -8,7 +8,7 @@ body { margin: 0; background: #f4f4f5; }
 .doc-nav a { display: block; padding: 7px 10px; border-radius: var(--jk-radius-s); color: var(--jk-sub); font-size: 13.5px; font-weight: 500; text-decoration: none; }
 .doc-nav a:hover { background: var(--jk-fill); color: var(--jk-ink); }
 .doc-nav a[aria-current=true] { background: var(--jk-fill-2); color: var(--jk-ink); font-weight: 700; }
-.doc-main { max-width: 1000px; padding: 40px 40px 120px; }
+.doc-main { max-width: 1160px; padding: 40px 40px 120px; }
 .doc-intro { display: grid; gap: 10px; margin-bottom: 44px; }
 .doc-intro h1 { color: var(--jk-ink); font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
 .doc-intro p { max-width: 62ch; color: var(--jk-sub); font-size: 14.5px; line-height: 1.7; }

@@ -33,17 +33,15 @@ To install from a local copy, run `npx skills add .` in that folder.
 
 ### Use the command
 
-The comparison page generator and the screenshot tool are also available as the `jstyle` command. The command needs Node 22 or later.
+The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. The command needs Node 22 or later.
 
 ```bash
 npm i -g github:x-mesh/jstyle
-jstyle explore ./designs
+jstyle doctor
 ```
 
-`jstyle explore` puts the HTML drafts of a folder on one comparison page. Then it starts a local server and opens the page in the browser.
-To open the page on another device in the same network, add `--host 0.0.0.0`. Then open the `Other devices` address in the terminal output.
-If you do not install the command, run `node bin/jstyle.mjs explore ./designs` in the skill folder.
-Run `jstyle --help` to see all commands. Run `jstyle doctor` to check the tools that the commands need.
+`jstyle doctor` checks Node, the browser, and the location of the command. Run `jstyle --help` to see all commands.
+If you do not install the command, run `node bin/jstyle.mjs <command>` in the skill folder.
 
 ## Get started
 
@@ -63,13 +61,40 @@ The pattern library opens in the browser. If it does not open, open the address 
 
 The examples use mock data. The page keeps edits in memory until you refresh it. The examples do not connect to authentication or server storage.
 
+## Compare design drafts
+
+If you cannot choose a direction, ask the agent for several drafts on one comparison page:
+
+```text
+Use jstyle to make three drafts of the first screen of the order dashboard. Show them on a comparison page.
+```
+
+The agent first describes each direction in text. If you want to see the screens, it makes one HTML first screen for each draft and puts them on one comparison page. If you do not give a number, it makes three drafts.
+
+The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
+Press **Select** on the draft that you prefer. The page copies a sentence such as `Round 01: Go with 02 Name`. Send this sentence and your comments to the agent. The agent continues with the selected draft.
+
+If you already have drafts, make the comparison page yourself:
+
+```bash
+jstyle explore ./designs
+```
+
+Each HTML file in the folder becomes one draft. The name comes from the HTML `<title>` or from the file name. The result is `style-explorer.html` in the folder. If you run the command in a terminal, it starts a local server and opens the page in the browser. To make the page again after you change a draft, add `--force`.
+
+- Open the page on a phone or another computer: add `--host 0.0.0.0`, then open the `Other devices` address in the terminal output. Other people in the same network can also open this address.
+- Compare with the current screen: in `manifest.json`, add the current screen with `"baseline": true`. It becomes the first item. A page from a running development server can use `"kind": "url"`, but other devices cannot show it.
+- Start the next round: to compare refined drafts, make a new round folder such as `explore/02/` and set `round` to `"02"`. Keep the previous round as it is.
+
+The manifest fields are in the [comparison page reference](references/style-explorer.md) and in `jstyle explore --help-build`.
+
 ## Workflow
 
 1. Record the user, task, content, brand, and device constraints.
 2. Choose the main object and action. Set the layout and key states.
 3. Build a representative screen. Check its text and actions in the browser.
 
-The agent can compare design directions or review an existing screen without file changes. The [skill guide](SKILL.md) links to the relevant references.
+The agent can [compare design directions on one page](#compare-design-drafts) or review an existing screen without file changes. The [skill guide](SKILL.md) links to the relevant references.
 
 ## Tools
 

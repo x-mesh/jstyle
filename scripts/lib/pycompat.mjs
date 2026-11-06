@@ -338,9 +338,15 @@ function floatJson(value) {
   return floatRepr(value);
 }
 
-export function jsonDumps(value, { sortKeys = false, separators = [", ", ": "] } = {}) {
+export function jsonDumps(value, { sortKeys = false, indent = null, separators = indent === null ? [", ", ": "] : [",", ": "] } = {}) {
   const [itemSep, keySep] = separators;
-  const encode = (item) => {
+  // With indent, items go on their own lines; empty containers stay "[]" and "{}".
+  const join = (parts, open, close, level) => {
+    if (indent === null) return open + parts.join(itemSep) + close;
+    const inner = "\n" + " ".repeat(indent * (level + 1));
+    return open + inner + parts.join(itemSep + inner) + "\n" + " ".repeat(indent * level) + close;
+  };
+  const encode = (item, level = 0) => {
     if (item === null || item === undefined) return "null";
     if (item === true) return "true";
     if (item === false) return "false";
@@ -348,13 +354,45 @@ export function jsonDumps(value, { sortKeys = false, separators = [", ", ": "] }
     if (isFloat(item)) return floatJson(item.value);
     if (typeof item === "number") return Number.isInteger(item) ? String(item) : floatJson(item);
     if (isStr(item)) return encodeString(item);
-    if (isList(item)) return item.length ? "[" + item.map(encode).join(itemSep) + "]" : "[]";
+    if (isList(item)) return item.length ? join(item.map((entry) => encode(entry, level + 1)), "[", "]", level) : "[]";
     const entries = isDict(item) ? [...item] : Object.entries(item);
     if (!entries.length) return "{}";
     if (sortKeys) entries.sort(([a], [b]) => compareCodePoints(a, b));
-    return "{" + entries.map(([key, entry]) => encodeString(key) + keySep + encode(entry)).join(itemSep) + "}";
+    return join(entries.map(([key, entry]) => encodeString(key) + keySep + encode(entry, level + 1)), "{", "}", level);
   };
   return encode(value);
+}
+
+// ---- round(): CPython rounds the exact binary value half to even.
+
+function exactParts(value) {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  const bits = view.getBigUint64(0);
+  const biased = Number((bits >> 52n) & 0x7ffn);
+  let mantissa = bits & ((1n << 52n) - 1n);
+  if (biased) mantissa |= 1n << 52n;
+  return { negative: bits >> 63n === 1n, mantissa, exponent: biased ? biased - 1075 : -1074 };
+}
+
+// round(value, digits) for a finite float; digits null gives round(value) as an int.
+export function pyRound(value, digits = null) {
+  if (!Number.isFinite(value)) {
+    if (digits === null) throw valueError(Number.isNaN(value) ? "cannot convert float NaN to integer" : "cannot convert float infinity to integer");
+    return value;
+  }
+  const places = digits ?? 0;
+  const { negative, mantissa, exponent } = exactParts(value);
+  let numerator = mantissa * 10n ** BigInt(Math.max(places, 0));
+  let denominator = 10n ** BigInt(Math.max(-places, 0));
+  if (exponent >= 0) numerator <<= BigInt(exponent);
+  else denominator <<= BigInt(-exponent);
+  let quotient = numerator / denominator;
+  const twice = (numerator % denominator) * 2n;
+  if (twice > denominator || (twice === denominator && quotient % 2n === 1n)) quotient += 1n;
+  if (digits === null) return Number(negative ? -quotient : quotient);
+  const rounded = Number(`${negative ? "-" : ""}${quotient}e${-places}`);
+  return rounded === 0 && negative ? -0 : rounded;
 }
 
 // ---- repr()/str() of parsed JSON values, used in messages.

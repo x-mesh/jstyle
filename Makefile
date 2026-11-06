@@ -38,6 +38,5 @@ serve: ## 브라우저를 열지 않고 서버만 실행
 test: ## 패턴과 리소스 테스트 실행
 	node --check assets/extended/patterns.js
 	node --check assets/kit/kit.js
-	node --test tests/test_extended_patterns.mjs tests/test_kit.mjs tests/test_html_parser.mjs tests/test_cli.mjs
+	node --test tests/test_extended_patterns.mjs tests/test_kit.mjs tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
-	JSTYLE_BUILDER=node $(PYTHON) -m unittest discover -s tests -p 'test_build_explorer.py'

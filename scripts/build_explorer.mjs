@@ -7,7 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { UsageError, parseArgs as parseCli } from "./lib/argparse.mjs";
 import { HTMLParser, unescape as htmlUnescape } from "./lib/html-parser.mjs";
+import { WINDOWS, isAbsolutePath, joinPath, resolvePath } from "./lib/pypath.mjs";
 import {
   PY_SPACE, PY_SPACE_CLASS, PyError, asciiDigits, compareCodePoints, decodeUtf8, fromNodeError, htmlEscape, isBool,
   isDict, isFloat, isInt, isList, isOSError, isPySpace, isStr, isTypeError, isValueError, jsonDumps, jsonLoads,
@@ -15,70 +17,9 @@ import {
   urlsplit, valueError, wrapFs,
 } from "./lib/pycompat.mjs";
 
-const WINDOWS = process.platform === "win32";
 const S = PY_SPACE_CLASS;
 
 // ---- pathlib.Path behavior used by the Python builder.
-
-function isAbsolutePath(text) {
-  if (!WINDOWS) return text.startsWith("/");
-  return /^[A-Za-z]:[\\/]/.test(text) || /^[\\/]{2}[^\\/]+[\\/]+[^\\/]+/.test(text);
-}
-
-function joinPath(base, rel) {
-  if (WINDOWS) return path.win32.resolve(base, rel);
-  return rel.startsWith("/") ? rel : base.replace(/\/+$/, "") + "/" + rel;
-}
-
-const lstat = (target) => {
-  try {
-    return fs.lstatSync(target);
-  } catch {
-    return null;
-  }
-};
-
-// os.path.realpath(strict=False): resolve symlinks component by component, so
-// "link/.." follows the link before going up, and keep missing parts as text.
-function resolvePath(input) {
-  const text = String(input);
-  if (WINDOWS) {
-    let current = path.win32.resolve(text);
-    const rest = [];
-    for (;;) {
-      try {
-        return path.win32.join(fs.realpathSync.native(current), ...rest.reverse());
-      } catch {
-        const parent = path.win32.dirname(current);
-        if (parent === current) return path.win32.join(current, ...rest.reverse());
-        rest.push(path.win32.basename(current));
-        current = parent;
-      }
-    }
-  }
-  let resolved = text.startsWith("/") ? "/" : fs.realpathSync(process.cwd());
-  const pending = text.split("/").reverse();
-  let links = 0;
-  while (pending.length) {
-    const part = pending.pop();
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      resolved = path.posix.dirname(resolved);
-      continue;
-    }
-    const next = resolved === "/" ? "/" + part : resolved + "/" + part;
-    const info = lstat(next);
-    if (!info || !info.isSymbolicLink() || links > 40) {
-      resolved = next;
-      continue;
-    }
-    links += 1;
-    const target = fs.readlinkSync(next);
-    if (target.startsWith("/")) resolved = "/";
-    pending.push(...target.split("/").reverse());
-  }
-  return resolved;
-}
 
 const statOf = (target) => {
   try {
@@ -1196,71 +1137,14 @@ Node 22 이상이 필요합니다. 스킬 설치 폴더에는 결과를 쓰지 �
 성공은 output/candidates/fingerprint/bytes가 담긴 JSON 한 줄입니다.
 `;
 
-class UsageError extends Error {}
-
-// argparse rules for this parser: one nargs="+" positional, unique prefixes
-// of long options, and only the first run of positionals.
-const OPTIONS = ["--help", "--output", "--force"];
-
-function classify(arg) {
-  if (!arg.startsWith("-") || arg === "-") return { kind: "positional" };
-  if (arg === "-h") return { kind: "option", option: "--help", explicit: null };
-  const equals = arg.indexOf("=");
-  const [flag, explicit] = equals >= 0 ? [arg.slice(0, equals), arg.slice(equals + 1)] : [arg, null];
-  if (OPTIONS.includes(flag)) return { kind: "option", option: flag, explicit };
-  if (flag.startsWith("--")) {
-    const matches = OPTIONS.filter((option) => option.startsWith(flag));
-    if (matches.length > 1) throw new UsageError(`ambiguous option: ${flag} could match ${matches.join(", ")}`);
-    if (matches.length === 1) return { kind: "option", option: matches[0], explicit };
-  }
-  if (/^-\d+$|^-\d*\.\d+$/.test(arg) || arg.includes(" ")) return { kind: "positional" };
-  return { kind: "unknown" };
-}
-
-function parseArgs(argv) {
-  const result = { inputs: [], output: null, force: false, help: false };
-  const extras = [];
-  let run = "before";
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--") {
-      for (const rest of argv.slice(index + 1)) {
-        if (run === "after") extras.push(rest);
-        else result.inputs.push(rest);
-      }
-      break;
-    }
-    const kind = classify(arg);
-    if (kind.kind === "positional") {
-      if (run === "after") extras.push(arg);
-      else {
-        result.inputs.push(arg);
-        run = "inside";
-      }
-      continue;
-    }
-    if (run === "inside") run = "after";
-    if (kind.kind === "unknown") {
-      extras.push(arg);
-      continue;
-    }
-    if (kind.option === "--help") {
-      result.help = true;
-      return result;
-    }
-    if (kind.option === "--force") {
-      if (kind.explicit !== null) throw new UsageError(`argument --force: ignored explicit argument ${pyReprString(kind.explicit)}`);
-      result.force = true;
-      continue;
-    }
-    if (kind.explicit !== null) result.output = kind.explicit;
-    else if (index + 1 < argv.length && argv[index + 1] !== "--" && classify(argv[index + 1]).kind === "positional") result.output = argv[++index];
-    else throw new UsageError("argument --output: expected one argument");
-  }
-  if (!result.inputs.length) throw new UsageError("the following arguments are required: inputs");
-  if (extras.length) throw new UsageError(`unrecognized arguments: ${extras.join(" ")}`);
-  return result;
-}
+const CLI = {
+  options: [
+    { flags: ["-h", "--help"], action: "help" },
+    { flags: ["--output"], dest: "output", action: "store" },
+    { flags: ["--force"], dest: "force", action: "store_true" },
+  ],
+  positional: { dest: "inputs", nargs: "+" },
+};
 
 function writeLine(stream, text) {
   stream.write(platformText(text + "\n"));
@@ -1280,7 +1164,7 @@ export function main(argv = process.argv.slice(2), { prog = "build_explorer.mjs"
   }
   let args;
   try {
-    args = parseArgs(argv);
+    args = parseCli(argv, CLI);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
     process.stderr.write(platformText(`${usageLine(prog)}\n${prog}: error: ${error.message}\n`));

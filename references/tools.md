@@ -5,7 +5,7 @@
 기존 브라우저 도구로 페이지를 살펴볼 수 있습니다. 확인 자료는 가능하면 함께 온 캡처 도구로 만듭니다.
 도구는 임시 브라우저를 열며 사용자의 브라우저 자료를 건드리지 않습니다.
 아래 스크립트는 `node <skill>/bin/jstyle.mjs <하위 명령>`으로도 부를 수 있으며 인자를 그대로 넘깁니다.
-`shoot`은 `shoot.mjs`, `media`는 `curate-media.mjs`, `image`는 `prep-image.mjs`, `measure`는 `measure_reference.py`입니다.
+`shoot`은 `shoot.mjs`, `media`는 `curate-media.mjs`, `image`는 `prep-image.mjs`, `measure`는 `measure_reference.mjs`입니다.
 Node·브라우저·설치 위치는 `jstyle doctor`로 확인합니다.
 Node 22 또는 Chrome·Chromium·Edge가 없으면 환경의 다른 브라우저 도구로 같은 자료를 남깁니다.
 

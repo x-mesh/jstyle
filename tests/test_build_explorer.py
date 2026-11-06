@@ -2,7 +2,6 @@
 
 import base64
 from contextlib import redirect_stderr
-import importlib.util
 from html.parser import HTMLParser
 import io
 import json
@@ -19,21 +18,12 @@ from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# JSTYLE_BUILDER=node runs the same contracts against scripts/build_explorer.mjs.
-NODE_BUILDER = os.environ.get("JSTYLE_BUILDER") == "node"
-if NODE_BUILDER:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import node_builder as builder
-else:
-    spec = importlib.util.spec_from_file_location("build_explorer", ROOT / "scripts" / "build_explorer.py")
-    builder = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(builder)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import node_builder as builder  # noqa: E402
 
 
 def builder_command(scripts=ROOT / "scripts"):
-    if NODE_BUILDER:
-        return [shutil.which("node"), str(scripts / "build_explorer.mjs")]
-    return [sys.executable, str(scripts / "build_explorer.py")]
+    return [shutil.which("node"), str(scripts / "build_explorer.mjs")]
 
 
 class ExplorerBuildTests(unittest.TestCase):

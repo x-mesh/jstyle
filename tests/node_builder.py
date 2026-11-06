@@ -1,6 +1,6 @@
-"""build_explorer.mjs behind the Python builder's interface, so one test file checks both builders.
+"""build_explorer.mjs behind the interface of the former Python builder.
 
-test_build_explorer.py uses this module when JSTYLE_BUILDER=node.
+test_build_explorer.py keeps its contracts from the Python builder and checks the Node builder through this module.
 """
 
 import base64

@@ -36,7 +36,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           # 브라우저 Python 테스트는 scripts/, 이 세 테스트 파일, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
-          full='^(scripts/|tests/test_(shoot|build_explorer|prep_image)\.py$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
+          full='^(scripts/|bin/|tests/(test_(shoot|build_explorer|prep_image)\.py|node_builder\.py|build_explorer_bridge\.mjs)$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
           quick='^(assets/|tests/)'
           case "$EVENT" in
             schedule|workflow_dispatch)
@@ -79,13 +79,13 @@ jobs:
           python - <<'PY'
           import os, sys, unittest
           sys.path.insert(0, os.path.abspath("tests"))
-          modules = ["test_measure_reference", "test_curate_media", "test_workdir", "test_extension_resources"]
+          modules = ["test_curate_media", "test_workdir", "test_extension_resources"]
           suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY
-      - name: HTML 파서와 jstyle 명령 검사
-        run: node --test tests/test_html_parser.mjs tests/test_cli.mjs
+      - name: HTML 파서, 측정 도구, jstyle 명령 검사
+        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴
@@ -179,21 +179,6 @@ jobs:
           sys.path.insert(0, os.path.abspath("tests"))
           modules = ["test_build_explorer", "test_prep_image", "test_shoot"]
           suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          sys.exit(not result.wasSuccessful())
-          PY
-      - name: Node 비교 화면 생성기 검사
-        # 같은 계약 테스트를 scripts/build_explorer.mjs에 돌려 Python 생성기와 결과를 맞춥니다.
-        shell: bash
-        env:
-          JSTYLE_BUILDER: node
-        run: |
-          python - <<'PY'
-          import locale, os, sys, unittest
-          if os.environ.get("JSTYLE_TEST_LOCALE"):
-              locale.setlocale(locale.LC_CTYPE, os.environ["JSTYLE_TEST_LOCALE"])
-          sys.path.insert(0, os.path.abspath("tests"))
-          suite = unittest.defaultTestLoader.loadTestsFromNames(["test_build_explorer"])
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           sys.exit(not result.wasSuccessful())
           PY

@@ -68,22 +68,6 @@ function runScript(file, args) {
   return result.status ?? 1;
 }
 
-function findPython() {
-  for (const [command, prefix] of [["python3", []], ["python", []], ["py", ["-3"]]]) {
-    const probe = spawnSync(command, [...prefix, "-c", "import sys; print(sys.version_info >= (3, 10))"], { encoding: "utf8" });
-    if (probe.status === 0 && probe.stdout.trim() === "True") return [command, prefix];
-  }
-  return null;
-}
-
-function runPython(file, args) {
-  const python = findPython();
-  if (!python) return fail("Python 3.10 이상을 찾지 못했습니다. measure는 아직 Python 도구입니다", 1);
-  const [command, prefix] = python;
-  const result = spawnSync(command, [...prefix, path.join(SCRIPTS, file), ...args], { stdio: "inherit" });
-  return result.status ?? 1;
-}
-
 function splitExploreArgs(argv) {
   const build = [];
   const view = { serve: null, open: true, host: "127.0.0.1", port: 8765, help: false, helpBuild: false };
@@ -198,8 +182,6 @@ function doctor(argv) {
   } catch (error) {
     add("browser", "warn", error.message);
   }
-  const python = findPython();
-  add("python", python ? "ok" : "warn", python ? python.join(" ").trim() : "Python 3.10 이상 없음", python ? null : "measure에만 필요합니다");
   const which = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["jstyle"], { encoding: "utf8" });
   const onPath = which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
   let pathState = "warn";
@@ -261,7 +243,7 @@ async function main(argv) {
     case "image":
       return runScript("prep-image.mjs", rest);
     case "measure":
-      return runPython("measure_reference.py", rest);
+      return runScript("measure_reference.mjs", rest);
     case "doctor":
       return doctor(rest);
     default: {

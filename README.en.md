@@ -6,9 +6,11 @@ jstyle is a UI design skill for AI agents. It helps an agent set a design direct
 
 ![An illustration of a wireframe, an effect preview, and a component card](assets/readme/jstyle-workflow.webp)
 
-The pattern library has nine visual and entry effects, 25 card patterns, 14 landing studies, and 12 product UI studies. Select an effect, change its speed, and copy its standalone HTML.
+jstyle includes a component kit for business screens. Use it for dense screens, such as lists, tables, settings, and detail sheets.
 
-![The jstyle pattern library with the light orbit effect](assets/readme/pattern-library.webp)
+![A customer screen built with the jstyle kit detail sheet](assets/readme/kit-detail-sheet.webp)
+
+The pattern library has nine visual and entry effects, 25 card patterns, 14 landing studies, and 12 product UI studies. Select an effect, change its speed, and copy its standalone HTML.
 
 ## Install
 

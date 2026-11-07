@@ -4,7 +4,7 @@ JSTYLE = node bin/jstyle.mjs
 VIEW = --host $(HOST) --port $(PORT)
 
 .DEFAULT_GOAL := help
-.PHONY: help open effects cards landing product-ui kit explorer serve test
+.PHONY: help open library effects cards landing product-ui kit explorer serve test
 
 help: ## 사용 가능한 명령 표시
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  make %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -12,6 +12,8 @@ help: ## 사용 가능한 명령 표시
 
 open: ## 패턴 라이브러리 열기
 	@$(JSTYLE) library $(VIEW)
+
+library: open ## 패턴 라이브러리 열기 (open과 같음)
 
 effects: ## 꾸미기·시작 효과 보기 열기
 	@$(JSTYLE) library effects $(VIEW)

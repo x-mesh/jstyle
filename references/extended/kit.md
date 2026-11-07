@@ -119,7 +119,17 @@ function KitArea({ onChange, children }) {
 
 초록은 제품 캡처의 버튼 색 `#0abe3a`를 그대로 씁니다. 이 초록 위 흰 글자는 대비가 약 2.6:1로 WCAG AA에 못 미치지만, 제품과 같은 색을 우선했습니다. 초록을 글자색으로 쓸 때는 `--jk-green-text`(`#0a7d17`)를 씁니다. 그 밖에 글자가 올라가는 색은 WCAG AA(본문 4.5:1)를 넘도록 어둡게 바꿨습니다. 보조 글자는 `#96999c`에서 `#6e7276`으로 바꿨고, 빨강·파랑·청록 글자와 노란 배지 글자도 같은 기준으로 맞췄습니다.
 
-키트를 쓰는 제품의 스타일시트에서 `--jk-primary`·`--jk-primary-hover`·`--jk-focus`를 다시 정의하지 않습니다. 위 대비 부족을 이유로 주색을 어둡게 바꾸면 키트 페이지와 색감이 달라집니다. 주색을 바꿔야 하면 `data-jk-theme`으로 테마를 고르고, 초록 계열 글자와 옅은 배경은 hex 값을 직접 쓰지 않고 `--jk-primary-text`·`--jk-primary-tint`를 씁니다. 회색과 테두리도 `--jk-ink`·`--jk-sub`·`--jk-hint`·`--jk-line`·`--jk-fill` 같은 키트 토큰을 씁니다. 초록이 섞인 회색을 새로 만들면 화면 전체 색조가 키트와 달라집니다.
+키트를 쓰는 제품의 스타일시트에서 `--jk-` 토큰을 다시 정의하지 않습니다. 주색(`--jk-primary`·`--jk-primary-hover`·`--jk-focus`)뿐 아니라 글꼴(`--jk-font`)과 모서리(`--jk-radius-*`)도 마찬가지입니다. 위 대비 부족을 이유로 주색을 어둡게 바꾸면 키트 페이지와 색감이 달라집니다. 주색을 바꿔야 하면 `data-jk-theme`으로 테마를 고릅니다.
+
+제품 화면에 새 규칙을 쓸 때도 색과 모서리를 hex나 px로 직접 쓰지 않고 키트 토큰을 씁니다.
+
+- 주색 글자와 옅은 배경: `--jk-primary-text`·`--jk-primary-tint`
+- 회색 글자: `--jk-ink`·`--jk-text`·`--jk-sub`·`--jk-hint`
+- 테두리와 바탕: `--jk-line`·`--jk-line-strong`·`--jk-fill`·`--jk-fill-2`·`--jk-canvas`
+- 상태: `--jk-red`·`--jk-red-text`, `--jk-warm-text`·`--jk-warm-tint`·`--jk-warm-line`, `--jk-yellow`, `--jk-blue-*`, `--jk-green-*`
+- 모서리: `--jk-radius-xs`~`xl`
+
+초록이나 파랑이 섞인 회색을 새로 만들면 화면 전체 색조가 키트와 달라집니다. 2~4px처럼 아주 작은 요소의 모서리와 그림자의 검정 투명도만 직접 씁니다.
 
 주 버튼은 두 형태입니다. 32·40px 버튼은 단색이고 hover에서 `#09a834`로 어두워집니다. 48px 버튼(`jk-btn-primary jk-btn-xl`)은 hover에서 `#00cb2e`→`#00c8ba` 그라데이션으로 바뀝니다. 차트 계열색, 근무 블록 바탕처럼 글자를 올리지 않는 채움색은 잰 값을 그대로 씁니다.
 

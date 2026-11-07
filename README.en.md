@@ -4,11 +4,11 @@
 
 jstyle is a UI design skill for AI agents. It helps an agent set a design direction and check a real interface.
 
-![An illustration of a wireframe, an effect preview, and a component card](assets/readme/jstyle-workflow.png)
+![An illustration of a wireframe, an effect preview, and a component card](assets/readme/jstyle-workflow.webp)
 
 The pattern library has nine visual and entry effects, 25 card patterns, 14 landing studies, and 12 product UI studies. Select an effect, change its speed, and copy its standalone HTML.
 
-![The jstyle pattern library with the light orbit effect](assets/readme/pattern-library.png)
+![The jstyle pattern library with the light orbit effect](assets/readme/pattern-library.webp)
 
 ## Install
 
@@ -62,7 +62,7 @@ The pattern library opens in the browser. If it does not open, open the address 
 
 The landing and product UI studies rebuild tokens and screen patterns from public pages and product screens. All person and team names are mock data. The library pages are in Korean.
 
-![The product UI study with a member profile sheet](assets/readme/product-ui-study.png)
+![The product UI study with a member profile sheet](assets/readme/product-ui-study.webp)
 
 Use the component kit for dense business screens, such as lists, tables, settings, and approvals. Add `kit.css` and `kit.js` to a page. No build step is necessary. To open the kit documentation, run:
 
@@ -70,7 +70,7 @@ Use the component kit for dense business screens, such as lists, tables, setting
 node bin/jstyle.mjs kit
 ```
 
-![The first page of the jstyle kit documentation with color tokens](assets/readme/component-kit.png)
+![The jstyle kit data grid with an edited usage cell](assets/readme/component-kit.webp)
 
 The examples use mock data. The page keeps edits in memory until you refresh it. The examples do not connect to authentication or server storage.
 
@@ -87,7 +87,7 @@ The agent first describes each direction in text. If you want to see the screens
 The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
 Press **Select** on the draft that you prefer. The page copies a sentence such as `Round 01: Go with 02 Name`. Send this sentence and your comments to the agent. The agent continues with the selected draft.
 
-![A comparison page with three drafts of an order dashboard side by side](assets/readme/style-explorer.en.png)
+![A comparison page with three drafts of an order dashboard side by side](assets/readme/style-explorer.en.webp)
 
 If you already have drafts, make the comparison page yourself:
 

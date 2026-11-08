@@ -213,7 +213,7 @@
 /* 14 Paragraph that lights up line by line while scrolling */
 .jk-lp-reveal { display: grid; justify-items: center; gap: 22px; }
 .jk-lp-reveal .jk-lp-title { margin: 0 0 8px; }
-.jk-lp-reveal-line { max-width: 560px; color: var(--jk-disabled); font-size: clamp(16px, 1.8vw, 19px); font-weight: 600; line-height: 1.6; transition: color 500ms var(--jk-ease-out); }
+.jk-lp-reveal-line { max-width: 560px; color: var(--jk-hint); font-size: clamp(16px, 1.8vw, 19px); font-weight: 600; line-height: 1.6; transition: color 500ms var(--jk-ease-out); }
 .jk-lp-reveal-line[data-lit] { color: var(--jk-ink); }
 
 /* 15 Feature introduction with an app frame */

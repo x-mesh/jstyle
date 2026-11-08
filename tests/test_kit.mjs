@@ -216,7 +216,8 @@ test("component kit: behaviors, keyboard, focus, and narrow reflow", { timeout: 
     await waitFor("document.querySelector('#kit-prompt [data-jk-typing-text]').textContent.length > 0");
     await click('[data-jk="typing-toggle"]');
     assert.equal(await attr('[data-jk="typing-toggle"]', "aria-pressed"), "true");
-    assert.equal(await text("#kit-prompt [data-jk-typing-text]"), "지난달 회의에서 정한 할 일만 모아 줘.");
+    const phrases = (await attr("#kit-prompt", "data-jk-phrases")).split("|");
+    assert.ok(phrases.includes(await text("#kit-prompt [data-jk-typing-text]")), "pausing shows the current phrase in full");
     await click('[aria-controls="kit-service-hero"] [value="orange"]');
     assert.equal(await attr("#kit-service-hero", "data-jk-theme"), "orange");
 

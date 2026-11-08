@@ -696,7 +696,9 @@ const evaluate = async (expression) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let viewportWidth = 0;
 async function setViewport(w, h, scale) {
+  viewportWidth = w;
   await cdp("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: scale, mobile: w < 600 });
   await cdp("Emulation.setTouchEmulationEnabled", { enabled: w < 600 });
 }
@@ -732,7 +734,25 @@ async function check() {
   const found = await evaluate(`(() => {
     const out = [];
     const doc = document.documentElement;
-    if (doc.scrollWidth > innerWidth + 1) out.push("가로 넘침: 페이지 너비 " + doc.scrollWidth + "px, 화면 너비 " + innerWidth + "px");
+    // With width=device-width, a phone-sized viewport widens innerWidth to fit overflowing content, so the width set on the viewport is the real one.
+    // Without it the page is laid out at 980px and zoomed out, which is not a horizontal scroll.
+    const deviceWidth = /width\\s*=\\s*device-width/.test(document.querySelector('meta[name="viewport"]')?.content || "");
+    const vw = deviceWidth ? Math.min(innerWidth, ${viewportWidth} || innerWidth) : innerWidth;
+    const clips = (node) => getComputedStyle(node).overflowX !== "visible";
+    if (clips(doc) || clips(document.body)) {
+      // A clipping root hides cut content from scrollWidth. Fully off-screen elements are left out because off-canvas menus park there on purpose.
+      const insideClipper = (el) => { for (let n = el.parentElement; n && n !== document.body && n !== doc; n = n.parentElement) if (clips(n)) return true; return false; };
+      let count = 0, widest = null;
+      for (const el of document.querySelectorAll("body *")) {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 1 || r.height <= 1 || r.left >= vw - 1 || r.right <= vw + 1) continue;
+        const s = getComputedStyle(el);
+        if (s.position === "fixed" || s.visibility === "hidden" || s.display === "none" || insideClipper(el)) continue;
+        count++;
+        if (!widest || r.right > widest.right) widest = { right: Math.round(r.right), el: el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") };
+      }
+      if (count) out.push("가로로 잘린 내용: html·body의 overflow-x가 화면 밖 " + count + "개 요소를 숨깁니다. 가장 넓은 " + widest.el + " 오른쪽 " + widest.right + "px, 화면 너비 " + vw + "px");
+    } else if (doc.scrollWidth > vw + 1) out.push("가로 넘침: 페이지 너비 " + doc.scrollWidth + "px, 화면 너비 " + vw + "px");
     for (const img of document.images) if (img.complete && img.naturalWidth === 0) out.push("이미지를 읽지 못했습니다: " + (img.getAttribute("src") || "").slice(0, 120));
     const gl = window.__jstyleWebgl;
     if (gl) {

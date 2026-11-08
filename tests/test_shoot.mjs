@@ -1300,6 +1300,30 @@ browserTest("reports page problems", async (ctx) => {
   }
 });
 
+browserTest("phone overflow and content cut by a clipping root are page problems, off-canvas menus are not", async (ctx) => {
+  writePage(ctx, `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="data:,"><style>
+body{margin:0;padding:16px;overflow-x:hidden;font:16px sans-serif}
+.drawer{position:absolute;top:0;left:100%;width:280px;height:200px;background:#eee}
+</style></head><body><nav class="drawer">메뉴</nav><div id="wide" style="width:600px">설정과 설명이 담긴 넓은 표</div></body></html>`);
+  const output = path.join(ctx.folder, "root-clip");
+  await shoot(ctx, output, "--size", "390x844");
+  const issues = report(output)[0].issues;
+  assert.equal(issues.length, 1, issues.join("\n"));
+  includes(issues[0], "가로로 잘린 내용");
+  includes(issues[0], "div#wide");
+
+  editPage(ctx, 'id="wide" style="width:600px"', 'id="wide" style="width:600px;display:none"');
+  const clean = path.join(ctx.folder, "root-clip-drawer-only");
+  await shoot(ctx, clean, "--size", "390x844");
+  assert.deepEqual(report(clean)[0].issues, []);
+
+  editPage(ctx, "overflow-x:hidden;", "");
+  editPage(ctx, 'id="wide" style="width:600px;display:none"', 'id="wide" style="width:600px"');
+  const scrolls = path.join(ctx.folder, "phone-scroll");
+  await shoot(ctx, scrolls, "--size", "390x844");
+  includes(report(scrolls)[0].issues.join("\n"), "가로 넘침");
+});
+
 browserTest("lint flags default patterns", async (ctx) => {
   writePage(ctx, `<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
 body{margin:0;padding:40px;font:16px/1.7 sans-serif;color:#222;background:#fff}

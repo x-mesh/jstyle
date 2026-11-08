@@ -93,6 +93,25 @@ JavaScript 안의 인라인 스타일은 읽지 않으므로 그런 화면은 �
 node <skill>/bin/jstyle.mjs check web/ --exclude vendor
 ```
 
+## 사이트 평가 자료
+
+`jstyle eval`은 [사이트 평가](eval/site-eval.md)의 근거를 남깁니다. 공개된 주소를 임시 브라우저로 열고 보기만 합니다.
+누르기·입력·제출·로그인을 하지 않고, `robots.txt`의 금지 경로를 건너뛰며, 같은 사이트 요청 사이를 1초 띄웁니다.
+768px 미만은 터치·휴대폰 UA·DPR 3으로 휴대폰을 흉내 냅니다. 캡처 도구의 `<600` 기준과 다릅니다.
+
+```text
+node <skill>/bin/jstyle.mjs eval https://example.com /pricing /signup --mode site --funnel /pricing,/signup
+node <skill>/bin/jstyle.mjs eval https://example.com --mode quick --dark --links
+node <skill>/bin/jstyle.mjs eval https://example.com --dry-run
+```
+
+너비마다 `layout-detect.js`를 실행하고, 1440·375에서 첫 화면 캡처·`fold-check.js`·axe·전체 캡처를 남깁니다.
+1440에서는 head 정보·임시 글·`form-audit.js`·`style-audit.js`·`perf-capture.js`도 남깁니다. `quick`은 시작 페이지만 깊게 봅니다.
+결과는 출력 폴더의 `evidence.json`과 PNG입니다. `gates`는 차단 조건의 단서이고 `coverage`는 보지 못한 범위입니다.
+페이지 목록은 평가하는 사람이 정합니다. 도구는 사이트를 훑어 페이지를 찾지 않습니다.
+키보드 확인, INP를 위한 조작, 로그인된 앱은 환경의 브라우저 도구로 하고 `scripts/eval/*.js`를 붙여 넣어 같은 값을 얻습니다.
+axe-core는 실행할 때 cdnjs에서 페이지로 받아 옵니다. CSP가 막으면 `axe.error`에 남습니다.
+
 ## 직접 다룰 수 있는 시안
 
 기존 프로젝트의 컴포넌트·아이콘·스타일·기술을 먼저 씁니다. 새 도구를 반드시 더할 필요는 없습니다.

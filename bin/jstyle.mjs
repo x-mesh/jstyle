@@ -38,6 +38,7 @@ usage   jstyle <command> [options]
 
 검사
   check    키트 토큰 덮어쓰기와 토큰 밖 색·모서리·글자 크기 찾기
+  eval     공개된 사이트를 보기만 하며 평가 근거(캡처·배치·axe·성능) 남기기
 
 환경
   doctor   Node·브라우저·설치 위치 확인
@@ -181,7 +182,7 @@ function doctor(argv) {
   try {
     const chrome = spawnSync(process.execPath, ["--input-type=module", "-e", `import { findChrome } from ${JSON.stringify(new URL("../scripts/chrome.mjs", import.meta.url).href)}; console.log(findChrome());`], { encoding: "utf8" });
     if (chrome.status === 0) add("browser", "ok", chrome.stdout.trim());
-    else add("browser", "warn", "Chrome·Chromium·Edge 없음", "shoot·image에 필요합니다. 설치하거나 CHROME_PATH를 지정하세요");
+    else add("browser", "warn", "Chrome·Chromium·Edge 없음", "shoot·image·eval에 필요합니다. 설치하거나 CHROME_PATH를 지정하세요");
   } catch (error) {
     add("browser", "warn", error.message);
   }
@@ -249,10 +250,12 @@ async function main(argv) {
       return runScript("measure_reference.mjs", rest);
     case "check":
       return runScript("check.mjs", rest);
+    case "eval":
+      return runScript("eval.mjs", rest);
     case "doctor":
       return doctor(rest);
     default: {
-      const names = ["explore", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "doctor", "version"];
+      const names = ["explore", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "eval", "doctor", "version"];
       const near = names.find((name) => name.startsWith(command.slice(0, 2)));
       fail(`알 수 없는 명령: ${command}`);
       if (near) hint("try", `jstyle ${near}`);

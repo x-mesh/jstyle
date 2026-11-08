@@ -118,6 +118,7 @@ manifest 필드는 [비교 화면 문서](references/style-explorer.md)와 `jsty
 - [비교 화면 생성기](references/style-explorer.md): 여러 디자인 안을 한 페이지에 모아 비교합니다. Node 22 이상이 필요합니다.
 - [캡처 도구](references/tools.md): 화면 크기별 스크린샷과 움직임의 연속 프레임을 만듭니다. Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다.
 - [이미지 도구](references/media.md): 이미지 자료를 찾고 크기를 바꾸는 방법을 안내합니다.
+- [사이트 평가](references/eval/site-eval.md): `jstyle eval`이 공개된 사이트를 보기만 하며 첫 화면·배치·axe-core·성능 근거를 남기고, 판정 하나와 고칠 목록으로 이어집니다. Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다.
 
 작업 중 만든 캡처와 시안은 기본적으로 `.jstyle`에 둡니다. 최종 코드와 이미지는 작업 중인 프로젝트의 정식 위치에 둡니다.
 
@@ -134,4 +135,4 @@ node --test "tests/test_*.mjs"
 
 ## 라이선스
 
-[MIT 라이선스](LICENSE)의 원본 저작권 고지를 유지합니다.
+[MIT 라이선스](LICENSE)의 원본 저작권 고지를 유지합니다. 가져와 고친 자료는 [NOTICE.md](NOTICE.md)에 적었습니다.

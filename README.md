@@ -118,6 +118,7 @@ The agent can [compare design directions on one page](#compare-design-drafts) or
 - [Comparison page generator](references/style-explorer.md): Compare design options on one page. It needs Node 22 or later.
 - [Screenshot tool](references/tools.md): Capture screens and animation frames. It needs Node 22 or later and Chrome, Chromium, or Edge.
 - [Image tools](references/media.md): Find and resize image assets.
+- [Site evaluation](references/eval/site-eval.md): `jstyle eval` opens a live site read-only and records folds, layout, axe-core and Core Web Vitals evidence for a verdict and a ranked fix list. It needs Node 22 or later and Chrome, Chromium, or Edge.
 
 The default workspace for drafts and screenshots is `.jstyle`. Put final code and assets in the target project.
 
@@ -134,4 +135,4 @@ The pattern browser test needs Node 22 or later and Chrome, Chromium, or Edge. T
 
 ## License
 
-The [MIT license](LICENSE) preserves the original copyright notice.
+The [MIT license](LICENSE) preserves the original copyright notice. Adapted third-party material is listed in [NOTICE.md](NOTICE.md).

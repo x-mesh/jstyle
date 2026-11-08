@@ -35,8 +35,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
-          # 브라우저 테스트는 scripts/, 이 세 테스트 파일과 공용 PNG 도구, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
-          full='^(scripts/|bin/|tests/(test_(shoot|build_explorer|prep_image)\.mjs|png-fixture\.mjs)$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
+          # 브라우저 테스트는 scripts/, 이 네 테스트 파일과 공용 PNG 도구, 탐색기 원본, 글꼴, 마크 파일을 읽습니다.
+          full='^(scripts/|bin/|tests/(test_(shoot|build_explorer|prep_image|eval_browser)\.mjs|png-fixture\.mjs)$|assets/(style-explorer\.html$|fonts/|jstyle-mark\.svg$)|\.github/workflows/tests\.yml$)'
           quick='^(assets/|tests/)'
           case "$EVENT" in
             schedule|workflow_dispatch)
@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: 22
       - name: 기본 검사
-        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs tests/test_curate_media.mjs tests/test_workdir.mjs tests/test_extension_resources.mjs tests/test_recommend_once.mjs
+        run: node --test tests/test_html_parser.mjs tests/test_measure_reference.mjs tests/test_cli.mjs tests/test_curate_media.mjs tests/test_workdir.mjs tests/test_extension_resources.mjs tests/test_recommend_once.mjs tests/test_eval.mjs
 
   quick:
     name: linux · chrome · 키트와 패턴
@@ -144,7 +144,7 @@ jobs:
           Write-Output "Edge $((Get-Item $edge).VersionInfo.ProductVersion)"
       - name: 브라우저 검사 실행
         # 브라우저를 여는 파일을 동시에 돌리면 두 코어 runner에서 CDP 응답이 30초를 넘습니다.
-        run: node --test --test-concurrency=1 tests/test_build_explorer.mjs tests/test_prep_image.mjs tests/test_shoot.mjs
+        run: node --test --test-concurrency=1 tests/test_build_explorer.mjs tests/test_prep_image.mjs tests/test_shoot.mjs tests/test_eval_browser.mjs
       - name: 키트와 패턴 검사
         run: node --test tests/test_extended_patterns.mjs tests/test_kit.mjs
       - name: Windows：남은 브라우저 프로세스 확인

@@ -810,6 +810,16 @@ function lintPage() {
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
       const s = css(node);
       if (s.backgroundImage !== "none") return null;
+      // 조상을 덮는 절대 위치 ::before·::after 막(사진 위 어두운 막 등)은 그 조상의 바탕 위에 겹칩니다.
+      if (node !== el) {
+        for (const pseudo of ["::before", "::after"]) {
+          const ps = css(node, pseudo);
+          if (!ps.content || ps.content === "none" || !/absolute|fixed/.test(ps.position)) continue;
+          if (ps.backgroundImage !== "none") return null;
+          const pc = rgba(ps.backgroundColor);
+          if (pc.a > 0 && parseFloat(ps.width) >= node.clientWidth - 1 && parseFloat(ps.height) >= node.clientHeight - 1) layers.push(pc);
+        }
+      }
       const c = rgba(s.backgroundColor);
       if (c.a > 0) { layers.push(c); if (c.a >= 0.99) break; }
     }

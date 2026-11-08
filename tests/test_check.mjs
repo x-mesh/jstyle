@@ -34,7 +34,7 @@ test("a kit token override is an error, the kit's own definitions are not read",
 });
 
 test("raw colors are errors with the kit token of the same value suggested", () => {
-  const [finding] = checkSource(".a { color: #6e7276 }", { kit, useKit: true });
+  const [finding] = checkSource(".a { color: #676b6f }", { kit, useKit: true });
   assert.equal(finding.rule, "raw-color");
   assert.equal(finding.level, "error");
   assert.match(finding.suggestion, /같은 값의 토큰: var\(--jk-/);

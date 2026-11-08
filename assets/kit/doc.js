@@ -27,12 +27,17 @@
   });
 
   // Foundation boards print the live token values so the table cannot drift from kit.css.
+  const luminance = (hex) => {
+    const digits = hex.length === 3 ? [...hex].map((d) => d + d) : hex.match(/../g);
+    const [r, g, b] = digits.map((d) => parseInt(d, 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  // Black or white, whichever has the higher WCAG contrast. Mid-tone theme colors reach 4.5:1 only with pure black.
   const isLight = (value) => {
     const hex = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
     if (!hex) return true;
-    const digits = hex[1].length === 3 ? [...hex[1]].map((d) => d + d) : hex[1].match(/../g);
-    const [r, g, b] = digits.map((d) => parseInt(d, 16) / 255);
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
+    const bg = luminance(hex[1]);
+    return (bg + 0.05) / 0.05 >= 1.05 / (bg + 0.05);
   };
   const printTokens = () => document.querySelectorAll("[data-token]").forEach((element) => {
     const token = element.dataset.token;
@@ -40,7 +45,7 @@
     const label = element.querySelector("code") || element;
     if (element.matches(".doc-theme span")) {
       element.style.setProperty("--c", `var(${token})`);
-      element.style.color = isLight(value) ? "#242a30" : "#fff";
+      element.style.color = isLight(value) ? "#000" : "#fff";
       element.textContent = value;
       return;
     }

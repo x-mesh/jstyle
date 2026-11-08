@@ -1374,6 +1374,9 @@ body::before{content:"";position:absolute;left:0;top:0;width:12px;height:12px;ba
 .seg-label{position:relative;color:#fff}
 .pseudo-seg{position:relative;display:inline-block;padding:8px 16px;color:#fff}
 .pseudo-seg::before{content:"";position:absolute;inset:0;background:#111;border-radius:8px;z-index:-1}
+.scrim{position:relative;display:grid;place-items:center;width:120px;height:60px;background:#ccc;color:#fff}
+.scrim::before{content:"";position:absolute;inset:0;background:rgb(0 0 0 / .6)}
+.scrim span{position:relative}
 </style></head><body>
 <p class="soft">Secondary text at about 3.5 to 1 contrast now fails the WCAG AA 4.5 floor.</p>
 <p class="low">Body text at about 2.3 to 1 contrast fails the 4.5 floor.</p>
@@ -1381,6 +1384,7 @@ body::before{content:"";position:absolute;left:0;top:0;width:12px;height:12px;ba
 <p class="faint-tiny">흰 바탕에서 거의 보이지 않고 글자도 작은 문단입니다、줄 간격이 좁은 여러 줄 한국어 본문，대비가 낮아도 배치 검사를 건너뛰지 않는지 봅니다。</p>
 <div class="seg"><span class="seg-pill"></span><span class="seg-label">Active Tab</span></div>
 <div class="pseudo-seg">Pseudo Pill Tab</div>
+<div class="scrim"><span>+3 more</span></div>
 </body></html>`);
   const output = path.join(ctx.folder, "soft");
   await shoot(ctx, output, "--size", "1280x800");

@@ -111,8 +111,9 @@ test("a cross-site iframe does not hold every later load at the network idle cap
   t.after(() => fs.rmSync(out, { recursive: true, force: true }));
   const base = `http://127.0.0.1:${site.address().port}`;
 
-  const result = await run([`${base}/framed`, "/plain", "--mode", "quick", "--widths", "1440", "--no-axe", "--pace", "0", "--out", out]);
+  const result = await run([`${base}/framed`, "/plain", "--mode", "quick", "--widths", "1440", "--dark", "--no-axe", "--pace", "0", "--out", out]);
   assert.equal(result.status, 0, result.stderr);
   const evidence = JSON.parse(fs.readFileSync(JSON.parse(result.stdout).evidence, "utf8"));
+  assert.deepEqual(evidence.pages.map((p) => p.darkScheme), [false, false]);
   for (const page of evidence.pages) assert.ok(page.widths[1440].loadMs < 8000, `${page.slug} waited ${page.widths[1440].loadMs}ms`);
 });

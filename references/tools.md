@@ -112,6 +112,7 @@ node <skill>/bin/jstyle.mjs eval https://example.com --dry-run
 `--keyboard`는 시작·전환 페이지 1440에서 Tab을 눌러 초점 순서, 초점 표시가 없어 보이는 요소(잘라 낸 캡처), 화면 밖 초점, 본문 바로가기, 갇힘을 `keyboard`에 남깁니다.
 Escape로 닫기, 메뉴 열기, INP를 위한 조작, 로그인된 앱은 환경의 브라우저 도구로 하고 `scripts/eval/*.js`를 붙여 넣어 같은 값을 얻습니다.
 axe-core는 실행할 때 cdnjs에서 페이지로 받아 옵니다. CSP가 막으면 `axe.error`에 남습니다.
+`--dark`의 `darkScheme`은 1440 첫 화면의 배경·글자색이 밝은 모드와 달라졌는지입니다. `false`면 사이트가 어두운 모드를 지원하지 않으므로 어두운 캡처로 L4를 보지 않습니다.
 
 ## 직접 다룰 수 있는 시안
 

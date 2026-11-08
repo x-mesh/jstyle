@@ -355,6 +355,13 @@ const LINKS_EXPRESSION = `JSON.stringify([...new Set([...document.querySelectorA
 
 const TEXT_EXPRESSION = `document.body ? document.body.innerText : ""`;
 
+const LOOK_EXPRESSION = `JSON.stringify((() => {
+  const paint = (el) => { for (let n = el; n; n = n.parentElement) { const bg = getComputedStyle(n).backgroundColor; if (bg && !/rgba\\(.*, 0\\)$|transparent/.test(bg)) return bg; } return "canvas"; };
+  const points = [[0.5, 0.1], [0.5, 0.5], [0.2, 0.8], [0.8, 0.8]].map(([x, y]) => document.elementFromPoint(innerWidth * x, innerHeight * y));
+  const text = document.querySelector("main p, p, h1") || document.body;
+  return [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor, getComputedStyle(text).color, ...points.map((el) => el ? paint(el) : "none")];
+})())`;
+
 const FOCUS_STEP_EXPRESSION = `JSON.stringify((() => {
   let el = document.activeElement;
   while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
@@ -797,6 +804,7 @@ async function run(plan, opts, log) {
         if (desktopFold) {
           record.finalUrl = await page.evaluate("location.href");
           record.head = JSON.parse(await page.evaluate(HEAD_EXPRESSION));
+          if (plan.dark) record.lightLook = JSON.parse(await page.evaluate(LOOK_EXPRESSION));
           record.placeholder = placeholderHits(await page.evaluate(TEXT_EXPRESSION));
           record.forms = await page.evaluateJson("form-audit").catch((error) => ({ error: error.message }));
           if (deep) record.style = await page.evaluateJson("style-audit").catch((error) => ({ error: error.message }));
@@ -822,7 +830,11 @@ async function run(plan, opts, log) {
           log(`· ${info.slug} ${width} 어두운 모드`);
           const opened = await page.open(info.url, opts.wait);
           if (!opened.ok) continue;
-          record.darkScheme = await page.evaluate("matchMedia('(prefers-color-scheme: dark)').matches");
+          if (width === plan.foldWidths.desktop && record.lightLook) {
+            const darkLook = JSON.parse(await page.evaluate(LOOK_EXPRESSION));
+            // Asking matchMedia while dark is emulated always says yes; only a changed rendering shows the site supports it.
+            record.darkScheme = darkLook.join("|") !== record.lightLook.join("|");
+          }
           record.files.push(await page.screenshot(path.join(out, `${info.slug}-dark-${width}-fold.png`)));
           if (plan.axe && deep && width === plan.foldWidths.desktop) record.axe.dark = filterAxe(await page.evaluateJson("axe-run").catch((error) => ({ error: error.message })), pathname, config);
         } catch (error) {

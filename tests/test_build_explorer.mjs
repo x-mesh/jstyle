@@ -284,8 +284,8 @@ test("native viewport errors are collected with other manifest problems", (t) =>
   f.save();
   const caught = raises(() => f.build(), isManifestError);
   assert.equal(caught.problems.length, 4);
-  for (const expected of ["manifest(안 a)", "bad-default", "안 b：nativeViewport", "bad-b",
-    "안 b：palette", "안 c：nativeViewport", '{"height": 242}']) {
+  for (const expected of ["manifest(안 a)", "bad-default", "안 b: nativeViewport", "bad-b",
+    "안 b: palette", "안 c: nativeViewport", '{"height": 242}']) {
     assert.ok(caught.message.includes(expected), expected);
   }
 });
@@ -845,7 +845,7 @@ test("remote and missing resources report exact reference and fix", async (t) =>
         writeText(f.source, fragment);
         const message = raises(() => f.build(), isManifestError).message;
         for (const expected of ["안 a", "sample.html", ref, "다시 만드세요"]) assert.ok(message.includes(expected), expected);
-        assert.ok(message.includes(ref.includes("example.invalid") ? "curl -L --fail --output" : "파일을 다음 위치에 저장하세요:"));
+        assert.ok(message.includes(ref.includes("example.invalid") ? "curl -L --fail --output" : "에 저장하거나"));
         assert.ok(!fs.existsSync(f.output));
       });
     }
@@ -903,7 +903,7 @@ test("palette without any complete hex color has copyable fix", async (t) => {
     await t.test(`value=${jsonDumps(value)}`, () => {
       f.data.candidates[0].palette = value;
       f.save();
-      raises(() => f.build(), isValueError, /안 a：palette.*"palette": \["#1a2b3c", "#ffffff"\]/);
+      raises(() => f.build(), isValueError, /안 a: palette.*"palette": \["#1a2b3c", "#ffffff"\]/);
     });
   }
   assert.ok(!fs.existsSync(f.output));
@@ -1005,7 +1005,7 @@ test("serve requires a nonempty string command", async (t) => {
     await t.test(`serve=${jsonDumps(serve)}`, () => {
       f.data.serve = serve;
       f.save();
-      raises(() => f.build(), isValueError, /serve 객체여야 합니다/);
+      raises(() => f.build(), isValueError, /serve는 객체여야 합니다/);
     });
   }
   assert.ok(!fs.existsSync(f.output));
@@ -1162,7 +1162,7 @@ test("every manifest problem is reported in one pass", (t) => {
   f.save();
   const caught = raises(() => f.build(), isManifestError);
   assert.ok(caught.problems.length >= 6);
-  for (const expected of ["schemaVersion", '안 id "A" 올바르지 않음', "missing.html", "red", "kind 가능한 값:", "안 b：traits"]) {
+  for (const expected of ["schemaVersion", '안 id "A"가 올바르지 않습니다', "missing.html", "red", "kind는", "안 b: traits"]) {
     assert.ok(caught.message.includes(expected), expected);
   }
   assert.ok(!fs.existsSync(f.output));
@@ -1173,8 +1173,8 @@ test("single problem reads as one sentence", (t) => {
   f.data.candidates[0].palette = ["blue"];
   f.save();
   const caught = raises(() => f.build(), isValueError);
-  assert.ok(!caught.message.includes("곳을 고쳐야 합니다"));
-  assert.ok(caught.message.includes("안 a：palette"));
+  assert.ok(!caught.message.includes("고칠 곳이"));
+  assert.ok(caught.message.includes("안 a: palette"));
 });
 
 test("output defaults to a file beside the manifest", (t) => {
@@ -1194,13 +1194,13 @@ test("missing and malformed manifests say what to do", (t) => {
   const f = new Fixture(t);
   const missing = run([...builderCommand(), path.join(f.folder, "nope.json")]);
   assert.equal(missing.status, 1);
-  assert.ok(missing.stderr.includes("찾을 수 없습니다 manifest"));
+  assert.ok(missing.stderr.includes("manifest를 찾을 수 없습니다"));
   assert.ok(!missing.stderr.includes("Errno"));
   const broken = path.join(f.folder, "broken.json");
   writeText(broken, '{"schemaVersion": 1,');
   const malformed = run([...builderCommand(), broken]);
   assert.equal(malformed.status, 1);
-  assert.match(malformed.stderr, /올바르지 않음: JSON： \d+ 줄의 \d+ 열/);
+  assert.match(malformed.stderr, /manifest JSON이 올바르지 않습니다: \d+번째 줄 \d+번째 열/);
   assert.ok(!malformed.stderr.includes("Traceback"));
 });
 

@@ -227,13 +227,13 @@ async function decodeWithChrome(data) {
   try {
     browser = await canvasBrowser();
   } catch (error) {
-    throw valueError(`이 그림은 Chrome으로 읽어야 합니다: ${error.message}；8-bit PNG로 바꾸거나 Chrome·Chromium·Edge를 설치하세요`);
+    throw valueError(`이 그림은 Chrome으로 읽어야 하는데 브라우저를 시작하지 못했습니다(${error.message}). 8-bit PNG로 바꾸거나 Chrome·Chromium·Edge를 설치하세요`);
   }
   try {
     const result = await browser.evaluate(`(${decodeInPage})(${JSON.stringify(data.toString("base64"))})`);
     return new RGBAImage(result.width, result.height, new Uint8Array(Buffer.from(result.data, "base64")));
   } catch (error) {
-    throw valueError(`그림을 읽지 못했습니다（${error.message}）；PNG·JPEG·WebP 정지 이미지를 주세요`);
+    throw valueError(`그림을 읽지 못했습니다(${error.message}). PNG·JPEG·WebP 정지 이미지를 주세요`);
   } finally {
     await browser.close();
   }
@@ -258,7 +258,7 @@ function applyAlphaCleanup(crop, { whiteToAlpha = false, threshold = 248, keyCol
   if (truthy(keyColor)) {
     if (!isStr(keyColor)) throw new Error(`'${typeName(keyColor)}' object has no attribute 'strip'`);
     const cleaned = pyStrip(keyColor).replace(/^#+/, "");
-    if (cleaned.length !== 6) throw valueError("key_color 올바른 형식: 6 자리 16진 색 값，예: #00FF00");
+    if (cleaned.length !== 6) throw valueError("key_color는 #00FF00처럼 6자리 16진 색 값이어야 합니다");
     [kr, kg, kb] = [cleaned.slice(0, 2), cleaned.slice(2, 4), cleaned.slice(4, 6)].map((part) => intFromText(part, 16));
   }
   const out = new Uint8Array(crop.pixels.length);
@@ -287,20 +287,20 @@ function applyAlphaCleanup(crop, { whiteToAlpha = false, threshold = 248, keyCol
 }
 
 function positive(value, name) {
-  if (isBool(value) || !isNumber(value) || !Number.isFinite(numeric(value)) || numeric(value) <= 0) throw valueError(`${name} 유한한 양수여야 합니다`);
+  if (isBool(value) || !isNumber(value) || !Number.isFinite(numeric(value)) || numeric(value) <= 0) throw valueError(`${name} 값은 유한한 양수여야 합니다`);
   return value;
 }
 
 function integer(value, name) {
-  if (isBool(value) || !(isInt(value) || (typeof value === "number" && Number.isInteger(value)))) throw valueError(`${name} 정수여야 합니다`);
+  if (isBool(value) || !(isInt(value) || (typeof value === "number" && Number.isInteger(value)))) throw valueError(`${name} 값은 정수여야 합니다`);
   return value;
 }
 
 function boxChecked(box, size) {
-  if (!isList(box) || box.length !== 4) throw valueError("box 필요한 값: [x,y,width,height]");
+  if (!isList(box) || box.length !== 4) throw valueError("box는 [x,y,width,height] 형식이어야 합니다");
   const [x, y, w, h] = box.map((value) => Number(integer(value, "box 좌표")));
   if (Math.min(x, y) < 0 || Math.min(w, h) <= 0 || x + w > size[0] || y + h > size[1]) {
-    throw valueError(`표시 ${pyStr(box)} 영역 밖이거나 넓이가 올바르지 않습니다（원본 크기 ${size[0]}x${size[1]}）；자동으로 짧게 자르지 않습니다`);
+    throw valueError(`표시 상자 ${pyStr(box)}가 그림 영역 밖이거나 넓이가 올바르지 않습니다(원본 크기 ${size[0]}x${size[1]}). 자동으로 잘라 맞추지 않습니다`);
   }
   return [x, y, w, h];
 }
@@ -334,7 +334,7 @@ export async function measureData(data, { baseDir, out = null, manifestBytes = n
   const reference = item(data, "reference");
   if (!isStr(reference)) throw typeError(`unsupported operand type(s) for /: '${WINDOWS ? "WindowsPath" : "PosixPath"}' and '${typeName(reference)}'`);
   const source = resolvePath(joinPath(baseDir, reference));
-  if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw valueError(`참고 그림이 없습니다：${source}`);
+  if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) throw valueError(`참고 그림이 없습니다: ${source}`);
   const im = await loadRgba(source);
   const size = [im.width, im.height];
   const cssWidth = get(data, "css_viewport_width");
@@ -352,11 +352,11 @@ export async function measureData(data, { baseDir, out = null, manifestBytes = n
   for (const entry of iterate(get(data, "regions", []))) {
     const name = takeName(entry);
     const kind = get(entry, "kind", "box");
-    if (!(isStr(kind) && ["box", "color", "extract"].includes(kind))) throw valueError("kind 지원 범위: box、color 또는 extract");
+    if (!(isStr(kind) && ["box", "color", "extract"].includes(kind))) throw valueError("kind는 box, color, extract 중 하나여야 합니다");
     const [x, y, w, h] = boxChecked(item(entry, "box"), size);
     const boxType = get(entry, "box_type", kind === "color" ? "sample" : "element");
     if (!(isStr(boxType) && ["element", "ink", "sample"].includes(boxType)) || (kind === "color" && boxType !== "sample")) {
-      throw valueError("box_type 필요한 값: element、ink 또는 sample；색 영역에 허용되는 값: sample");
+      throw valueError("box_type은 element, ink, sample 중 하나여야 합니다. 색 영역에는 sample만 쓸 수 있습니다");
     }
     const region = new Map([
       ["name", name],
@@ -364,23 +364,23 @@ export async function measureData(data, { baseDir, out = null, manifestBytes = n
       ["box_type", boxType],
       ["box", [x, y, w, h]],
       ["normalized_box", [x / im.width, y / im.height, w / im.width, h / im.height].map((value) => F(pyRound(value, 6)))],
-      ["boundary_evidence", "Agent 고른 표시 범위，비율과 색을 뽑는 데 씀，고정 픽셀 좌표로 묶지 않습니다"],
+      ["boundary_evidence", "Agent가 고른 표시 범위입니다. 비율과 색을 뽑는 데 쓰고, 고정 픽셀 좌표로 옮겨 쓰지 않습니다"],
     ]);
     if (factor !== null) region.set("css_box", [x, y, w, h].map((value) => F(pyRound(value * factor, 3))));
     if (entry.has("selector")) region.set("selector", entry.get("selector"));
     region.set("dom_comparable", boxType === "element");
     if (entry.has("group")) {
-      if (boxType !== "element") throw valueError("반복 격자는 요소 상자만 받습니다，글자 영역이나 색을 잰 영역을 섞어 쓰지 않습니다");
+      if (boxType !== "element") throw valueError("반복 격자에는 요소 상자(element)만 넣을 수 있습니다. 글자 영역이나 색 표본 영역을 섞지 마세요");
       const group = entry.get("group");
-      if (!isStr(group) || !pyStrip(group)) throw valueError("group 비어 있지 않은 문자열이어야 합니다");
+      if (!isStr(group) || !pyStrip(group)) throw valueError("group은 비어 있지 않은 문자열이어야 합니다");
       region.set("group", group);
     }
     if (kind === "color") {
       const inset = Number(integer(get(entry, "inset", 0), "inset"));
-      if (inset < 0 || inset * 2 >= Math.min(w, h)) throw valueError("inset 읽어 낼 영역이 올바르지 않게 됩니다");
+      if (inset < 0 || inset * 2 >= Math.min(w, h)) throw valueError("inset이 음수이거나 너무 커서 읽을 영역이 남지 않습니다");
       const crop = im.crop(x + inset, y + inset, x + w - inset, y + h - inset);
       const pixels = opaquePixels(crop);
-      if (!pixels.length) throw valueError(`${name} 불투명한 색 표본이 없습니다`);
+      if (!pixels.length) throw valueError(`${name}에 불투명한 색 표본이 없습니다`);
       const channels = [0, 1, 2].map((channel) => distribution(pixels.map((pixel) => pixel[channel])));
       const rgb = channels.map((channel) => pyRound(channel.median.value));
       region.set("color", new Map([
@@ -390,7 +390,7 @@ export async function measureData(data, { baseDir, out = null, manifestBytes = n
         ["excluded_nonopaque", crop.width * crop.height - pixels.length],
         ["sample_box", [x + inset, y + inset, w - inset * 2, h - inset * 2]],
         ["max_channel_p90_minus_p10", F(pyRound(Math.max(...channels.map((channel) => channel.p90.value - channel.p10.value)), 3))],
-        ["meaning", "부분 영역 픽셀의 중간값，뽑아내는 데 씀 CSS 변수의 색 값"],
+        ["meaning", "부분 영역 픽셀의 중간값입니다. CSS 변수의 색 값을 뽑는 데 씁니다"],
       ]));
     }
     if (kind === "extract" || truthy(get(entry, "extract"))) {
@@ -461,7 +461,7 @@ export async function measureData(data, { baseDir, out = null, manifestBytes = n
     ["css_mapping", new Map([
       ["assumed_viewport_width", cssWidth],
       ["css_per_image_pixel", factor === null ? null : F(factor)],
-      ["meaning", "비율 환산용 참고값，반응형 화면에는 다음을 씁니다: Grid / Flexbox 고정 픽셀 위치를 쓰는 대신"],
+      ["meaning", "비율을 환산하는 참고값입니다. 반응형 화면은 고정 픽셀 위치 대신 Grid / Flexbox로 배치합니다"],
     ])],
     ["regions", regions],
     ["groups", groups],
@@ -507,11 +507,11 @@ async function measure(manifestPath, out) {
 }
 
 function parseSpec(spec, kind, extra = null) {
-  if (!spec.includes("=")) throw valueError(`--${kind} 올바른 형식: 이름=x,y,width,height，받은 값:：${spec}`);
+  if (!spec.includes("=")) throw valueError(`--${kind}는 이름=x,y,width,height 형식이어야 합니다. 받은 값: ${spec}`);
   const at = spec.indexOf("=");
   const coords = spec.slice(at + 1);
   const parts = coords.split(",").map(pyStrip);
-  if (parts.length !== 4) throw valueError(`--${kind} 좌표에 필요한 값: x,y,width,height 정수 네 개，받은 값:：${coords}`);
+  if (parts.length !== 4) throw valueError(`--${kind} 좌표는 x,y,width,height 정수 네 개여야 합니다. 받은 값: ${coords}`);
   const entry = new Map([["name", pyStrip(spec.slice(0, at))], ["kind", kind], ["box", parts.map((part) => intFromText(part, 10))]]);
   for (const [key, value] of Object.entries(extra ?? {})) entry.set(key, value);
   return entry;
@@ -526,37 +526,37 @@ const USAGE = `usage: ${PROG} [-h] [--manifest MANIFEST] [--out-dir OUT_DIR]
                              [image]`;
 const HELP = `${USAGE}
 
-표본 읽기 UI 참고 그림의 실제 색、배치 비율과 부분 이미지 파일；지원 JSON 목록 또는 명령줄에서 바로 재기。
+UI 참고 그림에서 실제 색과 배치 비율을 재고 부분 이미지를 파일로 잘라 냅니다. 영역은 JSON 목록이나 명령줄 인자로 지정합니다.
 
 positional arguments:
-  image                 참고 그림 경로（명령줄에서 바로 색 재기）
+  image                 참고 그림 경로(명령줄에서 바로 잴 때)
 
 options:
   -h, --help            show this help message and exit
-  --manifest MANIFEST   표시 목록 JSON 경로（목록 모드）
-  --out-dir OUT_DIR     출력 폴더（목록 모드에서 필수；직접 재기 모드에서 선택 사항）
-  --color NAME=X,Y,W,H  부분 영역의 중간 16진 색 값 읽기
+  --manifest MANIFEST   표시 목록 JSON 경로(목록 모드)
+  --out-dir OUT_DIR     출력 폴더(목록 모드에서 필수, 직접 재기 모드에서 선택)
+  --color NAME=X,Y,W,H  부분 영역의 16진 색 중간값 읽기
   --box NAME=X,Y,W,H    부분 영역의 픽셀 상자와 비율 재기
   --extract NAME=X,Y,W,H
-                        부분 그림을 잘라 내보내기: PNG
+                        부분 그림을 PNG로 잘라 내보내기
   --css-width CSS_WIDTH
-                        가정한 넓은 화면 CSS 화면 너비（예: 1440），환산에 씀 css_box
-  --white-to-alpha      다음을 --extract 내보낼 파일의 흰색에 가까운 바탕을 투명하게 바꾸기
+                        가정한 넓은 화면의 CSS 너비(예: 1440). css_box 환산에 사용
+  --white-to-alpha      --extract로 내보낼 파일에서 흰색에 가까운 바탕을 투명하게 바꾸기
   --key-color KEY_COLOR
-                        다음을 --extract 내보낼 파일의 지정한 바탕색（예: #00FF00）투명하게 바꾸기
-  --despill             함께 쓰기 --key-color 가장자리의 번진 색 지우기
+                        --extract로 내보낼 파일에서 지정한 바탕색(예: #00FF00)을 투명하게 바꾸기
+  --despill             --key-color와 함께 써서 가장자리에 번진 색 지우기
 
-자주 쓰는 명령：
-  # 1) 명령줄에서 색과 배치 비율을 바로 잽니다（직접 적을 필요 없음 JSON 목록）
+자주 쓰는 명령:
+  # 1) JSON 목록 없이 명령줄에서 색과 배치 비율을 바로 잽니다
   jstyle measure design.png \\
     --color bg=40,20,80,30 --color cta=1180,920,160,40 \\
     --box col1=48,176,464,696 --css-width 1440
 
-  # 2) 만든 결과에서 UI 디자인 그림에서 일부 뽑기/텍스처 파일（필요하면 흰색이나 지정 색을 투명하게 바꿉니다）
+  # 2) UI 디자인 그림에서 일부나 텍스처를 파일로 뽑습니다(필요하면 흰색이나 지정한 색을 투명하게 바꿉니다)
   jstyle measure design.png \\
     --extract jstyle_frame=548,348,440,428 --out-dir assets/extracted
 
-  # 3) 사용 manifest.json 한꺼번에 재고 표시 상자를 만듭니다 annotations.svg
+  # 3) manifest.json으로 한꺼번에 재고 표시 상자 그림 annotations.svg를 만듭니다
   jstyle measure --manifest manifest.json --out-dir measured/
 
 8-bit PNG는 바로 읽고, 그 밖의 PNG·JPEG·WebP는 Chrome·Chromium·Edge로 읽습니다.
@@ -598,10 +598,10 @@ export async function main(argv = process.argv.slice(2)) {
   const out = args.outDir === null ? null : pathStr(args.outDir);
   try {
     if (args.manifest !== null) {
-      if (out === null) throw valueError("사용 --manifest 다음을 지정해야 합니다: --out-dir");
+      if (out === null) throw valueError("--manifest를 쓰면 --out-dir도 지정해야 합니다");
       const result = await measure(pathStr(args.manifest), out);
       const summary = new Map([
-        ["status", "표시 영역 측정을 마쳤습니다，디자인 관계는 따로 판단해야 합니다"],
+        ["status", "표시 영역을 측정했습니다. 디자인 관계는 따로 판단해야 합니다"],
         ["regions", result.get("regions").length],
         ["groups", result.get("groups").length],
         ["output", out],
@@ -627,7 +627,7 @@ export async function main(argv = process.argv.slice(2)) {
   } catch (error) {
     const caught = fromNodeError(error);
     if (isValueError(caught) || isOSError(caught) || isTypeError(caught) || (caught instanceof PyError && caught.type === "KeyError")) {
-      return exitWith(2, `측정 실패：${caught.message}\n`);
+      return exitWith(2, `측정 실패: ${caught.message}\n`);
     }
     throw error;
   }

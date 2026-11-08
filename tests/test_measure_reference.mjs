@@ -86,7 +86,7 @@ test("manifest mode writes measurements and annotations and refuses an existing 
   assert.ok(fs.statSync(path.join(folder, "measured", "annotations.svg")).isFile());
   const again = run(["--manifest", "manifest.json", "--out-dir", "measured"], folder);
   assert.equal(again.status, 2);
-  assert.match(again.stderr, /^측정 실패：\[Errno \d+\] File exists: 'measured'/);
+  assert.match(again.stderr, /^측정 실패: \[Errno \d+\] File exists: 'measured'/);
 });
 
 test("the PNG reader covers the 8-bit color types and leaves other PNGs to Chrome", () => {

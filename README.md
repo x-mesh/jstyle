@@ -14,6 +14,16 @@ The pattern library has nine visual and entry effects, 25 card patterns, 14 land
 
 ## Install
 
+To install the skill and the `jstyle` command for all projects, run this command. It needs Node 22 or later and `claude` or `codex` on `PATH`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/x-mesh/jstyle/main/install.sh | bash
+```
+
+The script installs the skill for each agent it finds and links `~/.local/bin/jstyle` to the installed skill. To use a different folder, set `JSTYLE_BIN_DIR`. In a local copy, run `./install.sh`. Run the script again to update.
+
+### Install only the skill
+
 Install Node.js and `npx`. Run this command in your project folder:
 
 ```bash
@@ -36,12 +46,7 @@ To install from a local copy, run `npx skills add .` in that folder.
 
 ### Use the command
 
-The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. The command needs Node 22 or later.
-
-```bash
-npm i -g github:x-mesh/jstyle
-jstyle doctor
-```
+The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. `install.sh` installs the command. Run `jstyle doctor` to check the installation.
 
 `jstyle doctor` checks Node, the browser, and the location of the command. Run `jstyle --help` to see all commands.
 If you do not install the command, run `node bin/jstyle.mjs <command>` in the skill folder.

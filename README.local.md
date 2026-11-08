@@ -14,6 +14,16 @@ jstyle은 화면을 만들고 다듬는 AI 에이전트를 위한 스킬입니�
 
 ## 설치
 
+모든 프로젝트에서 쓸 스킬과 `jstyle` 명령을 한 번에 설치하려면 다음 명령을 실행합니다. Node 22 이상이 필요하고, `PATH`에 `claude`나 `codex`가 있어야 합니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/x-mesh/jstyle/main/install.sh | bash
+```
+
+스크립트는 찾은 에이전트마다 스킬을 설치하고, `~/.local/bin/jstyle`을 설치된 스킬에 연결합니다. 다른 폴더에 연결하려면 `JSTYLE_BIN_DIR`을 지정합니다. 내려받은 폴더에서는 `./install.sh`를 실행합니다. 다시 실행하면 최신 버전으로 업데이트합니다.
+
+### 스킬만 설치하기
+
 Node.js와 `npx`가 필요합니다. 현재 프로젝트에서 사용할 스킬은 해당 프로젝트 폴더에서 설치합니다.
 
 ```bash
@@ -36,12 +46,7 @@ npx skills add x-mesh/jstyle -g
 
 ### 명령으로 쓰기
 
-비교 화면 생성기, 캡처 도구, 이미지 도구는 `jstyle` 명령으로도 쓸 수 있습니다. Node 22 이상이 필요합니다.
-
-```bash
-npm i -g github:x-mesh/jstyle
-jstyle doctor
-```
+비교 화면 생성기, 캡처 도구, 이미지 도구는 `jstyle` 명령으로도 쓸 수 있습니다. 명령은 `install.sh`가 설치하고, 설치 상태는 `jstyle doctor`로 확인합니다.
 
 `jstyle doctor`는 Node, 브라우저, 명령의 설치 위치를 확인합니다. 전체 명령은 `jstyle --help`로 봅니다. 설치하지 않았다면 스킬 폴더에서 `node bin/jstyle.mjs <명령>`으로 같은 일을 합니다.
 

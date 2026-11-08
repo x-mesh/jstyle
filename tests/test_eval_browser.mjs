@@ -88,3 +88,25 @@ test("eval records read-only evidence and gate leads for a local site", { skip: 
   assert.ok(!fs.existsSync(path.join(out, "about-375-full.png")));
   assert.deepEqual(evidence.links.map((l) => [new URL(l.url).pathname, l.status ?? l.skipped]), [["/missing", 404], ["/private/x", "robots"]]);
 });
+
+test("a cross-site iframe does not hold every later load at the network idle cap", { skip: CHROME ? false : "Chrome, Chromium, or Edge is needed", timeout: 120000 }, async (t) => {
+  const frame = createServer((req, res) => { res.setHeader("content-type", "text/html"); res.end("<!doctype html><p>frame</p>"); });
+  await new Promise((ok) => frame.listen(0, "127.0.0.1", ok));
+  const framePort = frame.address().port;
+  const site = createServer((req, res) => {
+    if (req.url === "/robots.txt") return res.end("");
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    if (req.url === "/framed") return res.end(`<!doctype html><html lang="en"><title>framed</title><iframe src="http://localhost:${framePort}/"></iframe></html>`);
+    res.end('<!doctype html><html lang="en"><title>plain</title><p>plain</p></html>');
+  });
+  await new Promise((ok) => site.listen(0, "127.0.0.1", ok));
+  t.after(() => { frame.close(); site.close(); });
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-eval-frame-"));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  const base = `http://127.0.0.1:${site.address().port}`;
+
+  const result = await run([`${base}/framed`, "/plain", "--mode", "quick", "--widths", "1440", "--no-axe", "--pace", "0", "--out", out]);
+  assert.equal(result.status, 0, result.stderr);
+  const evidence = JSON.parse(fs.readFileSync(JSON.parse(result.stdout).evidence, "utf8"));
+  for (const page of evidence.pages) assert.ok(page.widths[1440].loadMs < 8000, `${page.slug} waited ${page.widths[1440].loadMs}ms`);
+});

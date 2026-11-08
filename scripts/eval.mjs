@@ -352,6 +352,7 @@ class Page {
     this.cdp = cdp;
     this.sessionId = sessionId;
     this.inflight = new Set();
+    this.mainFrame = null;
     this.lastNetwork = Date.now();
     this.capture = null;
     cdp.listeners.add((msg) => this.onEvent(msg));
@@ -372,6 +373,8 @@ class Page {
         if (c) c.requests.set(p.requestId, { url: p.request.url, method: p.request.method, type: p.type });
         break;
       case "Network.responseReceived":
+        // A cross-site iframe loads in its own process, so its document's loadingFinished goes to a session we never attach.
+        if (p.type === "Document" && this.mainFrame && p.frameId !== this.mainFrame) this.inflight.delete(p.requestId);
         if (c) {
           const r = c.requests.get(p.requestId) || { url: p.response.url, type: p.type };
           Object.assign(r, { status: p.response.status, mime: p.response.mimeType, protocol: p.response.protocol });
@@ -438,23 +441,28 @@ class Page {
 
   async open(url, waitMs) {
     this.capture = { requests: new Map(), console: [] };
-    let loaded;
+    this.inflight.clear();
+    this.lastNetwork = Date.now();
+    let loaded, loadTimer;
     const done = new Promise((ok) => {
       loaded = (msg) => { if (msg.sessionId === this.sessionId && msg.method === "Page.loadEventFired") ok(true); };
       this.cdp.listeners.add(loaded);
+      loadTimer = setTimeout(() => ok(false), LOAD_TIMEOUT_MS);
     });
     const started = Date.now();
     let nav;
     try {
       nav = await this.send("Page.navigate", { url });
       if (nav.errorText) return { ok: false, error: nav.errorText };
-      const fired = await Promise.race([done, sleep(LOAD_TIMEOUT_MS).then(() => false)]);
+      this.mainFrame = nav.frameId;
+      const fired = await done;
       const idleUntil = Date.now() + NETWORK_IDLE_CAP_MS;
       while (Date.now() < idleUntil && (this.inflight.size || Date.now() - this.lastNetwork < NETWORK_IDLE_MS)) await sleep(100);
       await this.evaluate("document.fonts ? document.fonts.ready.then(() => true) : true");
       await sleep(waitMs);
       return { ok: true, loadEvent: fired, ms: Date.now() - started };
     } finally {
+      clearTimeout(loadTimer);
       this.cdp.listeners.delete(loaded);
     }
   }

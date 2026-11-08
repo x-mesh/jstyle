@@ -129,7 +129,17 @@ function KitArea({ onChange, children }) {
 - 상태: `--jk-red`·`--jk-red-text`, `--jk-warm-text`·`--jk-warm-tint`·`--jk-warm-line`, `--jk-yellow`, `--jk-blue-*`, `--jk-green-*`
 - 모서리: `--jk-radius-xs`~`xl`
 
-초록이나 파랑이 섞인 회색을 새로 만들면 화면 전체 색조가 키트와 달라집니다. 2~4px처럼 아주 작은 요소의 모서리와 그림자의 검정 투명도만 직접 씁니다.
+초록이나 파랑이 섞인 회색을 새로 만들면 화면 전체 색조가 키트와 달라집니다. 2~4px처럼 아주 작은 요소의 모서리와 그림자·배경 막의 검정 투명도만 직접 씁니다.
+
+스타일을 바꾼 뒤에는 `jstyle check <스타일 폴더>`를 실행합니다. 토큰 재정의, 직접 쓴 색, px 모서리가 오류로 나오면 고친 뒤 다시 실행해 오류 0개를 확인합니다.
+
+키트 컴포넌트를 옮긴 화면은 키트의 같은 구역과 나란히 놓고 봅니다. 키트 페이지의 구역 id(`#side`, `#buttons`, `#table`, `#settings` 등)를 같은 화면 크기로 찍고, 제품의 해당 요소를 찍어 한 장으로 모읍니다. 바탕색, 메뉴 높이, 글자 크기와 굵기, 선택 표시, 개수 표시처럼 눈으로 비교할 수 있는 차이를 적고, 키트와 다르게 둔 곳은 까닭을 결과에 남깁니다.
+
+```text
+node <skill>/bin/jstyle.mjs shoot <skill>/assets/kit/index.html --size desktop --selector "#side" --out shots/kit
+node <skill>/bin/jstyle.mjs shoot http://localhost:8080 --size desktop --selector ".sidebar" --out shots/product
+node <skill>/bin/jstyle.mjs shoot --stitch shots/kit/page.png --label "키트" --stitch shots/product/page.png --label "제품" --columns 2 --out shots/compare
+```
 
 주 버튼은 두 형태입니다. 32·40px 버튼은 단색이고 hover에서 `#09a834`로 어두워집니다. 48px 버튼(`jk-btn-primary jk-btn-xl`)은 hover에서 `#00cb2e`→`#00c8ba` 그라데이션으로 바뀝니다. 차트 계열색, 근무 블록 바탕처럼 글자를 올리지 않는 채움색은 잰 값을 그대로 씁니다.
 

@@ -17,7 +17,6 @@
     "assets/",
     "LICENSE",
     "README.md",
-    "README.en.md",
     "README.ko.md",
     "README.local.md",
     "tests/*.py",

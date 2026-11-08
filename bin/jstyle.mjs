@@ -190,7 +190,7 @@ function doctor(argv) {
   const onPath = which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
   let pathState = "warn";
   let pathDetail = "PATH에 jstyle 없음";
-  let pathFix = "npm i -g github:x-mesh/jstyle 로 설치하거나 node bin/jstyle.mjs를 쓰세요";
+  let pathFix = "저장소의 install.sh로 설치하거나 node bin/jstyle.mjs를 쓰세요";
   if (onPath) {
     let real = onPath;
     try {

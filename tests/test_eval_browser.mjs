@@ -22,9 +22,9 @@ const CHROME = (() => {
 const PAGE = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>평가 시험</title><link rel="icon" href="data:,">
 <style>body{margin:0;font:16px sans-serif}.wide{width:900px;height:20px;background:#ccc}
-@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style></head>
+@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}.bare:focus{outline:none}</style></head>
 <body><main><h1>Lorem ipsum 제목</h1><div class="wide"></div>
-<a href="/missing">없는 링크</a> <a href="/private/x">비공개</a> <a href="/about">소개</a>
+<a href="/missing">없는 링크</a> <a href="/private/x">비공개</a> <a class="bare" href="/about">소개</a>
 <form><label>이메일 <input name="email"></label><button>제출</button></form></main>
 <script>console.error("boom"); fetch("/api/fail")</script></body></html>`;
 
@@ -57,7 +57,7 @@ test("eval records read-only evidence and gate leads for a local site", { skip: 
   t.after(() => fs.rmSync(out, { recursive: true, force: true }));
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  const result = await run([`${base}/`, "/about", "/private/a", "--mode", "quick", "--links", "--dark", "--no-axe", "--pace", "0", "--out", out]);
+  const result = await run([`${base}/`, "/about", "/private/a", "--mode", "quick", "--links", "--dark", "--keyboard", "--no-axe", "--pace", "0", "--out", out]);
   assert.equal(result.status, 0, result.stderr);
   const summary = JSON.parse(result.stdout);
   assert.equal(summary.pages, 3);
@@ -69,6 +69,7 @@ test("eval records read-only evidence and gate leads for a local site", { skip: 
   assert.equal(summary.gates.layoutBreaks, 2);
   assert.equal(summary.coverage.deviceEmulation, "phone");
   assert.deepEqual(summary.coverage.robotsSkipped, [`${base}/private/a`]);
+  assert.deepEqual(summary.keyboard, { pages: 1, skipLinkMissing: ["/"], noIndicator: 1, hidden: 0, trapped: [] });
 
   const evidence = JSON.parse(fs.readFileSync(summary.evidence, "utf8"));
   const [home, about] = evidence.pages;
@@ -82,6 +83,11 @@ test("eval records read-only evidence and gate leads for a local site", { skip: 
   assert.equal(home.darkScheme, true);
   assert.ok(home.style.distinct.fontSizes >= 1);
   assert.equal(about.style, undefined);
+  assert.equal(about.keyboard, undefined);
+  assert.deepEqual(home.keyboard.steps.map((s) => s.label), ["없는 링크", "비공개", "소개", "", "제출"]);
+  assert.equal(home.keyboard.end, "left page");
+  assert.deepEqual(home.keyboard.leads.noIndicator.map((l) => l.label), ["소개"]);
+  assert.ok(fs.statSync(path.join(out, home.keyboard.leads.noIndicator[0].file)).size > 0);
   for (const file of ["home-1440-fold.png", "home-375-fold.png", "home-1440-full.png", "home-375-full.png", "home-dark-1440-fold.png", "about-1440-fold.png"]) {
     assert.ok(fs.statSync(path.join(out, file)).size > 0, file);
   }

@@ -100,7 +100,7 @@ node <skill>/bin/jstyle.mjs check web/ --exclude vendor
 768px 미만은 터치·휴대폰 UA·DPR 3으로 휴대폰을 흉내 냅니다. 캡처 도구의 `<600` 기준과 다릅니다.
 
 ```text
-node <skill>/bin/jstyle.mjs eval https://example.com /pricing /signup --mode site --funnel /pricing,/signup
+node <skill>/bin/jstyle.mjs eval https://example.com /pricing /signup --mode site --funnel /pricing,/signup --keyboard
 node <skill>/bin/jstyle.mjs eval https://example.com --mode quick --dark --links
 node <skill>/bin/jstyle.mjs eval https://example.com --dry-run
 ```
@@ -109,7 +109,8 @@ node <skill>/bin/jstyle.mjs eval https://example.com --dry-run
 1440에서는 head 정보·임시 글·`form-audit.js`·`style-audit.js`·`perf-capture.js`도 남깁니다. `quick`은 시작 페이지만 깊게 봅니다.
 결과는 출력 폴더의 `evidence.json`과 PNG입니다. `gates`는 차단 조건의 단서이고 `coverage`는 보지 못한 범위입니다.
 페이지 목록은 평가하는 사람이 정합니다. 도구는 사이트를 훑어 페이지를 찾지 않습니다.
-키보드 확인, INP를 위한 조작, 로그인된 앱은 환경의 브라우저 도구로 하고 `scripts/eval/*.js`를 붙여 넣어 같은 값을 얻습니다.
+`--keyboard`는 시작·전환 페이지 1440에서 Tab을 눌러 초점 순서, 초점 표시가 없어 보이는 요소(잘라 낸 캡처), 화면 밖 초점, 본문 바로가기, 갇힘을 `keyboard`에 남깁니다.
+Escape로 닫기, 메뉴 열기, INP를 위한 조작, 로그인된 앱은 환경의 브라우저 도구로 하고 `scripts/eval/*.js`를 붙여 넣어 같은 값을 얻습니다.
 axe-core는 실행할 때 cdnjs에서 페이지로 받아 옵니다. CSP가 막으면 `axe.error`에 남습니다.
 
 ## 직접 다룰 수 있는 시안

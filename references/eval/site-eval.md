@@ -86,7 +86,8 @@
 node <skill>/bin/jstyle.mjs eval https://example.com https://example.com/pricing --mode site --out .jstyle/eval-example-2026-11-08
 ```
 
-이 도구는 보기만 합니다. 누르기·입력·제출이 필요한 L9와 키보드 확인은 환경의 브라우저 도구로 합니다.
+이 도구는 보기만 합니다. `--keyboard`를 주면 시작·전환 페이지에서 Tab만 눌러 초점을 따라갑니다.
+누르기·입력·제출이 필요한 L9와 Escape·메뉴 같은 나머지 키보드 확인은 환경의 브라우저 도구로 합니다.
 로그인된 앱은 사용자의 기존 브라우저에 붙는 도구를 씁니다. 말없이 로그인하지 않은 새 브라우저로 바꾸지 않습니다.
 
 다른 브라우저 도구를 쓸 때는 스킬 폴더의 `scripts/eval/*.js`를 JavaScript 실행 호출에 그대로 붙여 넣습니다.

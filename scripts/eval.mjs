@@ -28,6 +28,10 @@ const NETWORK_IDLE_CAP_MS = 10000;
 const LOAD_TIMEOUT_MS = 30000;
 const CDP_TIMEOUT_MS = 60000;
 const FULL_PAGE_MAX_PX = 20000;
+const KEYBOARD_MAX_TABS = 40;
+const KEYBOARD_LEAD_SHOTS = 6;
+const FOCUS_SETTLE_MS = 200;
+const ORDER_JUMP_PX = 200;
 const BUDGETS = {
   standard: { lcpMs: 4000, cls: 0.25, inpMs: 500, ttfbMs: 1800 },
   funnel: { lcpMs: 2500, cls: 0.1, inpMs: 200, ttfbMs: 800 },
@@ -48,6 +52,7 @@ export const HELP = `usage: jstyle eval <주소...> [--mode quick|site|app] [--o
   --dark              어두운 모드로 375·1440 첫 화면과 1440 axe를 더 봅니다.
   --links             같은 사이트 링크를 모아 4xx·5xx를 확인합니다. 요청 간격을 지킵니다.
   --config <파일>     잡음 거르기 JSON. 없으면 .jstyle/eval-config.json을 찾습니다.
+  --keyboard          시작·전환 페이지 1440에서 Tab을 최대 ${KEYBOARD_MAX_TABS}번 눌러 초점 순서·표시·숨은 초점을 봅니다.
   --no-axe            axe-core를 페이지에 넣지 않습니다.
   --pace <밀리초>     같은 사이트 요청 사이 기다림. 기본 ${DEFAULT_PACE_MS}
   --wait <밀리초>     네트워크가 잠잠해진 뒤 더 기다릴 시간. 기본 300
@@ -56,7 +61,8 @@ export const HELP = `usage: jstyle eval <주소...> [--mode quick|site|app] [--o
 
 결과는 <폴더>/evidence.json과 캡처 PNG이며, 요약 JSON 한 줄은 stdout, 진행은 stderr로 나옵니다.
 gates는 차단 조건의 단서입니다. 캡처와 원문으로 확인한 뒤 발견으로 올립니다.
-INP는 조작이 없어 대개 no interaction입니다. 키보드·조작 확인은 다른 브라우저 도구로 합니다.
+INP는 조작이 없어 대개 no interaction입니다. 흉내 낸 Tab 입력은 INP를 부풀리므로 재지 않습니다.
+누르기·입력·Escape로 닫기 같은 조작 확인은 다른 브라우저 도구로 합니다.
 
 종료 코드: 0 근거를 남김, 1 브라우저를 열지 못함·모든 페이지를 열지 못함·도중에 연결이 끊김(그때까지 근거는 남김), 2 잘못된 인수
 `;
@@ -74,7 +80,7 @@ function parseNumber(value, flag) {
 }
 
 export function parseArgs(argv) {
-  const opts = { mode: "site", out: null, widths: null, funnel: [], dark: false, links: false, config: null, axe: true, pace: DEFAULT_PACE_MS, wait: 300, robots: true, dryRun: false, help: false, urls: [] };
+  const opts = { mode: "site", out: null, widths: null, funnel: [], dark: false, links: false, keyboard: false, config: null, axe: true, pace: DEFAULT_PACE_MS, wait: 300, robots: true, dryRun: false, help: false, urls: [] };
   for (let i = 0; i < argv.length; i += 1) {
     let arg = argv[i];
     let inline = null;
@@ -97,6 +103,7 @@ export function parseArgs(argv) {
     else if (arg === "--funnel") opts.funnel = parseList(value(), arg).map((p) => (p.startsWith("/") ? p : `/${p}`));
     else if (arg === "--dark") opts.dark = true;
     else if (arg === "--links") opts.links = true;
+    else if (arg === "--keyboard") opts.keyboard = true;
     else if (arg === "--config") opts.config = value();
     else if (arg === "--no-axe") opts.axe = false;
     else if (arg === "--pace") opts.pace = parseNumber(value(), arg);
@@ -174,6 +181,7 @@ export function planRun(opts) {
     phoneBelow: MOBILE_MAX_PX,
     dark: opts.dark,
     links: opts.links,
+    keyboard: opts.keyboard,
     axe: opts.axe,
     robots: opts.robots,
     paceMs: opts.pace,
@@ -347,6 +355,44 @@ const LINKS_EXPRESSION = `JSON.stringify([...new Set([...document.querySelectorA
 
 const TEXT_EXPRESSION = `document.body ? document.body.innerText : ""`;
 
+const FOCUS_STEP_EXPRESSION = `JSON.stringify((() => {
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return { tag: "body" };
+  const reg = window.__jstyleFocus || (window.__jstyleFocus = { ids: new WeakMap(), list: [] });
+  let id = reg.ids.get(el);
+  if (id === undefined) { id = reg.list.length; reg.ids.set(el, id); reg.list.push(el); }
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  const label = (el.getAttribute("aria-label") || el.innerText || el.value || el.placeholder || el.title || el.getAttribute("alt") || "").trim().replace(/\\s+/g, " ").slice(0, 60);
+  return {
+    id, tag: el.tagName.toLowerCase(), role: el.getAttribute("role"), label, href: el.getAttribute("href"),
+    x: Math.round(r.left), y: Math.round(r.top + scrollY), w: Math.round(r.width), h: Math.round(r.height),
+    hidden: r.width === 0 || r.height === 0 || cs.visibility === "hidden" || Number(cs.opacity) === 0,
+    inViewport: r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth,
+    focusVisible: el.matches(":focus-visible"),
+  };
+})())`;
+
+const focusIndicatorExpression = (id) => `(async () => {
+  const el = window.__jstyleFocus && window.__jstyleFocus.list[${id}];
+  if (!el) return JSON.stringify({ missing: true });
+  const settle = () => new Promise((ok) => setTimeout(ok, ${FOCUS_SETTLE_MS}));
+  const look = () => {
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return [cs.outlineStyle, cs.outlineWidth, cs.outlineColor, cs.boxShadow, cs.borderColor, cs.borderWidth, cs.backgroundColor, cs.color, cs.textDecorationLine, cs.transform, Math.round(r.width), Math.round(r.height)].join("|");
+  };
+  el.blur();
+  await settle();
+  const off = look();
+  el.focus();
+  await settle();
+  const on = look();
+  const r = el.getBoundingClientRect();
+  return JSON.stringify({ changed: on !== off, rect: { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height } });
+})()`;
+
 class Page {
   constructor(cdp, sessionId) {
     this.cdp = cdp;
@@ -467,9 +513,15 @@ class Page {
     }
   }
 
-  async screenshot(file, { full = false, dpr = 1 } = {}) {
+  async pressTab() {
+    await this.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+  }
+
+  async screenshot(file, { full = false, dpr = 1, clip = null } = {}) {
     const params = { format: "png" };
-    if (full) {
+    if (clip) Object.assign(params, { captureBeyondViewport: true, clip: { ...clip, scale: 1 } });
+    else if (full) {
       const { cssContentSize } = await this.send("Page.getLayoutMetrics");
       params.captureBeyondViewport = true;
       params.clip = { x: 0, y: 0, width: Math.ceil(cssContentSize.width), height: Math.min(Math.ceil(cssContentSize.height), FULL_PAGE_MAX_PX), scale: 1 / dpr };
@@ -478,6 +530,68 @@ class Page {
     fs.writeFileSync(file, Buffer.from(data, "base64"));
     return path.basename(file);
   }
+}
+
+function keyboardSummary(pages) {
+  const walked = pages.filter((p) => p.keyboard && !p.keyboard.error);
+  return {
+    pages: walked.length,
+    skipLinkMissing: walked.filter((p) => !p.keyboard.skipLink).map((p) => new URL(p.url).pathname),
+    noIndicator: walked.reduce((n, p) => n + p.keyboard.leads.noIndicator.length, 0),
+    hidden: walked.reduce((n, p) => n + p.keyboard.leads.hidden.length, 0),
+    trapped: walked.filter((p) => p.keyboard.leads.trapped).map((p) => new URL(p.url).pathname),
+  };
+}
+
+async function keyboardWalk(page, out, slug) {
+  await page.evaluate("window.scrollTo(0, 0), document.activeElement && document.activeElement.blur(), delete window.__jstyleFocus, true");
+  const steps = [];
+  let end = "max";
+  for (let i = 0; i < KEYBOARD_MAX_TABS; i += 1) {
+    await page.pressTab();
+    await sleep(80);
+    const step = JSON.parse(await page.evaluate(FOCUS_STEP_EXPRESSION));
+    const prev = steps.at(-1);
+    if (step.tag === "body") { end = "left page"; break; }
+    if (prev && step.id === prev.id) {
+      if (step.tag === "iframe") { prev.repeats = (prev.repeats || 1) + 1; continue; }
+      end = "stuck";
+      break;
+    }
+    if (steps.length && step.id === steps[0].id) { end = "wrapped"; break; }
+    if (steps.some((s) => s.id === step.id)) { steps.push(step); end = "loop"; break; }
+    steps.push(step);
+  }
+  const first = steps[0];
+  const skipTarget = first?.tag === "a" && /^#.+/.test(first.href || "")
+    ? await page.evaluate(`(() => { const id = decodeURIComponent(${JSON.stringify((first.href || "").slice(1))}); return Boolean(document.getElementById(id) || document.getElementsByName(id)[0]); })()`)
+    : false;
+  const hidden = steps.filter((s) => s.hidden || !s.inViewport).map(({ id, tag, label, x, y }) => ({ id, tag, label, x, y }));
+  const orderJumps = [];
+  steps.forEach((s, i) => { if (i && s.y < steps[i - 1].y - ORDER_JUMP_PX) orderJumps.push({ from: steps[i - 1].label, to: s.label, fromY: steps[i - 1].y, toY: s.y }); });
+  const noIndicator = [];
+  const files = [];
+  for (const s of steps.filter((x) => !x.hidden && x.tag !== "iframe")) {
+    const check = JSON.parse(await page.evaluate(focusIndicatorExpression(s.id)));
+    if (check.missing || check.changed) continue;
+    const lead = { id: s.id, tag: s.tag, label: s.label };
+    if (files.length < KEYBOARD_LEAD_SHOTS && check.rect.w > 0) {
+      const pad = 12;
+      const clip = { x: Math.max(0, check.rect.x - pad), y: Math.max(0, check.rect.y - pad), width: Math.ceil(check.rect.w + pad * 2), height: Math.ceil(check.rect.h + pad * 2) };
+      lead.file = await page.screenshot(path.join(out, `${slug}-focus-${s.id}.png`), { clip });
+      files.push(lead.file);
+    }
+    noIndicator.push(lead);
+  }
+  return {
+    viewport: "1440x900",
+    tabs: steps.length,
+    end,
+    skipLink: skipTarget ? { label: first.label, href: first.href } : null,
+    steps: steps.map(({ id, tag, role, label, href, x, y, w, h, focusVisible, repeats }) => ({ id, tag, role, label, href, x, y, w, h, focusVisible, ...(repeats ? { repeats } : {}) })),
+    leads: { noIndicator, hidden, orderJumps: orderJumps.slice(0, 10), trapped: end === "stuck" || end === "loop" },
+    files,
+  };
 }
 
 function userAgents(product, userAgent) {
@@ -690,6 +804,11 @@ async function run(plan, opts, log) {
         }
         if (plan.axe && deep) record.axe[desktopFold ? "desktop" : "mobile"] = filterAxe(await page.evaluateJson("axe-run").catch((error) => ({ error: error.message })), pathname, config);
         if (deep || (desktopFold && quick)) record.files.push(await page.screenshot(path.join(out, `${info.slug}-${width}-full.png`), { full: true, dpr: phone ? PHONE_DPR : 1 }));
+        if (plan.keyboard && desktopFold && (info.start || info.funnel)) {
+          log(`· ${info.slug} 키보드`);
+          record.keyboard = await keyboardWalk(page, out, info.slug).catch((error) => ({ error: error.message }));
+          record.files.push(...(record.keyboard.files || []));
+        }
       } catch (error) {
         if (cdp.ws.readyState !== WebSocket.OPEN) throw error;
         record.notes.push(`${width}px에서 멈췄습니다: ${error.message}`);
@@ -747,11 +866,11 @@ async function run(plan, opts, log) {
     links: plan.links ? "checked" : "not checked",
     robotsSkipped: skipped,
     droppedOverCap: plan.droppedOverCap,
-    keyboard: "not tested (use another browser tool)",
+    keyboard: plan.keyboard ? `tested on ${evidence.pages.filter((p) => p.keyboard && !p.keyboard.error).length} page(s) (Escape and menus need another browser tool)` : "not tested (use --keyboard or another browser tool)",
     inp: "no interaction (use another browser tool)",
   };
   save();
-  return { out, evidence: file, ...(evidence.aborted ? { aborted: evidence.aborted } : {}), opened: evidence.pages.filter((p) => p.opened).length, pages: evidence.pages.length, gates, noise, coverage: evidence.coverage };
+  return { out, evidence: file, ...(evidence.aborted ? { aborted: evidence.aborted } : {}), opened: evidence.pages.filter((p) => p.opened).length, pages: evidence.pages.length, gates, noise, ...(plan.keyboard ? { keyboard: keyboardSummary(evidence.pages) } : {}), coverage: evidence.coverage };
 }
 
 export async function main(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {

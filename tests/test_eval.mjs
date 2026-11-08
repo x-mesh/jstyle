@@ -34,6 +34,8 @@ test("site mode sweeps the standard widths widest first and emulates phones belo
   const plan = planRun(parseArgs(["https://example.com"]));
   assert.deepEqual(plan.widths, [1920, 1440, 1280, 1024, 768, 375, 320]);
   assert.equal(plan.phoneBelow, 768);
+  assert.equal(plan.keyboard, false);
+  assert.equal(planRun(parseArgs(["https://example.com", "--keyboard"])).keyboard, true);
   assert.equal(plan.heightFor[768], 900);
   assert.equal(plan.heightFor[320], 812);
 });

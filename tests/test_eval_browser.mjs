@@ -25,8 +25,9 @@ const PAGE = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta n
 @media (prefers-color-scheme: dark){body{background:#111;color:#eee}}.bare:focus{outline:none}</style></head>
 <body><main><h1>Lorem ipsum 제목</h1><div class="wide"></div>
 <a href="/missing">없는 링크</a> <a href="/private/x">비공개</a> <a class="bare" href="/about">소개</a>
-<form><label>이메일 <input name="email"></label><button>제출</button></form></main>
-<script>console.error("boom"); fetch("/api/fail")</script></body></html>`;
+<form><label>이메일 <input name="email"></label><button>제출</button></form><x-pair></x-pair></main>
+<script>customElements.define("x-pair", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "closed" }).innerHTML = "<button>별</button><button>49</button>"; } });
+console.error("boom"); fetch("/api/fail")</script></body></html>`;
 
 function serve() {
   const server = createServer((req, res) => {
@@ -84,7 +85,8 @@ test("eval records read-only evidence and gate leads for a local site", { skip: 
   assert.ok(home.style.distinct.fontSizes >= 1);
   assert.equal(about.style, undefined);
   assert.equal(about.keyboard, undefined);
-  assert.deepEqual(home.keyboard.steps.map((s) => s.label), ["없는 링크", "비공개", "소개", "", "제출"]);
+  assert.deepEqual(home.keyboard.steps.map((s) => [s.label, s.repeats ?? 1]), [["없는 링크", 1], ["비공개", 1], ["소개", 1], ["", 1], ["제출", 1], ["", 2]]);
+  assert.deepEqual([home.keyboard.steps.at(-1).tag, home.keyboard.steps.at(-1).container], ["x-pair", true]);
   assert.equal(home.keyboard.end, "left page");
   assert.deepEqual(home.keyboard.leads.noIndicator.map((l) => l.label), ["소개"]);
   assert.ok(fs.statSync(path.join(out, home.keyboard.leads.noIndicator[0].file)).size > 0);

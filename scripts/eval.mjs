@@ -378,6 +378,9 @@ const FOCUS_STEP_EXPRESSION = `JSON.stringify((() => {
     hidden: r.width === 0 || r.height === 0 || cs.visibility === "hidden" || Number(cs.opacity) === 0,
     inViewport: r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth,
     focusVisible: el.matches(":focus-visible"),
+    // Tab skips tabIndex -1 except for scrollable boxes, which Chrome makes keyboard-focusable on its own.
+    // Any other element like that holds the real focus inside a closed shadow root.
+    container: el.tagName === "IFRAME" || (el.tabIndex < 0 && !(/auto|scroll/.test(cs.overflowX + cs.overflowY) && (el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight))),
   };
 })())`;
 
@@ -561,7 +564,7 @@ async function keyboardWalk(page, out, slug) {
     const prev = steps.at(-1);
     if (step.tag === "body") { end = "left page"; break; }
     if (prev && step.id === prev.id) {
-      if (step.tag === "iframe") { prev.repeats = (prev.repeats || 1) + 1; continue; }
+      if (step.container) { prev.repeats = (prev.repeats || 1) + 1; continue; }
       end = "stuck";
       break;
     }
@@ -578,7 +581,7 @@ async function keyboardWalk(page, out, slug) {
   steps.forEach((s, i) => { if (i && s.y < steps[i - 1].y - ORDER_JUMP_PX) orderJumps.push({ from: steps[i - 1].label, to: s.label, fromY: steps[i - 1].y, toY: s.y }); });
   const noIndicator = [];
   const files = [];
-  for (const s of steps.filter((x) => !x.hidden && x.tag !== "iframe")) {
+  for (const s of steps.filter((x) => !x.hidden && !x.container)) {
     const check = JSON.parse(await page.evaluate(focusIndicatorExpression(s.id)));
     if (check.missing || check.changed) continue;
     const lead = { id: s.id, tag: s.tag, label: s.label };
@@ -595,7 +598,7 @@ async function keyboardWalk(page, out, slug) {
     tabs: steps.length,
     end,
     skipLink: skipTarget ? { label: first.label, href: first.href } : null,
-    steps: steps.map(({ id, tag, role, label, href, x, y, w, h, focusVisible, repeats }) => ({ id, tag, role, label, href, x, y, w, h, focusVisible, ...(repeats ? { repeats } : {}) })),
+    steps: steps.map(({ id, tag, role, label, href, x, y, w, h, focusVisible, container, repeats }) => ({ id, tag, role, label, href, x, y, w, h, focusVisible, ...(container ? { container } : {}), ...(repeats ? { repeats } : {}) })),
     leads: { noIndicator, hidden, orderJumps: orderJumps.slice(0, 10), trapped: end === "stuck" || end === "loop" },
     files,
   };

@@ -46,6 +46,7 @@
 
 - 캡처·녹화: `--root <프로젝트 루트>`와 `--out .jstyle/<작업 이름>/shots`를 지정합니다. `--root`는 서비스 범위이며 저장 폴더가 아닙니다.
 - 이미지 찾기: 작업 폴더에서 `curate-media.mjs`를 실행하면 `assets/`와 `.curate-cache.json`이 그 안에 남습니다. 작업을 나눠야 하면 `--cache .curate-cache.json`도 직접 지정합니다.
+- 사이트 평가: `jstyle eval`은 `--out`이 없으면 `.jstyle/eval-<사이트>-<날짜>/`에 근거를 남기고, 같은 이름이 있으면 `-2`처럼 새 폴더를 씁니다. 보고서 `report.md`도 같은 폴더에 둡니다.
 - 비교 화면: `explore/`에 안을 두고 `jstyle explore`를 실행하면 그 옆에 `style-explorer.html`이 생깁니다.
 - 이미지 만들기: 최종 이미지는 `--out`으로 프로젝트의 정식 이미지 폴더에 저장합니다.
 - 이미지 크기 바꾸기: 정식 `srcset`을 만들 때는 프로젝트 루트에서 `prep-image.mjs`를 실행합니다. 작업 폴더 기준의 상대 경로를 복사하지 않습니다.

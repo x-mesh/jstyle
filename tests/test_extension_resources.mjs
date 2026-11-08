@@ -15,8 +15,8 @@ const inside = (target) => {
 };
 
 test("skill references resolve without installation paths", () => {
-  const extended = path.join(ROOT, "references", "extended");
-  const sources = [path.join(ROOT, "SKILL.md"), ...fs.readdirSync(extended).filter((name) => name.endsWith(".md")).sort().map((name) => path.join(extended, name))];
+  const markdown = (dir) => fs.readdirSync(dir).filter((name) => name.endsWith(".md")).sort().map((name) => path.join(dir, name));
+  const sources = [path.join(ROOT, "SKILL.md"), ...["references", "references/extended", "references/eval"].flatMap((dir) => markdown(path.join(ROOT, dir)))];
   for (const source of sources) {
     for (const [, target] of fs.readFileSync(source, "utf8").matchAll(/\]\(([^)]+)\)/g)) {
       if (target.includes("://")) continue;

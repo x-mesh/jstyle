@@ -4,7 +4,6 @@
 set -euo pipefail
 
 REPO="x-mesh/jstyle"
-SKILL_DIR="$HOME/.agents/skills/jstyle"
 BIN_DIR="${JSTYLE_BIN_DIR:-$HOME/.local/bin}"
 MIN_NODE=22
 
@@ -45,6 +44,13 @@ agents=()
 command -v claude >/dev/null 2>&1 && agents+=(claude-code)
 command -v codex >/dev/null 2>&1 && agents+=(codex)
 [ "${#agents[@]}" -gt 0 ] || die "PATH에 claude나 codex가 없습니다. 다른 에이전트는 npx skills add $REPO -g 로 설치하세요"
+# skills keeps the copy in ~/.agents only for a universal agent such as codex;
+# for claude-code alone it copies straight into ~/.claude/skills.
+if command -v codex >/dev/null 2>&1; then
+  SKILL_DIR="$HOME/.agents/skills/jstyle"
+else
+  SKILL_DIR="$HOME/.claude/skills/jstyle"
+fi
 
 link="$BIN_DIR/jstyle"
 if [ -e "$link" ] && [ ! -L "$link" ]; then
@@ -52,7 +58,7 @@ if [ -e "$link" ] && [ ! -L "$link" ]; then
 fi
 
 if [ -f "$SKILL_DIR/package.json" ]; then
-  printf '스킬 업데이트: jstyle %s ← %s\n' "$(node -p "require('$SKILL_DIR/package.json').version")" "$source"
+  printf '스킬 업데이트: jstyle %s ← %s\n' "$(node -p 'require(process.argv[1]).version' "$SKILL_DIR/package.json")" "$source"
 else
   printf '스킬 설치: %s\n' "$source"
 fi

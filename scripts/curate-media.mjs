@@ -59,11 +59,11 @@ look에는 밝기·단색에 가까운 정도·모서리 색·종이 바탕·글
 이미지·영상과 poster, 텍스처·지도 파일은 SOURCES.md에 출처와 사용 범위를 남깁니다.
 원본 제공처의 조건과 이름 표시를 지킵니다. 자세한 내용은 references/media.md를 읽습니다.`;
 
-function usage(message) { throw new Error(`${message}\n예시：${EXAMPLE}\n한꺼번에 받기：node scripts/curate-media.mjs fetch V1,T2 --dir assets --sheet\n모든 선택지：node scripts/curate-media.mjs --help`); }
+function usage(message) { throw new Error(`${message}\n예시: ${EXAMPLE}\n한꺼번에 받기: node scripts/curate-media.mjs fetch V1,T2 --dir assets --sheet\n모든 선택지: node scripts/curate-media.mjs --help`); }
 export function parseArgs(argv) {
   const [command, ...args] = argv;
   if (!command || command === '--help' || command === '-h' || args.includes('--help') || args.includes('-h')) return { help: true };
-  if (!['search', 'fetch', 'preview'].includes(command)) usage(`알 수 없는 명령 ${command}`);
+  if (!['search', 'fetch', 'preview'].includes(command)) usage(`알 수 없는 명령입니다: ${command}`);
   const allowed = {
     search: ['kind', 'limit', 'use', 'resolution', 'dir', 'sheet', 'cache', 'refresh', 'timeout'],
     preview: ['dir', 'sheet', 'cache', 'timeout'],
@@ -75,9 +75,9 @@ export function parseArgs(argv) {
     const arg = args[i];
     if (!arg.startsWith('-')) { positional.push(arg); continue; }
     const match = arg.match(/^--([^=]+)(?:=(.*))?$/);
-    if (!match || !allowed.includes(match[1])) usage(`지원하지 않음 ${arg}；${command} 지원：${allowed.map(k => '--' + k).join(' ')}`);
+    if (!match || !allowed.includes(match[1])) usage(`지원하지 않는 선택지입니다: ${arg}. ${command}에서 쓸 수 있는 선택지: ${allowed.map(k => '--' + k).join(' ')}`);
     const [, key, inline] = match;
-    if (key in opts) usage(`선택지 --${key} 한 번만 쓸 수 있습니다`);
+    if (key in opts) usage(`--${key}는 한 번만 쓸 수 있습니다`);
     if (flags.includes(key)) {
       if (inline !== undefined) usage(`--${key} 값을 받지 않는 스위치입니다`);
       opts[key] = true;
@@ -87,15 +87,15 @@ export function parseArgs(argv) {
       opts[key] = value;
     }
   }
-  if (!positional.length || !positional.join(' ').trim()) usage(`${command} 검색어가 없습니다、번호 또는 URL`);
-  if (opts.out && opts.dir) usage('--out 및 --dir 동시에 쓸 수 없음');
+  if (!positional.length || !positional.join(' ').trim()) usage(`${command}에 검색어, 번호 또는 URL이 필요합니다`);
+  if (opts.out && opts.dir) usage('--out과 --dir은 함께 쓸 수 없습니다');
   opts.kind ??= 'all';
   if (!KINDS.includes(opts.kind)) usage(`--kind 올바른 값: ${KINDS.join('|')}`);
   opts.use ??= 'all';
   if (!['all', 'page'].includes(opts.use)) usage('--use 올바른 값: all|page');
   for (const [key, fallback, min, max] of [['limit', opts.kind === 'all' ? 12 : 6, 1, 30],['timeout', 12000, 1000, 120000], ['max-mb', 256, 1, 2048], ['download-timeout', 180000, 1000, 900000]]) {
     opts[key] = Number(opts[key] ?? fallback);
-    if (!Number.isInteger(opts[key]) || opts[key] < min || opts[key] > max) usage(`--${key} 올바른 값: ${min}..${max} 의 정수`);
+    if (!Number.isInteger(opts[key]) || opts[key] < min || opts[key] > max) usage(`--${key}는 ${min}..${max} 범위의 정수여야 합니다`);
   }
   opts.resolution ??= '1k';
   if (!['1k', '2k', '4k', '8k'].includes(opts.resolution)) usage('--resolution 올바른 값: 1k|2k|4k|8k');
@@ -115,7 +115,7 @@ export function parseArgs(argv) {
 const https = value => String(value).replace(/^http:\/\//, 'https://').replace(/^\/\//, 'https://');
 function httpUrl(value) {
   const u = new URL(value);
-  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) throw new Error('인증 정보가 없는 주소만 받습니다: HTTP(S) URL');
+  if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) throw new Error('인증 정보가 없는 HTTP(S) URL만 받습니다');
   return u.href;
 }
 const apiUrl = (base, params) => { const u = new URL(base); for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v)); return u.href; };
@@ -157,11 +157,11 @@ const emptyCache = () => ({ version: 1, items: {}, catalogues: {} });
 async function readCache(file) {
   try {
     const data = JSON.parse(await fs.readFile(file, 'utf8'));
-    if (data.version !== 1 || !data.items || !data.catalogues) throw new Error('지원하지 않는 형식이나 버전');
+    if (data.version !== 1 || !data.items || !data.catalogues) throw new Error('지원하지 않는 형식이나 버전입니다');
     return data;
   } catch (e) {
     if (e.code === 'ENOENT') return emptyCache();
-    throw new Error(`캐시 ${file} 읽을 수 없습니다：${e.message}；다음을 쓰세요: --cache 새 파일 지정`);
+    throw new Error(`캐시 파일을 읽을 수 없습니다(${file}: ${e.message}). --cache로 새 파일을 지정하세요`);
   }
 }
 async function replaceCache(temp, file) {
@@ -183,7 +183,7 @@ async function updateCache(file, fn) {
   while (true) {
     try { await fs.mkdir(lock); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      if (Date.now() > deadline) throw new Error(`캐시를 쓰는 중입니다：${lock}；지난 프로세스가 끝났다면，잠금 폴더를 지우고 다시 시도할 수 있습니다`);
+      if (Date.now() > deadline) throw new Error(`다른 프로세스가 캐시를 쓰는 중입니다: ${lock}. 그 프로세스가 이미 끝났다면 잠금 폴더를 지우고 다시 시도하세요`);
       await new Promise(resolve => setTimeout(resolve, 60));
     }
   }
@@ -216,8 +216,8 @@ async function resolveTexture(item, opts) {
     roughness: selectMap(files, ['Rough', 'rough', 'Roughness'], opts.resolution),
     normal: selectMap(files, ['nor_gl', 'Normal', 'normal'], opts.resolution),
   };
-  if (!textureMaps.diffuse) throw new Error(`${item.sourceId} 쓸 수 있는 항목이 없습니다: Diffuse JPG`);
-  return { ...item, textureMaps, textureUrl: textureMaps.diffuse.url, imageUrl: textureMaps.diffuse.url, normalConvention: 'OpenGL', tiling: '보기 previewUrl 반복되는 가장자리도 확인합니다；일부 텍스처는 한 축으로만 반복됩니다' };
+  if (!textureMaps.diffuse) throw new Error(`${item.sourceId}에 쓸 수 있는 Diffuse JPG가 없습니다`);
+  return { ...item, textureMaps, textureUrl: textureMaps.diffuse.url, imageUrl: textureMaps.diffuse.url, normalConvention: 'OpenGL', tiling: 'previewUrl에서 반복되는 가장자리도 확인합니다. 일부 텍스처는 한 축으로만 반복됩니다' };
 }
 async function searchPoly(query, limit, opts, type = 'textures') {
   const data = await catalogue(type, opts), terms = queryTerms(query);
@@ -294,7 +294,7 @@ async function resolveNasa(item, opts) {
   const data = await json(item.manifestUrl, opts);
   const urls = Array.isArray(data) ? data : (data.collection?.items ?? []).map(r => r.href);
   const url = selectNasaFile(urls, item.mediaType, opts['video-size']);
-  if (!url) throw new Error(`${item.sourceId} 받을 수 있는 항목이 없습니다: ${item.mediaType} 파일`);
+  if (!url) throw new Error(`${item.sourceId}에 받을 수 있는 ${item.mediaType} 파일이 없습니다`);
   const alternates = item.mediaType === 'video' ? ['preview', 'small', 'mobile'].map(size => urls.find(u => u.includes(`~${size}.`) && /\.mp4$/i.test(u))).filter(Boolean) : ['large', 'medium', 'small'].map(size => urls.find(u => u.includes(`~${size}.`) && /\.(jpe?g|png)$/i.test(u))).filter(Boolean);
   return { ...item, downloadCandidates: [...new Set([url, ...alternates].map(https))], ...(item.mediaType === 'video' ? { videoUrl: https(url) } : { imageUrl: https(url) }) };
 }
@@ -368,7 +368,7 @@ async function searchJapan(query, limit, opts, kind = 'design') {
     // ColBase keeps a 3000px image at /slideshow/ beside the small /slideshow_s/; some items lack it, so the small one stays as fallback.
     const original = https(raw), large = original.replace('/slideshow_s/', '/slideshow/');
     const people = (c.contributor ?? []).filter(Boolean).slice(0, 2).join(' / ');
-    return [{ provider: 'japan', sourceId: c.id ?? x.id, kind, title: plain(c.title) || c.id, detail: [plain(c.titleEn), (c.temporal ?? []).at(-1), people].filter(Boolean).join(' · ').slice(0, 240), about: plain(c.description).slice(0, 300), license: JAPAN_RIGHTS[c.contentsRightsType], licenseUrl: 'https://jpsearch.go.jp/policy/available-rights-statements', attribution: c.database === 'cobas' ? `출처：ColBase（https://colbase.nich.go.jp/） · ${people}` : [people || c.provider, 'via Japan Search'].filter(Boolean).join(' · '), pageUrl: c.linkUrl ?? `https://jpsearch.go.jp/item/${c.id}`, imageUrl: large, previewUrl: https(c.thumbnailUrl?.[0] ?? raw), downloadCandidates: [...new Set([large, original])] }];
+    return [{ provider: 'japan', sourceId: c.id ?? x.id, kind, title: plain(c.title) || c.id, detail: [plain(c.titleEn), (c.temporal ?? []).at(-1), people].filter(Boolean).join(' · ').slice(0, 240), about: plain(c.description).slice(0, 300), license: JAPAN_RIGHTS[c.contentsRightsType], licenseUrl: 'https://jpsearch.go.jp/policy/available-rights-statements', attribution: c.database === 'cobas' ? `출처: ColBase(https://colbase.nich.go.jp/) · ${people}` : [people || c.provider, 'via Japan Search'].filter(Boolean).join(' · '), pageUrl: c.linkUrl ?? `https://jpsearch.go.jp/item/${c.id}`, imageUrl: large, previewUrl: https(c.thumbnailUrl?.[0] ?? raw), downloadCandidates: [...new Set([large, original])] }];
   });
 }
 async function searchRijks(query, limit, opts, kind = 'design') {
@@ -427,7 +427,7 @@ function searchJobs(query, opts) {
 }
 async function runSearch(input, opts) {
   const queries = input.split(/\s*\|\s*/).map(q => q.trim()).filter(Boolean);
-  if (!queries.length) usage('search 검색어가 없습니다');
+  if (!queries.length) usage('search에 검색어가 필요합니다');
   const selected = queries.flatMap(query => searchJobs(query, opts).map(([label, fn]) => [queries.length > 1 ? `${label} "${query}"` : label, fn, query]));
   let filtered = 0;
   const results = await Promise.allSettled(selected.map(async ([label, fn, query]) => {
@@ -441,7 +441,7 @@ async function runSearch(input, opts) {
     filtered += before - items.length;
     items = items.map(({ matched, score, ...item }) => ({ ...item, use: item.use ?? rightsUse(item.license, item.licenseUrl), query }));
     if (opts.use === 'page') items = items.filter(item => item.use === 'page');
-    console.error(`[curate-media] ${label}: ${items.length} 항목${before > items.length ? `（걸러냄 ${before - items.length}）` : ''} (${Date.now() - start}ms)`);
+    console.error(`[curate-media] ${label}: ${items.length}개 항목${before > items.length ? `, ${before - items.length}개 걸러냄` : ''} (${Date.now() - start}ms)`);
     return { items, errors: value.errors ?? [] };
   }));
   const errors = results.flatMap((r, i) => r.status === 'rejected' ? [{ source: selected[i][0], message: r.reason.message }] : r.value.errors.map(message => ({ source: selected[i][0], message })));
@@ -452,7 +452,7 @@ async function runSearch(input, opts) {
   let items = await remember(picked, opts);
   let sheet;
   if (opts.sheet) ({ items, sheet } = await remoteSheet(items, opts));
-  const hint = items.length ? undefined : '결과 없음：묶음마다 한두 단어만 남기세요，장소나 물건 이름부터 찾으세요，또는 다음을 쓰세요: | 서로 다른 검색어로 나누기；--kind 다음으로 바꾸기: all';
+  const hint = items.length ? undefined : '결과가 없습니다. 묶음마다 한두 단어만 남기고 장소나 물건 이름부터 찾으세요. |로 서로 다른 검색어를 나누거나 --kind all로 바꿔 볼 수도 있습니다';
   return { query: input, ...(queries.length > 1 ? { queries } : {}), kind: opts.kind, count: items.length, ...(hint ? { hint } : {}), filtered, cache: opts.cache, items, errors, ...sheet, failed: results.every(r => r.status === 'rejected') || (!items.length && errors.length > 0) };
 }
 async function targets(positional, opts) {
@@ -466,7 +466,7 @@ async function targets(positional, opts) {
   return [...new Set(tokens)].map(token => {
     if (/^[A-Z]\d+$/i.test(token) && Object.values(PREFIX).includes(token[0].toUpperCase())) {
       const item = cache.items[token.toUpperCase()];
-      if (!item) usage(`캐시에 없습니다: ${token}；먼저 search，또는 다음을 쓰세요: --cache 기존 캐시 고르기`);
+      if (!item) usage(`캐시에 없는 번호입니다: ${token}. 먼저 search를 실행하거나 --cache로 기존 캐시를 고르세요`);
       return item;
     }
     try {
@@ -474,7 +474,7 @@ async function targets(positional, opts) {
       // A pasted result URL retains its source metadata whenever the workspace knows it.
       const known = Object.values(cache.items).find(x => [x.imageUrl, x.videoUrl, ...Object.values(x.textureMaps ?? {}).map(m => m?.url)].includes(url));
       return { ...known, directUrl: url, imageUrl: url, title: known?.title ?? path.basename(new URL(url).pathname), provider: known?.provider ?? 'url', use: known?.use ?? 'check', license: known?.license ?? 'Rights not verified (direct URL)', attribution: known?.attribution ?? 'Source supplied by user', pageUrl: known?.pageUrl ?? url, previewUrl: url };
-    } catch { usage(`번호나 값이 올바르지 않습니다: URL：${token}`); }
+    } catch { usage(`번호나 URL이 올바르지 않습니다: ${token}`); }
   });
 }
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -483,11 +483,11 @@ async function writeSheet(items, dir, remote) {
   const cards = items.map(item => {
     const src = remote ? item.previewUrl ?? item.imageUrl : item.poster ?? item.saved;
     const href = remote ? src : src && path.relative(dir, src).split(path.sep).map(encodeURIComponent).join('/');
-    const image = href && !/\.(mp4|mov|webm)(?:\?|$)/i.test(href) ? `<img src="${escapeHtml(href)}" alt="${escapeHtml(item.title)}"><p class="size">읽는 중…</p>` : '<p>이미지 미리보기가 없습니다；받은 결과를 확인하세요</p>';
+    const image = href && !/\.(mp4|mov|webm)(?:\?|$)/i.test(href) ? `<img src="${escapeHtml(href)}" alt="${escapeHtml(item.title)}"><p class="size">읽는 중…</p>` : '<p>이미지 미리보기가 없습니다. 받은 결과를 확인하세요</p>';
     return `<article>${image}<h2>${escapeHtml(item.ref ?? 'URL')} · ${escapeHtml(item.use ?? 'check')} · ${escapeHtml(item.map ?? item.kind)} · ${escapeHtml(item.title)}</h2><p>${escapeHtml(item.license)}</p><p>${escapeHtml(item.attribution)}</p><a href="${escapeHtml(item.pageUrl)}">출처 기록</a>${item.integrity ? `<p>${escapeHtml(item.integrity)} · ${item.width ?? '?'} × ${item.height ?? '?'}</p>` : ''}</article>`;
   }).join('\n');
   const file = path.join(dir, remote ? 'candidates.html' : 'sheet.html');
-  const html = `<!doctype html><html lang="ko-KR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>이미지 후보 모음</title><style>body{font:15px/1.5 system-ui;margin:24px;background:#eee;color:#222}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}article{background:white;padding:16px;overflow-wrap:anywhere}img{width:100%;height:240px;object-fit:contain}h2{font-size:17px;line-height:1.4}.error{color:#a00}</style><h1>이미지 후보 · ${items.length} 항목</h1><p>${remote ? '외부 미리보기：미리보기 파일의 너비와 높이，실제 받은 파일에 원본 크기가 있습니다。' : '로컬 이미지：읽은 결과와 실제 크기는 각 항목에 있습니다。'}</p><main>${cards}</main><script>for(const img of document.images){const label=img.nextElementSibling;function check(){label.textContent=img.naturalWidth?img.naturalWidth+' × '+img.naturalHeight:'읽기 실패';if(!img.naturalWidth)label.className='error'}img.addEventListener('load',check);img.addEventListener('error',check);if(img.complete)check()}</script></html>`;
+  const html = `<!doctype html><html lang="ko-KR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>이미지 후보 모음</title><style>body{font:15px/1.5 system-ui;margin:24px;background:#eee;color:#222}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}article{background:white;padding:16px;overflow-wrap:anywhere}img{width:100%;height:240px;object-fit:contain}h2{font-size:17px;line-height:1.4}.error{color:#a00}</style><h1>이미지 후보 · ${items.length} 항목</h1><p>${remote ? '외부 미리보기: 표시한 크기는 미리보기 파일의 너비와 높이입니다. 원본 크기는 실제로 받은 파일에서 확인하세요.' : '로컬 이미지: 읽은 결과와 실제 크기를 각 항목에 표시합니다.'}</p><main>${cards}</main><script>for(const img of document.images){const label=img.nextElementSibling;function check(){label.textContent=img.naturalWidth?img.naturalWidth+' × '+img.naturalHeight:'읽기 실패';if(!img.naturalWidth)label.className='error'}img.addEventListener('load',check);img.addEventListener('error',check);if(img.complete)check()}</script></html>`;
   await fs.writeFile(file, html); return file;
 }
 async function hasTool(name) { try { await exec(name, ['-version'], { timeout: 5000, maxBuffer: 100000 }); return true; } catch { return false; } }
@@ -541,7 +541,7 @@ async function contactSheet(cells, file) {
 const sizeLabel = item => item.originalWidth && item.originalHeight ? `${item.originalWidth}x${item.originalHeight}` : item.width && item.height ? `${item.width}x${item.height}` : '';
 async function remoteSheet(items, opts) {
   const html = await writeSheet(items, opts.dir, true);
-  if (!(await hasTool('ffmpeg')) || !(await hasTool('ffprobe'))) return { items, sheet: { sheet: html, sheetWarnings: ['필요한 항목이 없습니다: ffmpeg/ffprobe，그림 모음 없음 PNG 와 look；열기 HTML 이미지 모음에서 고르기'] } };
+  if (!(await hasTool('ffmpeg')) || !(await hasTool('ffprobe'))) return { items, sheet: { sheet: html, sheetWarnings: ['ffmpeg/ffprobe가 없어 PNG 그림 모음과 look 값을 만들지 못했습니다. HTML 이미지 모음을 열어 고르세요'] } };
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'jstyle-curate-'));
   try {
     const looked = await pool(items, async (item, i) => {
@@ -552,11 +552,11 @@ async function remoteSheet(items, opts) {
     }, 6);
     const out = items.map((item, i) => looked[i].status !== 'fulfilled' ? { ...item, look: null, lookError: looked[i].reason.message } : { ...item, look: looked[i].value.look, ...(!item.originalWidth && item.previewUrl === item.imageUrl ? { originalWidth: looked[i].value.size.width, originalHeight: looked[i].value.size.height } : {}) });
     const cells = out.flatMap((item, i) => looked[i].status === 'fulfilled' ? [{ src: looked[i].value.file, top: `${item.ref ?? 'URL'}  ${item.use ?? ''}  ${sizeLabel(item)}`, bottom: `${item.provider} - ${/[a-z]{3}/i.test(labelText(item.title)) ? item.title : item.detail}` }] : []);
-    const warnings = out.filter(x => x.lookError).map(x => `${x.ref ?? x.imageUrl}: 미리보기를 받지 못했습니다，들어가지 않음 PNG：${x.lookError}`);
+    const warnings = out.filter(x => x.lookError).map(x => `${x.ref ?? x.imageUrl}: 미리보기를 받지 못해 PNG에서 뺐습니다(${x.lookError})`);
     if (!cells.length) return { items: out, sheet: { sheet: html, sheetWarnings: warnings } };
     const png = await contactSheet(cells, path.join(opts.dir, 'candidates.png'));
-    if (!png.labelled) warnings.push('ffmpeg 글을 쓸 수 없습니다，PNG 번호 없음；칸의 기준: items 안에 있음 look 항목은 왼쪽부터 놓습니다、위에서 아래로 배치');
-    console.error(`[curate-media] 이미지 모음：${png.file}（실제 그림을 보고 고릅니다）`);
+    if (!png.labelled) warnings.push('ffmpeg가 글자를 그리지 못해 PNG에 번호가 없습니다. 칸은 items에서 look이 있는 항목 순서대로 왼쪽에서 오른쪽, 위에서 아래로 놓입니다');
+    console.error(`[curate-media] 이미지 모음: ${png.file} (실제 그림을 보고 고르세요)`);
     return { items: out, sheet: { sheet: html, sheetImage: png.file, ...(warnings.length ? { sheetWarnings: warnings } : {}) } };
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
 }
@@ -567,14 +567,14 @@ export function sniff(buffer) {
   if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return { ext: '.webp', video: false };
   if (buffer.toString('ascii', 4, 8) === 'ftyp') return { ext: buffer.toString('ascii', 8, 12).startsWith('qt') ? '.mov' : '.mp4', video: true };
   if (buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return { ext: '.webm', video: true };
-  throw new Error('지원하는 이미지나 영상 응답이 아닙니다；가능한 까닭: HTML、JSON 오류 페이지나 깨진 파일');
+  throw new Error('지원하는 이미지나 영상 응답이 아닙니다. HTML이나 JSON 오류 페이지, 또는 깨진 파일일 수 있습니다');
 }
 async function download(url, temp, opts, expected) {
   const res = await fetch(httpUrl(url), { headers: headersFor(url), signal: AbortSignal.timeout(opts['download-timeout']) });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   const max = opts['max-mb'] * 1024 * 1024, length = Number(res.headers.get('content-length'));
   if (length > max) { await res.body?.cancel(); throw new Error(`파일이 제한을 넘습니다: --max-mb ${opts['max-mb']}`); }
-  if (/text\/html|application\/json/.test(res.headers.get('content-type') ?? '')) { await res.body?.cancel(); throw new Error('오류 페이지나 메타데이터 응답입니다，미디어 파일이 아님'); }
+  if (/text\/html|application\/json/.test(res.headers.get('content-type') ?? '')) { await res.body?.cancel(); throw new Error('미디어 파일이 아니라 오류 페이지나 메타데이터 응답입니다'); }
   const handle = await fs.open(temp, 'wx'); let bytes = 0, head = Buffer.alloc(0); const md5 = createHash('md5');
   try {
     for await (const chunk of res.body) {
@@ -584,24 +584,24 @@ async function download(url, temp, opts, expected) {
     }
   } finally { await handle.close(); }
   if (!bytes || (length && !res.headers.get('content-encoding') && bytes !== length)) throw new Error('파일이 비었거나 전송이 끝나지 않았습니다');
-  if (expected?.size && bytes !== expected.size) throw new Error(`파일 크기가 맞지 않습니다：${bytes}，예상 ${expected.size}`);
+  if (expected?.size && bytes !== expected.size) throw new Error(`파일 크기가 맞지 않습니다(받은 크기 ${bytes}, 예상 ${expected.size})`);
   const digest = md5.digest('hex'); if (expected?.md5 && digest !== expected.md5) throw new Error('MD5 검사 실패');
   return { bytes, md5: digest, ...sniff(head) };
 }
 async function inspect(file, tools, full) {
-  if (!tools.ffprobe) return { integrity: 'signature-and-length-only', warnings: ['필요한 항목이 없습니다: ffprobe，실제 너비와 높이를 아직 확인하지 않았습니다'] };
+  if (!tools.ffprobe) return { integrity: 'signature-and-length-only', warnings: ['ffprobe가 없어 실제 너비와 높이를 확인하지 못했습니다'] };
   const { stdout } = await exec('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,codec_name:format=duration', '-of', 'json', file], { timeout: 20000, maxBuffer: 100000 });
   const data = JSON.parse(stdout), stream = data.streams?.[0];
-  if (!stream?.width || !stream?.height) throw new Error('디코딩할 수 있는 이미지가 없습니다/영상 스트림');
+  if (!stream?.width || !stream?.height) throw new Error('디코딩할 수 있는 이미지/영상 스트림이 없습니다');
   if (full && tools.ffmpeg) await exec('ffmpeg', ['-nostdin', '-v', 'error', '-xerror', '-i', file, '-map', '0:v:0', '-f', 'null', '-'], { timeout: 120000, maxBuffer: 1000000 });
-  return { width: stream.width, height: stream.height, codec: stream.codec_name, duration: Number(data.format?.duration) || undefined, integrity: full && tools.ffmpeg ? 'full-decode' : 'probed', warnings: full && !tools.ffmpeg ? ['필요한 항목이 없습니다: ffmpeg，파일 전체를 아직 디코딩하지 않았습니다'] : [] };
+  return { width: stream.width, height: stream.height, codec: stream.codec_name, duration: Number(data.format?.duration) || undefined, integrity: full && tools.ffmpeg ? 'full-decode' : 'probed', warnings: full && !tools.ffmpeg ? ['ffmpeg가 없어 파일 전체를 디코딩해 확인하지 못했습니다'] : [] };
 }
 const safeName = s => String(s ?? 'media').replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 90) || 'media';
 // Reserve the destination atomically; repeated downloads get suffixes instead of overwriting.
 async function deliver(temp, wanted, explicit = false) {
   for (let i = 0; i < 1000; i++) {
     const p = path.parse(wanted), file = i ? path.join(p.dir, `${p.name}-${i}${p.ext}`) : wanted;
-    try { await fs.copyFile(temp, file, fs.constants.COPYFILE_EXCL); return file; } catch (e) { if (e.code !== 'EEXIST') throw e; if (explicit) throw new Error(`파일이 이미 있습니다：${file}；다른 값을 고르세요: --out 파일 이름`); }
+    try { await fs.copyFile(temp, file, fs.constants.COPYFILE_EXCL); return file; } catch (e) { if (e.code !== 'EEXIST') throw e; if (explicit) throw new Error(`파일이 이미 있습니다: ${file}. --out에 다른 파일 이름을 지정하세요`); }
   }
   throw new Error('겹치는 파일 이름이 너무 많습니다');
 }
@@ -618,7 +618,7 @@ async function logSources(records, note) {
 }
 async function resolveIIIF(item, opts) {
   const info = await json(item.iiifInfoUrl, opts);
-  if (!info.width || !info.height) throw new Error('IIIF 올바른 원본 크기가 없습니다');
+  if (!info.width || !info.height) throw new Error('IIIF 정보에 올바른 원본 크기가 없습니다');
   const base = iiifBase(item.iiifInfoUrl);
   const imageUrl = Math.max(info.width, info.height) <= 1600 ? `${base}/full/full/0/default.jpg` : `${base}/full/!1600,1600/0/default.jpg`;
   return { ...item, imageUrl, originalWidth: info.width, originalHeight: info.height };
@@ -629,12 +629,12 @@ async function localSheet(records, dir) {
   for (const r of records) {
     const src = r.poster ?? (r.video ? null : r.saved); if (!src) continue;
     try { r.look = await lookAt(src, await inspect(src, { ffprobe: true }, false)); cells.push({ src, top: `${r.ref ?? 'URL'}  ${r.use}  ${r.width && r.height ? `${r.width}x${r.height}` : ''}`, bottom: path.basename(r.saved) }); }
-    catch (e) { r.warnings.push(`look 실패：${e.message}`); }
+    catch (e) { r.warnings.push(`look 실패: ${e.message}`); }
   }
   return cells.length ? (await contactSheet(cells, path.join(dir, 'sheet.png'))).file : undefined;
 }
 async function runFetch(items, opts) {
-  if (opts.out && (items.length !== 1 || (items[0].kind === 'texture' && !items[0].directUrl && opts.maps.length > 1))) usage('--out 파일 하나만 지원합니다；여러 파일은 다음 명령으로 받습니다: --dir assets');
+  if (opts.out && (items.length !== 1 || (items[0].kind === 'texture' && !items[0].directUrl && opts.maps.length > 1))) usage('--out은 파일 하나에만 쓸 수 있습니다. 여러 파일은 --dir assets로 받으세요');
   await fs.mkdir(opts.dir, { recursive: true });
   const tools = { ffmpeg: await hasTool('ffmpeg'), ffprobe: await hasTool('ffprobe') };
   const tasks = [], errors = [], records = [];
@@ -646,7 +646,7 @@ async function runFetch(items, opts) {
       if (item.kind === 'texture' && !item.directUrl) {
         for (const map of opts.maps) {
           const file = item.textureMaps[map];
-          if (!file) { errors.push({ ref: item.ref, map, message: `쓸 수 있는 항목이 없습니다: ${map} JPG` }); continue; }
+          if (!file) { errors.push({ ref: item.ref, map, message: `쓸 수 있는 ${map} JPG가 없습니다` }); continue; }
           tasks.push({ item, map, url: file.url, expected: file });
         }
       } else tasks.push({ item, url: item.directUrl ?? item.videoUrl ?? item.imageUrl });
@@ -665,20 +665,20 @@ async function runFetch(items, opts) {
       const inspection = await inspect(temp, tools, opts.sheet);
       const filename = `${safeName(item.ref ?? item.provider)}-${safeName(item.sourceId ?? item.title)}${map ? '-' + map + '-' + expected.resolution : ''}${received.ext}`;
       const out = opts.out ? path.resolve(opts.out) : path.join(opts.dir, filename);
-      if (opts.out && ![received.ext, ...(received.ext === '.jpg' ? ['.jpeg'] : [])].includes(path.extname(out).toLowerCase())) throw new Error(`--out 확장자와 실제 파일 형식이 다릅니다，올바른 값: ${received.ext}`);
+      if (opts.out && ![received.ext, ...(received.ext === '.jpg' ? ['.jpeg'] : [])].includes(path.extname(out).toLowerCase())) throw new Error(`--out 확장자가 실제 파일 형식과 다릅니다. 확장자를 ${received.ext}로 바꾸세요`);
       const saved = await deliver(temp, out, Boolean(opts.out));
       result = { ref: item.ref, provider: item.provider, sourceId: item.sourceId, kind: item.kind, use: item.use ?? rightsUse(item.license, item.licenseUrl), title: item.title, map, resolution: expected?.resolution, url, saved, pageUrl: item.pageUrl, license: item.license, licenseUrl: item.licenseUrl, attribution: item.attribution, originalWidth: item.originalWidth, originalHeight: item.originalHeight, ...(map === 'normal' ? { normalConvention: item.normalConvention } : {}), ...received, ...inspection };
-      if (!received.video && Math.max(result.width ?? 9999, result.height ?? 9999) < 1000) result.warnings.push(`크기가 작습니다（${result.width}x${result.height}），작은 그림 자리에만 알맞습니다`);
-      if (result.use === 'reference') result.warnings.push('이미지를 만들 때 참고로만 씁니다：페이지 사용이 허용되지 않았습니다，서비스에 넣지 않는 폴더에 둡니다');
-      if (recovery.length) result.warnings.push(`쓸 수 있는 버전으로 바꿨습니다；이전 실패：${recovery.join('; ')}`);
+      if (!received.video && Math.max(result.width ?? 9999, result.height ?? 9999) < 1000) result.warnings.push(`크기가 작습니다(${result.width}x${result.height}). 작은 그림 자리에만 알맞습니다`);
+      if (result.use === 'reference') result.warnings.push('페이지 사용이 허용되지 않은 이미지라 만들 때 참고로만 써야 합니다. 서비스에 넣지 않는 폴더에 두세요');
+      if (recovery.length) result.warnings.push(`쓸 수 있는 버전으로 바꿨습니다. 이전 실패: ${recovery.join('; ')}`);
       if (received.video) {
-        if (!tools.ffmpeg) result.warnings.push('필요한 항목이 없습니다: ffmpeg，poster 만들지 못함');
+        if (!tools.ffmpeg) result.warnings.push('ffmpeg가 없어 poster를 만들지 못했습니다');
         else {
           const posterTemp = path.join(opts.dir, `.${randomUUID()}.jpg`);
           try {
             await exec('ffmpeg', ['-nostdin', '-v', 'error', '-xerror', '-i', saved, '-frames:v', '1', '-q:v', '2', posterTemp], { timeout: 30000, maxBuffer: 100000 });
             result.poster = await deliver(posterTemp, saved.replace(/\.[^.]+$/, '-poster.jpg'));
-          } catch (e) { result.warnings.push(`poster 실패：${e.message}`); }
+          } catch (e) { result.warnings.push(`poster 실패: ${e.message}`); }
           finally { await fs.rm(posterTemp, { force: true }); }
         }
       }
@@ -688,7 +688,7 @@ async function runFetch(items, opts) {
   });
   settled.forEach((r, i) => { if (r.status === 'fulfilled') records.push(r.value); else errors.push({ ref: tasks[i].item.ref, url: tasks[i].url, message: r.reason.message }); });
   await logSources(records, opts.note);
-  for (const r of records) if ((opts.sheet && r.integrity !== 'full-decode') || (r.video && !r.poster)) errors.push({ ref: r.ref, saved: r.saved, message: r.warnings.join('; ') || '검사 또는 poster 끝내지 못함' });
+  for (const r of records) if ((opts.sheet && r.integrity !== 'full-decode') || (r.video && !r.poster)) errors.push({ ref: r.ref, saved: r.saved, message: r.warnings.join('; ') || '검사나 poster 생성을 끝내지 못했습니다' });
   const sheet = opts.sheet ? await writeSheet(records, opts.dir, false) : undefined;
   const sheetImage = opts.sheet && tools.ffmpeg && tools.ffprobe ? await localSheet(records, opts.dir) : undefined;
   return { count: records.length, files: records, errors, ...(sheet ? { sheet } : {}), ...(sheetImage ? { sheetImage } : {}), ...(records.length === 1 ? { saved: records[0].saved, bytes: records[0].bytes } : {}), failed: errors.length > 0 };

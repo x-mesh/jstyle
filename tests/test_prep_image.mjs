@@ -42,11 +42,11 @@ describe("prep-image CLI", () => {
     assert.ok(runCli(["--HELP"]).stdout.includes("프로젝트 루트에서 실행"));
     for (const [args, expected] of [[["--widht", "2"], "알 수 없는 선택지"], [["--width", "0px"], "--width 960px"],
       [["--widths", ",,"], "너비 목록이 비어 있습니다"], [["--crop", "16:no"], "--crop 16:9"],
-      [["--crop", "0:0"], "--crop 16:9"], [["--focus", "left"], "--focus 필요 --crop"],
+      [["--crop", "0:0"], "--crop 16:9"], [["--focus", "left"], "--focus는 --crop과 함께"],
       [["--crop", "16:9", "--focus", "101%,0%"], "초점이 범위를 넘습니다"],
       [["--format", "avif"], "--format webp"], [["--quality", "101"], "--quality 82"],
-      [["--trim=true"], "--trim 값을 받지 않음"], [["--format", "png", "--quality", "80"], "PNG"],
-      [["--width", "3", "--widths", "3,6"], "하나 고르기"]]) {
+      [["--trim=true"], "--trim은 값을 받지 않습니다"], [["--format", "png", "--quality", "80"], "PNG"],
+      [["--width", "3", "--widths", "3,6"], "하나만 고르세요"]]) {
       assert.ok(runCli(["input.png", ...args], 1).stderr.includes(expected), args.join(" "));
     }
   });
@@ -61,7 +61,7 @@ describe("prep-image CLI", () => {
     assert.equal(data.errors.length, 3);
     assert.ok(data.errors.every((e) => "command" in e && "argv" in e));
     assert.ok(data.errors.every((e) => path.resolve(e.argv[1]) === SCRIPT), "Recovery must work when the skill is invoked from another project directory");
-    assert.ok(result.stderr.includes("다시 실행：node"));
+    assert.ok(result.stderr.includes("다시 실행: node"));
     assert.equal(fs.existsSync(path.join(folder, "web-images")), false);
   });
 

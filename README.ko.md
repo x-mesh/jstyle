@@ -1,6 +1,6 @@
 # jstyle
 
-[English](README.en.md)
+[English](README.md)
 
 jstyle은 화면을 만들고 다듬는 AI 에이전트를 위한 스킬입니다. 디자인 방향을 정하고, 실제 화면을 보며 배치와 사용 흐름을 고치는 데 도움을 줍니다.
 

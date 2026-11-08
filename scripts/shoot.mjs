@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 디자인 시안을 캡처합니다、녹화와 기본 확인。필요한 것만: Node 22+ 로컬의 Chrome / Chromium / Edge。
-// 사용법 안내: references/tools.md；`node shoot.mjs --help` 같은 도움말을 보입니다。
+// 디자인 시안을 캡처·녹화하고 기본 검사를 합니다. Node 22 이상과 로컬 Chrome / Chromium / Edge만 있으면 됩니다.
+// 사용법은 references/tools.md와 `node shoot.mjs --help`에서 볼 수 있습니다.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -85,7 +85,7 @@ doubleclick=dblclick, press=key, sleep=wait도 쓸 수 있습니다.
 클릭·두 번 클릭·hover는 가운데 가림과 비활성을 report.json에 남기되 계속 실행합니다.
 캡처는 최대 90초, 다른 CDP 요청은 기본 30초입니다. 시간 초과면 두 배 시간으로 한 번 더 실행합니다.
 다시 캡처가 늦으면 다음 항목을 계속하며 종료 코드 1입니다. 다른 CDP 오류나 브라우저 끊김은 멈춥니다.
-진행은 stderr, 마지막 결과는 stdout으로 보냅니다. 콘솔 오류·가로 넘침·깨진 이미지는 issues, 읽기 문제는 lint에 남습니다.
+진행은 stderr, 마지막 결과는 stdout으로 보냅니다. 콘솔 오류·가로 넘침·깨진 이미지는 issues, 읽기·배치·클릭 대상·키트 밖 색 문제는 lint에 남습니다.
 녹화는 ffmpeg가 필요합니다. 없으면 프레임만 남깁니다.
 
 일반 캡처는 모든 상태에서 각 steps 묶음을 실행합니다. 움직임과 녹화는 첫 상태·첫 크기를 씁니다.
@@ -110,7 +110,7 @@ Canvas/WebGL의 변화는 놓칠 수 있습니다. 빈 캔버스는 근거로 �
 로컬 파일은 임시 로컬 서버에서 엽니다. 주소에 ?나 &가 있으면 따옴표나 --query를 씁니다.
 WebGL은 필요하면 소프트웨어로 그리며 컨텍스트가 없으면 문제로 알립니다.`;
 
-function fail(message) { console.error(`shoot：${message}`); process.exit(1); }
+function fail(message) { console.error(`shoot: ${message}`); process.exit(1); }
 const STITCH_EXAMPLE = 'node scripts/shoot.mjs --stitch ref.png --match-width 240 --stitch shot.png --match-width 300 --crop "0,0,800,600" --out shots';
 const SCALE_EXAMPLE = 'node scripts/shoot.mjs --stitch ref.png --scale 1 --stitch shot.png --scale 80% --out shots';
 function stitchNumber(value, key) {
@@ -123,14 +123,14 @@ function stitchNumber(value, key) {
   const number = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
   const parts = key === "scale" ? text.split("/").map((part) => part.trim()) : [text];
   const n = parts.every((part) => number.test(part)) && parts.length <= 2 ? Number(parts[0]) / (parts.length === 2 ? Number(parts[1]) : 1) * factor : NaN;
-  if (!Number.isFinite(n) || n <= 0) fail(`--${key} 양수가 필요합니다，받은 값: ${value}；예: ${example}`);
+  if (!Number.isFinite(n) || n <= 0) fail(`--${key}에는 양수가 필요합니다. 받은 값: ${value}. 예: ${example}`);
   return n;
 }
 function stitchCrop(value) {
   const parts = value.trim().replace(/(\d)\s*px(?=\s|[,，x×)\]]|$)/gi, "$1").replace(/^[[(]\s*|\s*[\])]$/g, "").trim().split(/[\s,，x×]+/i);
   const numbers = parts.map(Number);
   if (parts.length !== 4 || parts.some((part) => !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)) || numbers.some((n) => !Number.isFinite(n)) || numbers[2] <= 0 || numbers[3] <= 0) {
-    fail(`--crop 음수가 아닌 값이 필요합니다 x、y 양수 너비와、높이，받은 값: ${value}；예: ${STITCH_EXAMPLE}`);
+    fail(`--crop에는 음수가 아닌 x, y와 양수인 너비, 높이가 필요합니다. 받은 값: ${value}. 예: ${STITCH_EXAMPLE}`);
   }
   const [x, y, width, height] = numbers;
   return { x, y, width, height };
@@ -171,19 +171,19 @@ function splitOutside(text, words = false) {
     if (quoteStarts) { if (selectorQuote) outerQuote = c; else quote = c; continue; }
     if (c === "[" || c === "(") stack.push(c);
     else if (c === "]" || c === ")") {
-      if (stack.pop() !== (c === "]" ? "[" : "(")) throw new Error(`괄호의 짝이 맞지 않습니다，받은 값: ${text}；예: click [aria-label="Send money"]`);
+      if (stack.pop() !== (c === "]" ? "[" : "(")) throw new Error(`괄호의 짝이 맞지 않습니다. 받은 값: ${text}. 예: click [aria-label="Send money"]`);
     } else if (!stack.length && (words ? /\s/.test(c) : c === ";")) {
       if (text.slice(start, i).trim()) parts.push(text.slice(start, i).trim());
       start = i + 1;
     }
   }
-  if (quote || outerQuote || stack.length) throw new Error(`따옴표나 괄호의 짝이 맞지 않습니다，받은 값: ${text}；예: click [aria-label="Send money"]`);
+  if (quote || outerQuote || stack.length) throw new Error(`따옴표나 괄호의 짝이 맞지 않습니다. 받은 값: ${text}. 예: click [aria-label="Send money"]`);
   if (text.slice(start).trim()) parts.push(text.slice(start).trim());
   return parts;
 }
 function parseSelector(source) {
   const value = unquote(source.trim());
-  if (!value) throw new Error(`선택자가 없습니다，받은 값: ${source}；예: click .open`);
+  if (!value) throw new Error(`선택자가 없습니다. 받은 값: ${source}. 예: click .open`);
   if (value.startsWith("text=")) return { kind: "text", value: unquote(value.slice(5).trim()) };
   const m = value.match(/^(.*):has-text\(\s*(["'])([\s\S]*)\2\s*\)$/);
   if (m) return { kind: "has-text", css: m[1].trim() || "*", value: unquote(m[2] + m[3] + m[2]) };
@@ -211,8 +211,8 @@ function parseSteps(text) {
     const m = raw.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     let action = ALIASES[m[1]] || m[1], tail = m[2] || "";
     if (/^(wait|sleep)\d/.test(action)) { tail = action.replace(/^(wait|sleep)/, ""); action = "wait"; }
-    const bad = (example) => { throw new Error(` ${i + 1} 단계의 동작 인수가 올바르지 않습니다，받은 값: ${raw}；예: ${example}`); };
-    if (!ACTIONS.includes(action)) throw new Error(` ${i + 1} 단계의 알 수 없는 동작，받은 값: ${raw}；이렇게 쓰려던 것인가요: ${closest(action, [...ACTIONS, ...Object.keys(ALIASES)])}？모든 동작：${ACTIONS.join("、")}；다른 이름：${Object.keys(ALIASES).join("、")}`);
+    const bad = (example) => { throw new Error(`${i + 1}단계의 동작 인수가 올바르지 않습니다. 받은 값: ${raw}. 예: ${example}`); };
+    if (!ACTIONS.includes(action)) throw new Error(`${i + 1}단계의 동작을 알 수 없습니다. 받은 값: ${raw}. 이렇게 쓰려던 것인가요: ${closest(action, [...ACTIONS, ...Object.keys(ALIASES)])}? 모든 동작: ${ACTIONS.join(", ")}. 다른 이름: ${Object.keys(ALIASES).join(", ")}`);
     const step = { action, raw, params: {} };
     if (["click", "hover", "dblclick", "waitfor"].includes(action)) {
       if (!tail) bad(`${action} .open`);
@@ -262,40 +262,40 @@ for (let i = 0; i < args.length; i++) {
       const suggestion = glued ? `${glued} ${a.slice(glued.length)}` : closest(option, options);
       const examples = { out: "shots", size: "desktop", states: "idle,done", param: "state", query: '"a=1&b=2"', zoom: "1,2", mark: '"1=.open"', steps: '"click .open"', hold: "1000", compare: "ref.png", wait: "400", stitch: "before.png", label: '"바꾸기 전"', columns: "2", frames: "8", "match-width": "240", scale: "80%", crop: '"0,0,800,600"' };
       const example = glued ? suggestion : `${suggestion}${examples[suggestion.slice(2)] ? " " + examples[suggestion.slice(2)] : ""}`;
-      fail(`알 수 없는 선택지 ${a}；이렇게 쓰려던 것인가요: ${example}？\n쓸 수 있는 선택지：${options.join(" ")}`);
+      fail(`알 수 없는 선택지입니다: ${a}. 이렇게 쓰려던 것인가요: ${example}?\n쓸 수 있는 선택지: ${options.join(" ")}`);
     }
     if (booleanOptions.has(key)) {
-      if (equal >= 0) fail(`${option} 인수를 받지 않음，받은 값: ${a}；예: ${option}`);
+      if (equal >= 0) fail(`${option}에는 값을 쓰지 않습니다. 받은 값: ${a}. 예: ${option}`);
       flags.add(key); lastFlag = option;
     } else {
       lastFlag = null;
       if (equal < 0 && (i + 1 >= args.length || args[i + 1].startsWith("--"))) {
         const example = { stitch: "--stitch before.png --stitch after.png --out shots", label: '--stitch before.png --label "바꾸기 전"', columns: "--stitch before.png --columns 2", frames: "page.html --record --frames 8", "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key];
-        fail(`${option} 값 하나가 필요합니다${example ? `，받은 값: ${a}；예: ${example}` : ""}`);
+        fail(`${option}에는 값 하나가 필요합니다.${example ? ` 받은 값: ${a}. 예: ${example}` : ""}`);
       }
       const value = equal < 0 ? args[++i] : a.slice(equal + 1);
-      if (!value) fail(`${option} 값 하나가 필요합니다，받은 값: ${a}；예: ${{ "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key] || `${option} 값`}`);
+      if (!value) fail(`${option}에는 값 하나가 필요합니다. 받은 값: ${a}. 예: ${{ "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key] || `${option} 값`}`);
       suppliedOptions.add(key);
       if (key === "steps") stepsInputs.push(value);
       else if (key === "stitch") stitchInputs.push({ path: value });
       else if (key === "label") {
-        if (!stitchInputs.length || stitchInputs.at(-1).label !== undefined) fail(`--label 이미지 뒤에 와야 합니다: --stitch 이미지 뒤，받은 값: ${a} ${value}；예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤"`);
+        if (!stitchInputs.length || stitchInputs.at(-1).label !== undefined) fail(`--label은 --stitch 이미지 바로 뒤에 와야 합니다. 받은 값: ${a} ${value}. 예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤"`);
         stitchInputs.at(-1).label = value;
       } else if (key === "match-width" || key === "scale") {
         const image = stitchInputs.at(-1), field = key === "match-width" ? "matchWidth" : "scale";
-        if (!image || image[field] !== undefined) fail(`--${key} 이미지 뒤에 와야 합니다: --stitch 이미지 뒤에 한 번만 씁니다，받은 값: ${a} ${value}；예: ${key === "scale" ? SCALE_EXAMPLE : STITCH_EXAMPLE}`);
+        if (!image || image[field] !== undefined) fail(`--${key}는 --stitch 이미지 바로 뒤에 한 번만 씁니다. 받은 값: ${a} ${value}. 예: ${key === "scale" ? SCALE_EXAMPLE : STITCH_EXAMPLE}`);
         image[field] = stitchNumber(value, key);
       } else if (key === "crop") {
-        if (opt.crop !== undefined) fail(`--crop 모든 이미지에 함께 쓰는 영역입니다，한 번만 쓰기，받은 값: ${value}；예: ${STITCH_EXAMPLE}`);
+        if (opt.crop !== undefined) fail(`--crop은 모든 이미지에 함께 적용하는 영역이므로 한 번만 씁니다. 받은 값: ${value}. 예: ${STITCH_EXAMPLE}`);
         opt.crop = stitchCrop(value);
       } else opt[key] = value;
     }
   } else {
-    if (stitchInputs.length) fail(`그림 모음에는 페이지가 필요하지 않습니다，이미지마다 앞에 적어야 합니다: --stitch，받은 값: ${a}；예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤" --columns 2 --out shots`);
-    if (lastFlag === "--motion" && /^(?:[.#\[]|text=)|:has-text\(/.test(a)) fail(`--motion 인수를 받지 않음，받은 값: --motion 와 ${a}；살펴볼 동작을 다음에 적으세요: --steps，예: --motion --steps "click ${a}"`);
-    if (positional.length && !/^(?:https?:|file:)|\.html?(?:,|$)|(?:^|[\/])manifest\.json$/i.test(a) && !existsSync(a)) fail(`페이지 주소나 남는 인수가 겹칩니다，받은 값: ${positional[0]} 와 ${a}${lastFlag ? `；${lastFlag} 인수를 받지 않음` : ""}；예: page.html --steps "click .open"`);
+    if (stitchInputs.length) fail(`그림 모음에는 페이지가 필요하지 않습니다. 이미지마다 앞에 --stitch를 붙이세요. 받은 값: ${a}. 예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤" --columns 2 --out shots`);
+    if (lastFlag === "--motion" && /^(?:[.#\[]|text=)|:has-text\(/.test(a)) fail(`--motion에는 값을 쓰지 않습니다. 받은 값: --motion ${a}. 살펴볼 동작은 --steps에 적으세요. 예: --motion --steps "click ${a}"`);
+    if (positional.length && !/^(?:https?:|file:)|\.html?(?:,|$)|(?:^|[\/])manifest\.json$/i.test(a) && !existsSync(a)) fail(`페이지 주소가 여러 개이거나 남는 인수가 있습니다. 받은 값: ${positional[0]}, ${a}${lastFlag ? `. ${lastFlag}에는 값을 쓰지 않습니다` : ""}. 예: page.html --steps "click .open"`);
     // Selector-like extras after a switch are never page targets.
-    if (lastFlag && /^(?:[.#\[]|text=)/.test(a) && !existsSync(a)) fail(`${lastFlag} 인수를 받지 않음，받은 값: ${lastFlag} 와 ${a}；예: page.html ${lastFlag}`);
+    if (lastFlag && /^(?:[.#\[]|text=)/.test(a) && !existsSync(a)) fail(`${lastFlag}에는 값을 쓰지 않습니다. 받은 값: ${lastFlag} ${a}. 예: page.html ${lastFlag}`);
     positional.push(a); lastFlag = null;
   }
 }
@@ -305,7 +305,7 @@ const localPath = (value) => /^file:\/\//i.test(value) ? fileURLToPath(value) : 
 function expandTarget(value) {
   if (/^https?:\/\//i.test(value)) return [{ target: value }];
   let path;
-  try { path = localPath(value); } catch { fail(`파일을 찾을 수 없습니다：${value}`); }
+  try { path = localPath(value); } catch { fail(`파일을 찾을 수 없습니다: ${value}`); }
   if (!existsSync(path) && value.includes(",") && value.split(",").every((p) => /\.html?$/i.test(p.trim()))) {
     batchMode = true;
     return value.split(",").flatMap((p) => expandTarget(p.trim()));
@@ -315,17 +315,17 @@ function expandTarget(value) {
     if (existsSync(join(path, "index.html"))) return [{ target: value }];
     batchMode = true;
     const pages = readdirSync(path, { withFileTypes: true }).filter((p) => p.isFile() && /\.html$/i.test(p.name) && p.name.toLowerCase() !== "style-explorer.html").map((p) => p.name).sort();
-    if (!pages.length) fail(`폴더에서 안을 찾을 수 없습니다 HTML：${value}`);
+    if (!pages.length) fail(`폴더에서 HTML을 찾지 못했습니다: ${value}`);
     return pages.flatMap((page) => expandTarget(join(path, page)));
   }
   if (basename(path).toLowerCase() === "manifest.json") {
     batchMode = true;
     let manifest;
     try { manifest = JSON.parse(readFileSync(path, "utf8")); }
-    catch (error) { fail(`읽을 수 없습니다 manifest：${value}（${error.message}）`); }
-    if (!Array.isArray(manifest.candidates)) fail(`manifest 필요한 항목이 없습니다: candidates 배열：${value}`);
+    catch (error) { fail(`manifest를 읽을 수 없습니다: ${value} (${error.message})`); }
+    if (!Array.isArray(manifest.candidates)) fail(`manifest에 candidates 배열이 없습니다: ${value}`);
     const candidates = manifest.candidates.filter((c) => c && (!c.kind || c.kind === "html") && typeof c.source === "string" && /\.html?$/i.test(c.source) && !/^[a-z][a-z\d+.-]*:/i.test(c.source));
-    if (!candidates.length) fail(`manifest 로컬 파일을 찾을 수 없습니다: HTML 안：${value}`);
+    if (!candidates.length) fail(`manifest에서 로컬 HTML 파일을 찾지 못했습니다: ${value}`);
     return candidates.map((c) => ({ target: resolve(dirname(path), c.source), id: c.id, name: c.name }));
   }
   return [{ target: value }];
@@ -338,30 +338,30 @@ const targetStem = (candidate) => {
   return String(source).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "") || "page";
 };
 const stitching = stitchInputs.length > 0;
-if (opt.crop !== undefined && !stitching) fail(`--crop 필요 --stitch 이미지，받은 값: ${args.join(" ")}；예: ${STITCH_EXAMPLE}`);
+if (opt.crop !== undefined && !stitching) fail(`--crop은 --stitch 이미지와 함께 써야 합니다. 받은 값: ${args.join(" ")}. 예: ${STITCH_EXAMPLE}`);
 if (!target && !stitching) {
-  if (opt.frames !== undefined || opt.columns !== undefined) fail(`페이지나 그림 모음 입력이 없습니다，받은 값: ${args.join(" ")}；예: page.html --record --frames 8 --columns 4，또는 --stitch before.png --stitch after.png --columns 2`);
-  fail("페이지 주소나 파일이 없습니다。");
+  if (opt.frames !== undefined || opt.columns !== undefined) fail(`페이지나 그림 모음 입력이 없습니다. 받은 값: ${args.join(" ")}. 예: page.html --record --frames 8 --columns 4 또는 --stitch before.png --stitch after.png --columns 2`);
+  fail("페이지 주소나 파일이 없습니다.");
 }
 if (stitching) {
   const incompatible = [...suppliedOptions].filter((key) => !["stitch", "label", "columns", "out", "timeout-scale", "match-width", "scale", "crop"].includes(key));
-  if (target || incompatible.length || [...flags].some((key) => key !== "dry-run" && key !== "force")) fail(`그림 모음에는 페이지나 캡처가 필요하지 않습니다/녹화 선택지，받은 값: ${target || incompatible.map((key) => "--" + key).join("、") || [...flags].join("、")}；예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤" --columns 2 --out shots`);
+  if (target || incompatible.length || [...flags].some((key) => key !== "dry-run" && key !== "force")) fail(`그림 모음에는 페이지나 캡처·녹화 선택지를 쓰지 않습니다. 받은 값: ${target || incompatible.map((key) => "--" + key).join(", ") || [...flags].join(", ")}. 예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤" --columns 2 --out shots`);
   for (const [i, image] of stitchInputs.entries()) {
     try { if (!statSync(image.path).isFile()) throw new Error("파일이 아님"); }
-    catch { fail(`모음의 ${i + 1} 번째 이미지가 없거나 파일이 아닙니다，받은 값: ${image.path}；예: --stitch before.png --label "바꾸기 전" --out shots`); }
+    catch { fail(`모음의 ${i + 1}번째 이미지가 없거나 파일이 아닙니다. 받은 값: ${image.path}. 예: --stitch before.png --label "바꾸기 전" --out shots`); }
   }
   if (stitchInputs.some((image) => image.matchWidth !== undefined)) {
-    if (stitchInputs.some((image) => image.scale !== undefined)) fail(`--match-width 및 --scale 섞어 쓸 수 없음，받은 값: 서로 다른 배율 지정 방식을 썼습니다；예: ${STITCH_EXAMPLE}；또는 ${SCALE_EXAMPLE}`);
-    if (stitchInputs.some((image) => image.matchWidth === undefined)) fail(`사용 --match-width 그림마다 같은 물체의 너비를 적어야 합니다，받은 값: 일부 이미지의 너비가 빠졌습니다；예: ${STITCH_EXAMPLE}`);
+    if (stitchInputs.some((image) => image.scale !== undefined)) fail(`--match-width와 --scale은 섞어 쓸 수 없습니다. 받은 값: 이미지마다 다른 배율 지정 방식. 예: ${STITCH_EXAMPLE} 또는 ${SCALE_EXAMPLE}`);
+    if (stitchInputs.some((image) => image.matchWidth === undefined)) fail(`--match-width를 쓰면 이미지마다 같은 물체의 너비를 적어야 합니다. 받은 값: 일부 이미지에 너비가 없음. 예: ${STITCH_EXAMPLE}`);
   }
 }
-if (opt.frames !== undefined && (!/^\d+$/.test(opt.frames) || !Number.isSafeInteger(+opt.frames) || +opt.frames < 2 || +opt.frames > 120)) fail(`--frames 필요 2–120 의 정수，받은 값: ${opt.frames}；예: page.html --record --frames 8`);
+if (opt.frames !== undefined && (!/^\d+$/.test(opt.frames) || !Number.isSafeInteger(+opt.frames) || +opt.frames < 2 || +opt.frames > 120)) fail(`--frames에는 2~120 사이의 정수가 필요합니다. 받은 값: ${opt.frames}. 예: page.html --record --frames 8`);
 const captureMotion = flags.has("record") || opt.frames !== undefined;
-if (opt.columns !== undefined && (!/^\d+$/.test(opt.columns) || !Number.isSafeInteger(+opt.columns) || +opt.columns < 1)) fail(`--columns 양의 정수가 필요합니다，받은 값: ${opt.columns}；예: --stitch before.png --stitch after.png --columns 2`);
-if (opt.columns !== undefined && !stitching && opt.frames === undefined) fail(`--columns 함께 써야 합니다: --stitch 또는 --frames，받은 값: --columns ${opt.columns}；예: page.html --record --frames 8 --columns 4`);
+if (opt.columns !== undefined && (!/^\d+$/.test(opt.columns) || !Number.isSafeInteger(+opt.columns) || +opt.columns < 1)) fail(`--columns에는 양의 정수가 필요합니다. 받은 값: ${opt.columns}. 예: --stitch before.png --stitch after.png --columns 2`);
+if (opt.columns !== undefined && !stitching && opt.frames === undefined) fail(`--columns는 --stitch나 --frames와 함께 써야 합니다. 받은 값: --columns ${opt.columns}. 예: page.html --record --frames 8 --columns 4`);
 if (flags.has("thumb")) {
   const badThumb = [...["full", "mask", "record", "motion", "entry", "evidence"].filter((k) => flags.has(k)).map((k) => "--" + k), ...(opt.frames !== undefined ? ["--frames"] : []), ...(opt.mark ? ["--mark"] : []), ...(opt.compare ? ["--compare"] : [])];
-  if (badThumb.length) fail(`--thumb 작은 미리보기에만 씁니다，함께 쓰지 않음 ${badThumb.join("、")} 함께 쓰기，받은 값: ${badThumb.join("、")}；예: page.html --size desktop --thumb --out shots`);
+  if (badThumb.length) fail(`--thumb는 작은 미리보기에만 쓰므로 다음 선택지와 함께 쓸 수 없습니다: ${badThumb.join(", ")}. 예: page.html --size desktop --thumb --out shots`);
   if (!suppliedOptions.has("wait")) opt.wait = "150";
 }
 const notices = [];
@@ -370,19 +370,19 @@ function deduplicate(values, key, label) {
   const unique = values.filter((value) => {
     const id = key(value); if (seen.has(id)) { removed.push(id); return false; } seen.add(id); return true;
   });
-  if (removed.length) notices.push(`${label} 겹친 항목을 뺐습니다：${[...new Set(removed)].join("、")}`);
+  if (removed.length) notices.push(`${label}에서 겹친 항목을 뺐습니다: ${[...new Set(removed)].join(", ")}`);
   return unique;
 }
 let groups, sizes, zooms, marks, selector = null;
 if (opt.selector) {
   const conflicts = [...["full", "record", "motion", "entry", "evidence"].filter((key) => flags.has(key)), ...(opt.frames !== undefined ? ["frames"] : [])];
-  if (conflicts.length) fail(`--selector 함께 쓸 수 없음: ${conflicts.map((key) => "--" + key).join("、")} 함께 쓰기`);
+  if (conflicts.length) fail(`--selector와 함께 쓸 수 없는 선택지입니다: ${conflicts.map((key) => "--" + key).join(", ")}`);
 }
 try {
   selector = opt.selector ? parseSelector(opt.selector) : null;
   groups = stepsInputs.map(parseSteps);
   const names = groups.map((g, i) => g.name || (groups.length > 1 ? String(i + 1) : ""));
-  if (new Set(names).size !== names.length) throw new Error(`동작 묶음 이름이 겹칩니다，받은 값: ${names.join("、")}；예: --steps "open: click .open" --steps "send: click .send"`);
+  if (new Set(names).size !== names.length) throw new Error(`동작 묶음 이름이 겹칩니다. 받은 값: ${names.join(", ")}. 예: --steps "open: click .open" --steps "send: click .send"`);
   const usedGroupFiles = new Set();
   const safeGroupFile = (value) => {
     let stem = String(value).trim().replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "-").replace(/\s+/g, "-")
@@ -403,16 +403,16 @@ try {
   sizes = opt.size.split(",").map((s) => {
     const value = ({ desktop: "1440x900", phone: "390x844", mobile: "390x844" })[s.trim()] || s.trim();
     const m = value.match(/^(\d+)x(\d+)$/);
-    if (!m || +m[1] < 1 || +m[2] < 1) throw new Error(`크기가 맞지 않습니다，받은 값: ${s}；예: --size desktop,390x844`);
+    if (!m || +m[1] < 1 || +m[2] < 1) throw new Error(`크기 형식이 맞지 않습니다. 받은 값: ${s}. 예: --size desktop,390x844`);
     return { w: +m[1], h: +m[2] };
   });
   zooms = opt.zoom.split(",").map((s) => {
-    const n = Number(s); if (!Number.isFinite(n) || n <= 0) throw new Error(`배율이 맞지 않음，받은 값: ${s}；예: --zoom 1,2`); return n;
+    const n = Number(s); if (!Number.isFinite(n) || n <= 0) throw new Error(`배율이 맞지 않습니다. 받은 값: ${s}. 예: --zoom 1,2`); return n;
   });
   sizes = deduplicate(sizes, (s) => `${s.w}x${s.h}`, "크기");
   zooms = deduplicate(zooms, String, "배율");
-  for (const key of ["hold", "wait"]) if (!/^\d+(?:\.\d+)?$/.test(opt[key])) throw new Error(`--${key} 밀리초 값이 필요합니다，받은 값: ${opt[key]}；예: --${key} 1000`);
-  if (opt["timeout-scale"] !== undefined && (!Number.isFinite(Number(opt["timeout-scale"])) || Number(opt["timeout-scale"]) < 1)) throw new Error(`제한 시간 배율이 맞지 않습니다，받은 값: ${opt["timeout-scale"]}；예: --timeout-scale 2`);
+  for (const key of ["hold", "wait"]) if (!/^\d+(?:\.\d+)?$/.test(opt[key])) throw new Error(`--${key}에는 밀리초 값이 필요합니다. 받은 값: ${opt[key]}. 예: --${key} 1000`);
+  if (opt["timeout-scale"] !== undefined && (!Number.isFinite(Number(opt["timeout-scale"])) || Number(opt["timeout-scale"]) < 1)) throw new Error(`--timeout-scale에는 1 이상인 수가 필요합니다. 받은 값: ${opt["timeout-scale"]}. 예: --timeout-scale 2`);
   marks = (opt.mark ? splitOutside(opt.mark) : []).map((s, i) => {
     const m = s.match(/^(\d+)\s*=\s*(.+)$/);
     return { label: m ? m[1] : String(i + 1), selector: parseSelector(m ? m[2] : s) };
@@ -423,14 +423,14 @@ const timeoutMs = (ms) => Math.min(2147483647, ms * timeoutScale);
 const quoteArg = (value) => "'" + String(value).replaceAll("'", "'\\''") + "'";
 const retryCommand = `node ${quoteArg(resolve(process.argv[1]))} ${stitching ? args.map(quoteArg).join(" ") : quoteArg(target)} --timeout-scale 2`;
 let currentRetryCommand = retryCommand;
-const slowHint = () => `여러 작업을 동시에 하면 느려질 수 있습니다；따로 다시 실행해 보세요：${currentRetryCommand}`;
+const slowHint = () => `여러 작업을 동시에 하면 느려질 수 있습니다. 따로 다시 실행해 보세요: ${currentRetryCommand}`;
 const states = deduplicate(opt.states ? opt.states.split(",").map((s) => s.trim()).filter(Boolean) : [null], String, "상태");
-if (!states.length) fail(`--states 상태 없음，받은 값: ${opt.states}；예: --states idle,done`);
+if (!states.length) fail(`--states에 상태가 없습니다. 받은 값: ${opt.states}. 예: --states idle,done`);
 const stateIds = states.map((s, i) => !s ? "page" : /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s : `state-${i + 1}-${createHash("sha256").update(s).digest("hex").slice(0, 12)}`);
 const refImage = opt.compare ? resolve(opt.compare) : null;
-if (refImage && !existsSync(refImage)) fail(`참고 그림을 찾을 수 없습니다：${opt.compare}`);
-if (refImage && !/\.(png|jpe?g|webp)$/i.test(refImage)) fail("--compare 받을 수 있는 값: png、jpg 또는 webp");
-if (refImage && (captureMotion || flags.has("evidence"))) fail("--compare 캡처에 씀，함께 쓰지 않음 --record、--frames 또는 --evidence 함께 쓰기；예: --compare ref.png");
+if (refImage && !existsSync(refImage)) fail(`참고 그림을 찾을 수 없습니다: ${opt.compare}`);
+if (refImage && !/\.(png|jpe?g|webp)$/i.test(refImage)) fail("--compare에는 png, jpg, webp 파일만 쓸 수 있습니다.");
+if (refImage && (captureMotion || flags.has("evidence"))) fail("--compare는 정지 캡처에만 씁니다. --record, --frames, --evidence와 함께 쓰지 않습니다. 예: --compare ref.png");
 if (flags.has("dry-run")) {
   console.log(JSON.stringify({ target, ...(targets.length > 1 ? { targets: targets.map((t) => t.target) } : {}), selector, options: opt, flags: [...flags], sizes, zooms, states, groups, marks, notices, ...(stitching ? { stitch: stitchInputs } : {}) }, null, 2));
   process.exit(0);
@@ -447,23 +447,23 @@ if (workerAttempt === undefined) {
     child = spawn(process.execPath, [...process.execArgv, process.argv[1], ...args,
       ...(attempt ? ["--timeout-scale", String(timeoutScale * 2)] : [])],
     { stdio: "inherit", env: { ...process.env, [attemptKey]: String(attempt) } });
-    child.once("error", (error) => { console.error(`shoot：캡처 프로세스를 시작하지 못했습니다，받은 값: ${error.message}`); ok(1); });
+    child.once("error", (error) => { console.error(`shoot: 캡처 프로세스를 시작하지 못했습니다: ${error.message}`); ok(1); });
     child.once("exit", (code, signal) => ok(signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : code ?? 1));
   });
   let code = await run(0);
   if (code === 75) {
-    console.error(`shoot：한 번 더 시도합니다：제한 시간을 두 배로 늘립니다（--timeout-scale ${timeoutScale * 2}），전체를 다시 실행，원래 인수를 모두 유지`);
+    console.error(`shoot: 제한 시간을 두 배로 늘려(--timeout-scale ${timeoutScale * 2}) 원래 인수 그대로 전체를 한 번 더 시도합니다.`);
     code = await run(1);
   }
   process.exit(code);
 }
-if (typeof WebSocket !== "function") fail("필요 Node 22 새 버전 이상。");
+if (typeof WebSocket !== "function") fail("Node 22 이상이 필요합니다.");
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const temporaryFrames = new Set(), encoders = new Set();
 function removeFrames() { for (const dir of temporaryFrames) rmSync(dir, { recursive: true, force: true }); temporaryFrames.clear(); }
 
-// ---------- 로컬 파일은 로컬에만 연결된 정적 서버에서 엽니다，모듈 스크립트와 fetch 제대로 실행할 수 있습니다 ----------
+// ---------- 로컬 파일은 로컬 전용 정적 서버에서 엽니다. 그래야 모듈 스크립트와 fetch가 제대로 실행됩니다 ----------
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
   ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -480,38 +480,38 @@ const privatePath = (path) => path.split(/[\\/]/).some((part) => part !== ".jsty
 let server = null;
 const localFiles = targets.filter((t) => !/^https?:\/\//i.test(t.target)).map(({ target }) => {
   const path = localPath(target);
-  if (!existsSync(path)) fail(`파일을 찾을 수 없습니다：${target}`);
+  if (!existsSync(path)) fail(`파일을 찾을 수 없습니다: ${target}`);
   const file = statSync(path).isDirectory() ? join(path, "index.html") : path;
-  if (!existsSync(file) || !statSync(file).isFile()) fail(`파일을 찾을 수 없습니다：${file}`);
+  if (!existsSync(file) || !statSync(file).isFile()) fail(`파일을 찾을 수 없습니다: ${file}`);
   return realpathSync(file);
 });
 let sharedRoot = localFiles.length ? dirname(localFiles[0]) : null;
 for (const file of localFiles) {
   while (relative(sharedRoot, file) === ".." || relative(sharedRoot, file).startsWith(`..${sep}`) || isAbsolute(relative(sharedRoot, file))) {
     const parent = dirname(sharedRoot);
-    if (parent === sharedRoot) fail("여러 로컬 대상은 같은 디스크에 있어야 합니다，같은 정적 서버를 쓸 수 있습니다");
+    if (parent === sharedRoot) fail("여러 로컬 대상이 같은 디스크에 있어야 같은 정적 서버로 열 수 있습니다.");
     sharedRoot = parent;
   }
 }
 let explicitRoot = null;
 if (opt.root) {
   const candidate = resolve(opt.root);
-  if (!existsSync(candidate) || !statSync(candidate).isDirectory()) fail(`--root 이미 있는 폴더가 필요합니다：${opt.root}`);
+  if (!existsSync(candidate) || !statSync(candidate).isDirectory()) fail(`--root에는 이미 있는 폴더가 필요합니다: ${opt.root}`);
   explicitRoot = realpathSync(candidate);
-  if (explicitRoot === parse(explicitRoot).root || explicitRoot === realpathSync(tmpdir())) fail(`--root 범위가 너무 넓습니다，프로젝트 폴더를 쓰세요：${opt.root}`);
+  if (explicitRoot === parse(explicitRoot).root || explicitRoot === realpathSync(tmpdir())) fail(`--root 범위가 너무 넓습니다. 프로젝트 폴더를 쓰세요: ${opt.root}`);
   for (const file of localFiles) {
     const fromRoot = relative(explicitRoot, file);
-    if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) fail(`로컬 대상이 범위 밖입니다: --root 안：${file}`);
+    if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) fail(`로컬 대상이 --root 밖에 있습니다: ${file}`);
   }
 }
 async function resolveTarget(t) {
   if (/^https?:\/\//i.test(t)) return t;
   let localTarget = t;
   if (/^file:\/\//i.test(t)) {
-    try { localTarget = fileURLToPath(t); } catch { fail(`파일을 찾을 수 없습니다：${t}`); }
+    try { localTarget = fileURLToPath(t); } catch { fail(`파일을 찾을 수 없습니다: ${t}`); }
   }
   const file = resolve(localTarget);
-  if (!existsSync(file)) fail(`파일을 찾을 수 없습니다：${t}`);
+  if (!existsSync(file)) fail(`파일을 찾을 수 없습니다: ${t}`);
   const isDir = statSync(file).isDirectory();
   const fileDir = realpathSync(isDir ? file : dirname(file));
   let root = explicitRoot || sharedRoot || fileDir;
@@ -554,7 +554,7 @@ async function resolveTarget(t) {
   return `http://127.0.0.1:${server.address().port}/${pagePath}`;
 }
 
-// ---------- 따로 쓸 임시 브라우저를 엽니다，사용자 브라우저 자료는 건드리지 않습니다 ----------
+// ---------- 따로 쓸 임시 브라우저를 엽니다. 사용자 브라우저 자료는 건드리지 않습니다 ----------
 let ws, cleaning;
 let browser;
 try { browser = createChrome({ timeoutMs, prefix: "jstyle-shoot-", label: "shoot" }); }
@@ -573,7 +573,7 @@ let wsUrl;
 try { wsUrl = await launchChrome(); }
 catch (error) {
   await cleanup();
-  console.error(`shoot：브라우저를 열지 못했습니다，받은 값: ${error.message === "timeout" ? `${45 * timeoutScale} 초 안에 시작하지 못했습니다` : error.message}；${slowHint()}`);
+  console.error(`shoot: 브라우저를 열지 못했습니다: ${error.message === "timeout" ? `${45 * timeoutScale}초 안에 시작하지 못했습니다` : error.message}. ${slowHint()}`);
   process.exit(error.message === "timeout" && workerAttempt === "0" ? 75 : 1);
 }
 
@@ -592,17 +592,17 @@ function abortTransport(error) {
   transportFailure = error; process.exitCode = error.code === "TRANSPORT_TIMEOUT" && workerAttempt === "0" ? 75 : 1;
   for (const request of pending.values()) { clearTimeout(request.timer); request.no(error); }
   pending.clear();
-  console.error(`shoot：${error.message}`);
+  console.error(`shoot: ${error.message}`);
   try { saveFatalReport(error); } catch {}
   void cleanup().finally(() => process.exit(process.exitCode));
 }
 async function connectTransport(url) {
   let opened = false;
   ws = new WebSocket(url);
-  ws.onclose = () => abortTransport(new Error(`${currentContext}：브라우저 연결이 갑자기 끊겼습니다，실행을 멈췄습니다；${slowHint()}`));
-  ws.onerror = () => abortTransport(new Error(`${currentContext}：${opened ? "브라우저 연결이 갑자기 끊겼습니다" : "브라우저 연결 오류"}，실행을 멈췄습니다；${slowHint()}`));
+  ws.onclose = () => abortTransport(new Error(`${currentContext}: 브라우저 연결이 갑자기 끊겼습니다. 실행을 멈춥니다. ${slowHint()}`));
+  ws.onerror = () => abortTransport(new Error(`${currentContext}: ${opened ? "브라우저 연결이 갑자기 끊겼습니다" : "브라우저 연결에 오류가 발생했습니다"}. 실행을 멈춥니다. ${slowHint()}`));
   await new Promise((ok, no) => {
-    const timer = setTimeout(() => { const error = new Error(`브라우저 연결：${30 * timeoutScale} 초 안에 응답하지 않았습니다；${slowHint()}`); error.code = "TRANSPORT_TIMEOUT"; no(error); abortTransport(error); }, timeoutMs(30000));
+    const timer = setTimeout(() => { const error = new Error(`브라우저 연결이 ${30 * timeoutScale}초 안에 응답하지 않았습니다. ${slowHint()}`); error.code = "TRANSPORT_TIMEOUT"; no(error); abortTransport(error); }, timeoutMs(30000));
     ws.onopen = () => { opened = true; clearTimeout(timer); ok(); };
     const failed = () => { clearTimeout(timer); no(transportFailure || new Error("브라우저에 연결하지 못했습니다")); };
     ws.addEventListener("close", failed, { once: true }); ws.addEventListener("error", failed, { once: true });
@@ -612,17 +612,17 @@ async function connectTransport(url) {
     if (msg.id && pending.has(msg.id)) {
       const { ok, no, timer, context } = pending.get(msg.id);
       pending.delete(msg.id); clearTimeout(timer);
-      msg.error ? no(new Error(`${context}：${msg.error.message}`)) : ok(msg.result);
+      msg.error ? no(new Error(`${context}: ${msg.error.message}`)) : ok(msg.result);
     } else if (msg.method) listeners.forEach((fn) => fn(msg));
   };
 }
 const send = (method, params = {}, targetSession) => new Promise((ok, no) => {
-  if (transportFailure || ws.readyState !== WebSocket.OPEN) { no(transportFailure || new Error(`${currentContext}：브라우저 연결이 이미 끊겼습니다。`)); return; }
+  if (transportFailure || ws.readyState !== WebSocket.OPEN) { no(transportFailure || new Error(`${currentContext}: 브라우저 연결이 이미 끊겼습니다.`)); return; }
   const id = ++seq, context = currentContext;
   // Rasterization competes with other tasks for CPU/GPU time; allow three ordinary request budgets.
   const limit = timeoutMs(method === "Page.captureScreenshot" ? 90000 : 30000);
   const timer = setTimeout(() => {
-    const error = new Error(`${context}：CDP ${method} ${limit / 1000} 초 안에 응답하지 않았습니다；${slowHint()}`);
+    const error = new Error(`${context}: CDP ${method} 요청이 ${limit / 1000}초 안에 응답하지 않았습니다. ${slowHint()}`);
     error.code = "TRANSPORT_TIMEOUT";
     if (method === "Page.navigate") {
       pending.delete(id); error.code = "NAVIGATION_TIMEOUT"; no(error);
@@ -632,7 +632,7 @@ const send = (method, params = {}, targetSession) => new Promise((ok, no) => {
   }, limit);
   pending.set(id, { ok, no, timer, context });
   try { ws.send(JSON.stringify({ id, method, params, ...(targetSession ? { sessionId: targetSession } : {}) })); }
-  catch { abortTransport(new Error(`${context}：보내기 CDP ${method} 중 브라우저 연결이 끊겼습니다，실행을 멈췄습니다；${slowHint()}`)); }
+  catch { abortTransport(new Error(`${context}: CDP ${method} 요청을 보내는 중 브라우저 연결이 끊겼습니다. 실행을 멈춥니다. ${slowHint()}`)); }
 });
 try { await connectTransport(wsUrl); } catch { await cleanup(); process.exit(process.exitCode || 1); }
 
@@ -647,8 +647,8 @@ async function setupSession() {
   await cdp("Page.enable");
   await cdp("Runtime.enable");
   await cdp("Log.enable");
-  // 만들지 못했거나 잃은 대상을 기록합니다: WebGL 맥락：캡처는 그대로 끝납니다，캔버스는 비어 있습니다。
-  // 먼저 시도 webgl2、실패하면 되돌아갑니다 webgl 페이지는 실패로 보지 않습니다，마지막 결과를 받았는지만 봅니다。
+  // WebGL 컨텍스트를 만들지 못했거나 잃은 캔버스를 기록합니다. 캡처는 그대로 끝나지만 캔버스는 비어 있습니다.
+  // webgl2가 실패한 뒤 webgl로 되돌아가는 페이지는 실패로 보지 않고, 마지막에 컨텍스트를 받았는지만 봅니다.
   await cdp("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
     const gl = window.__jstyleWebgl = { failed: [], ok: [], lost: 0 };
     const get = HTMLCanvasElement.prototype.getContext;
@@ -665,14 +665,14 @@ async function setupSession() {
 await setupSession();
 async function restartBrowser() {
   ws.onclose = ws.onerror = ws.onmessage = null; ws.close();
-  for (const request of pending.values()) { clearTimeout(request.timer); request.no(new Error("캡처 시간 초과，브라우저를 다시 여는 중")); }
+  for (const request of pending.values()) { clearTimeout(request.timer); request.no(new Error("캡처 시간이 초과되어 브라우저를 다시 엽니다.")); }
   pending.clear();
   await stopChrome();
   try {
     await connectTransport(await launchChrome());
     await setupSession(); browserNeedsRestart = false;
   } catch (error) {
-    abortTransport(new Error(`브라우저를 다시 열지 못했습니다，받은 값: ${error.message}；${slowHint()}`));
+    abortTransport(new Error(`브라우저를 다시 열지 못했습니다: ${error.message}. ${slowHint()}`));
     throw error;
   }
 }
@@ -683,10 +683,10 @@ function isAutoFavicon(url) {
 }
 listeners.push((m) => {
   if (m.sessionId !== sessionId) return;
-  if (m.method === "Runtime.exceptionThrown") problems.push(`스크립트 오류：${m.params.exceptionDetails?.exception?.description?.split("\n")[0] || m.params.exceptionDetails?.text}`);
-  if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") problems.push(`콘솔 오류：${m.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 200)}`);
+  if (m.method === "Runtime.exceptionThrown") problems.push(`스크립트 오류: ${m.params.exceptionDetails?.exception?.description?.split("\n")[0] || m.params.exceptionDetails?.text}`);
+  if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") problems.push(`콘솔 오류: ${m.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 200)}`);
   // Browsers ask for /favicon.ico on their own; a mockup without one has no page problem.
-  if (m.method === "Log.entryAdded" && m.params.entry.level === "error" && !isAutoFavicon(m.params.entry.url)) problems.push(`읽기 오류：${m.params.entry.text.slice(0, 200)} ${m.params.entry.url || ""}`.trim());
+  if (m.method === "Log.entryAdded" && m.params.entry.level === "error" && !isAutoFavicon(m.params.entry.url)) problems.push(`불러오기 오류: ${m.params.entry.text.slice(0, 200)} ${m.params.entry.url || ""}`.trim());
 });
 
 const evaluate = async (expression) => {
@@ -716,9 +716,9 @@ async function open(url, wait = Number(opt.wait)) {
         if (error.code !== "NAVIGATION_TIMEOUT") throw error;
         retried = true; await sleep(300); nav = await cdp("Page.navigate", { url });
       }
-      // 취소나 시간 초과를 열기 실패로 단정하지 않습니다：브라우저의 화면 이동이 이 작업을 끊을 수 있습니다，한 번만 더 시도。
+      // 취소나 시간 초과를 열기 실패로 단정하지 않습니다. 브라우저의 화면 이동이 이 작업을 끊을 수 있으므로 한 번만 더 시도합니다.
       if (!retried && nav.errorText === "net::ERR_ABORTED") { await sleep(300); nav = await cdp("Page.navigate", { url }); }
-      if (nav.errorText) throw new Error(`열 수 없습니다 ${url}：${nav.errorText}`);
+      if (nav.errorText) throw new Error(`페이지를 열 수 없습니다: ${url} (${nav.errorText})`);
       await loaded;
       await evaluate(`document.fonts ? document.fonts.ready.then(() => true) : true`);
       await sleep(wait);
@@ -732,45 +732,47 @@ async function check() {
   const found = await evaluate(`(() => {
     const out = [];
     const doc = document.documentElement;
-    if (doc.scrollWidth > innerWidth + 1) out.push("가로 넘침：페이지 너비 " + doc.scrollWidth + "px，화면 크기 " + innerWidth + "px");
-    for (const img of document.images) if (img.complete && img.naturalWidth === 0) out.push("이미지를 읽지 못했습니다：" + (img.getAttribute("src") || "").slice(0, 120));
+    if (doc.scrollWidth > innerWidth + 1) out.push("가로 넘침: 페이지 너비 " + doc.scrollWidth + "px, 화면 너비 " + innerWidth + "px");
+    for (const img of document.images) if (img.complete && img.naturalWidth === 0) out.push("이미지를 읽지 못했습니다: " + (img.getAttribute("src") || "").slice(0, 120));
     const gl = window.__jstyleWebgl;
     if (gl) {
       const blank = new Set(gl.failed.filter((c) => !gl.ok.includes(c))).size;
-      if (blank) out.push("WebGL：" + blank + " 개 캔버스에서 그리기 컨텍스트를 만들지 못함，캡처가 비어 있습니다");
-      if (gl.lost) out.push("WebGL：그리기 컨텍스트를 잃었습니다 " + gl.lost + " 번");
+      if (blank) out.push("WebGL: 캔버스 " + blank + "개에서 그리기 컨텍스트를 만들지 못해 캡처가 비어 있습니다");
+      if (gl.lost) out.push("WebGL: 그리기 컨텍스트를 " + gl.lost + "번 잃었습니다");
     }
     return out;
   })()`);
   return [...problems, ...found];
 }
 
-// ---------- 읽기 쉬움과 그리기 안내：대비、너무 작은 글자、너무 좁은 줄 간격、투명한 채 멈춤 ----------
-// 페이지 안에서 실행，바깥 변수를 참조할 수 없습니다。
+// ---------- 읽기 쉬움과 그리기 안내: 대비, 작은 글자, 좁은 줄 간격, 투명한 채 멈춤, 잘린 글자, 클릭 대상, 맞춤선, 키트 밖 색 ----------
+// 페이지 안에서 실행하므로 바깥 변수를 참조할 수 없습니다.
 function lintPage() {
   const LABELS = {
-    contrastLow: "글자 대비가 기준보다 낮습니다（본문이 기준보다 작음: 3:1，큰 글자가 기준보다 작음: 2.5:1）",
-    smallText: "본문이 기준보다 작음: 11px", tightLeading: "여러 줄 본문의 줄 간격이 너무 좁습니다",
-    stuck: "첫 화면에 투명한 채 멈춘 내용이 있습니다（등장 애니메이션이 시작되지 않았습니다？）",
+    contrastLow: "글자 대비가 WCAG AA에 못 미칩니다(본문 4.5:1, 큰 글자 3:1 미만. 키트 주색 위 --jk-on-primary 글자는 키트가 정한 예외)",
+    smallText: "11px보다 작은 본문", tightLeading: "여러 줄 본문의 줄 간격이 너무 좁습니다",
+    stuck: "첫 화면에 투명한 채 멈춘 내용이 있습니다(등장 애니메이션이 시작되지 않았을 수 있습니다)",
+    clipped: "말줄임표 없이 잘린 글자", smallTarget: "24px보다 작은 클릭 대상", overlapTarget: "서로 겹친 클릭 대상",
+    scatteredEdges: "첫 화면에서 다른 글과 줄이 맞지 않는 왼쪽 시작점", offKitColor: "키트 토큰에 없는 색",
   };
   const found = new Map();
   const describe = (el) => {
     const cls = typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
     const text = (el.innerText || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 24);
-    return el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + cls + (text ? "「" + text + "」" : "");
+    return el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + cls + (text ? ' "' + text + '"' : "");
   };
   const add = (rule, el, note) => {
     let r = found.get(rule);
     if (!r) found.set(rule, r = { rule, label: LABELS[rule], count: 0, examples: [] });
     r.count++;
-    if (r.examples.length < 3) r.examples.push(describe(el) + (note ? "（" + note + "）" : ""));
+    if (r.examples.length < 3) r.examples.push(describe(el) + (note ? "(" + note + ")" : ""));
   };
   const css = (el, pseudo) => getComputedStyle(el, pseudo);
   const shown = (el) => {
     const r = el.getBoundingClientRect(), s = css(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
   };
-  // 색을 캔버스에 그린 뒤 다시 읽습니다，oklch、color-mix 이 방식도 비교할 수 있습니다。
+  // 색을 캔버스에 그린 뒤 다시 읽습니다. 그래서 oklch, color-mix로 쓴 색도 비교할 수 있습니다.
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -802,7 +804,7 @@ function lintPage() {
     const w = Math.min(r.right, m.right) - Math.max(r.left, m.left), h = Math.min(r.bottom, m.bottom) - Math.max(r.top, m.top);
     return w > 0 && h > 0 && w * h > r.width * r.height * 0.3;
   });
-  // 글자 뒤의 바탕색：조상을 따라 위로 겹칩니다，바탕 이미지가 있으면、그라디언트나 미디어를 모르는 경우에도。
+  // 글자 뒤의 바탕색: 조상을 따라 올라가며 색을 겹칩니다. 바탕 이미지, 그라디언트, 미디어가 있으면 알 수 없는 것으로 봅니다.
   const backdrop = (el) => {
     const layers = [];
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
@@ -813,6 +815,11 @@ function lintPage() {
     }
     return layers.reverse().reduce((base, c) => over(c, base), { r: 255, g: 255, b: 255, a: 1 });
   };
+  // The kit keeps white on its product green (about 2.6:1) on purpose; see references/extended/kit.md.
+  const kitPrimaryValue = getComputedStyle(document.documentElement).getPropertyValue("--jk-primary").trim();
+  const kitPrimary = kitPrimaryValue ? rgba(kitPrimaryValue) : null;
+  const kitOnPrimary = kitPrimary ? rgba(getComputedStyle(document.documentElement).getPropertyValue("--jk-on-primary").trim() || "#fff") : null;
+  const sameColor = (a, b) => Math.abs(a.r - b.r) <= 2 && Math.abs(a.g - b.g) <= 2 && Math.abs(a.b - b.b) <= 2;
   const ownText = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
   const all = [...document.body.querySelectorAll("*")].slice(0, 8000)
     .filter((el) => !el.closest("svg,script,style,noscript,template,head,[aria-hidden='true'],#jstyle-mark"));
@@ -864,12 +871,13 @@ function lintPage() {
       const color = over({ ...fg, a: fg.a * alpha }, bg);
       const contrast = ratio(color, bg);
       const large = size >= 24 || (size >= 18.6 && parseInt(s.fontWeight, 10) >= 700);
-      // 미만 1.5:1 뒤에 조상이 아닌 바탕이나 가상 요소가 있습니다（슬라이더、절대 위치의 둥근 꼬리표）때，대비를 잘못 알리지 않음；바탕색을 알 때 낮은 대비를 그대로 알립니다
+      // 대비가 1.5:1 미만이고 뒤에 조상이 아닌 바탕이나 가상 요소(슬라이더, 절대 위치의 둥근 꼬리표)가 있으면 대비를 잘못 알리지 않습니다. 바탕색을 알면 낮은 대비를 그대로 알립니다
       if (!(contrast < 1.5 && hasOverlayPlate(el, r))) {
-        if (contrast < (large ? 2.5 : 3.0)) add("contrastLow", el, contrast.toFixed(2) + ":1");
+        const kitPair = kitPrimary && sameColor(bg, kitPrimary) && sameColor(color, kitOnPrimary);
+        if (!kitPair && contrast < (large ? 3 : 4.5)) add("contrastLow", el, contrast.toFixed(2) + ":1");
       }
     }
-    // 본문：두 줄 이상인 문단
+    // 본문: 두 줄 이상인 문단
     const text = ownText(el);
     const isCjk = /[\u3400-\u9fff\uac00-\ud7af]/.test(text);
     if (text.length < (isCjk ? 30 : 60) || el.closest("code,pre,table,nav,button,label,figcaption,kbd")) continue;
@@ -879,7 +887,7 @@ function lintPage() {
     if (lh / size < (isCjk ? 1.4 : 1.3)) add("tightLeading", el, (lh / size).toFixed(2));
   }
 
-  // 첫 화면에서 투명한 내용：등장하지 않으면 캡처에 빈 곳이 생깁니다
+  // 첫 화면에서 투명한 내용: 등장하지 않으면 캡처에 빈 곳이 생깁니다
   for (const el of all) {
     const r = el.getBoundingClientRect();
     if (r.top >= innerHeight || r.bottom <= 0 || r.width < 40 || r.height < 16) continue;
@@ -897,6 +905,108 @@ function lintPage() {
     add("stuck", el);
   }
 
+  // 잘린 글자: 넘친 내용을 숨겼는데 말줄임표나 줄 수 제한이 없으면 글이 말없이 잘립니다.
+  for (const el of texts) {
+    const s = css(el);
+    // 1~2px 상자는 화면 읽기 프로그램 전용 글자(visually hidden)입니다.
+    if (el.closest("input,textarea,select,option,[contenteditable]") || el.clientWidth <= 2 || el.clientHeight <= 2) continue;
+    const clampX = /hidden|clip/.test(s.overflowX) && s.textOverflow !== "ellipsis" && el.scrollWidth > el.clientWidth + 1;
+    const clamped = s.webkitLineClamp && s.webkitLineClamp !== "none";
+    const clampY = /hidden|clip/.test(s.overflowY) && !clamped && el.scrollHeight > el.clientHeight + 2;
+    if (clampX || clampY) add("clipped", el, clampX ? `너비 ${el.clientWidth}px, 내용 ${el.scrollWidth}px` : `높이 ${el.clientHeight}px, 내용 ${el.scrollHeight}px`);
+  }
+
+  // 클릭 대상: WCAG 2.5.8은 24px 이상이거나 주변에 충분한 간격을 요구합니다. 문장 안의 링크는 예외입니다.
+  const targets = all.filter((el) => el.matches("a[href],button,select,textarea,summary,input:not([type='hidden']),[role='button'],[role='tab'],[role='checkbox'],[role='switch'],[role='menuitem'],[tabindex]:not([tabindex='-1'])")
+    && shown(el) && !el.closest("[disabled],[aria-disabled='true']")).slice(0, 600);
+  const inSentence = (el) => el.tagName === "A" && [...(el.parentElement?.childNodes || [])].some((n) => n.nodeType === 3 && n.textContent.trim().length > 1);
+  // 스크롤 상자나 overflow 조상이 가린 부분은 누를 수 없으므로 보이는 영역만 남깁니다.
+  const visibleRect = (el, rect) => {
+    let { left, right, top, bottom } = rect;
+    for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+      const ns = css(node);
+      if (ns.overflowX === "visible" && ns.overflowY === "visible") continue;
+      const nr = node.getBoundingClientRect();
+      left = Math.max(left, nr.left); right = Math.min(right, nr.right); top = Math.max(top, nr.top); bottom = Math.min(bottom, nr.bottom);
+    }
+    return right > left && bottom > top ? { left, right, top, bottom, width: right - left, height: bottom - top } : null;
+  };
+  const boxes = targets.map((el) => {
+    let r = el.getBoundingClientRect();
+    // 숨긴 체크박스·라디오는 연결된 label이 실제 클릭 영역입니다.
+    if (el.matches("input[type='checkbox'],input[type='radio']") && el.labels?.length) r = el.labels[0].getBoundingClientRect();
+    const full = r;
+    r = visibleRect(el, r);
+    return r && { el, r, full };
+  }).filter(Boolean);
+  const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
+  for (const { el, r, full } of boxes) {
+    if (!(r.width < 24 || r.height < 24) || inSentence(el) || r.width <= 0) continue;
+    if (r.width < full.width - 1 || r.height < full.height - 1) continue;
+    // 간격 예외: 대상 중심의 24px 상자가 다른 대상과 닿지 않으면 통과합니다.
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const zone = { left: cx - 12, right: cx + 12, top: cy - 12, bottom: cy + 12 };
+    if (boxes.some((o) => o.el !== el && !o.el.contains(el) && !el.contains(o.el) && hit(zone, o.r))) add("smallTarget", el, `${Math.round(r.width)}x${Math.round(r.height)}px`);
+  }
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i], b = boxes[j];
+      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+      // 큰 행 위에 올린 작은 버튼처럼 한쪽이 다른 쪽 안에 완전히 들어가면 의도한 배치로 봅니다.
+      const inside = (x, y) => x.left >= y.left - 1 && x.right <= y.right + 1 && x.top >= y.top - 1 && x.bottom <= y.bottom + 1;
+      if (inside(a.r, b.r) || inside(b.r, a.r)) continue;
+      const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left), h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+      if (w > 2 && h > 2) add("overlapTarget", a.el, describe(b.el));
+    }
+  }
+
+  // 첫 화면의 왼쪽 시작점: 다른 어떤 글과도 줄이 맞지 않는 시작점이 여럿이면 배치가 흩어져 보입니다.
+  const edges = texts.filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.top < innerHeight && r.bottom > 0 && r.width >= 40 && css(el).display !== "inline" && !el.closest("table,nav,button,[role='tab'],ul,ol,label,a,code,pre");
+  }).map((el) => ({ el, x: Math.round(el.getBoundingClientRect().left) }));
+  const lone = edges.filter((e) => !edges.some((o) => o !== e && Math.abs(o.x - e.x) <= 2));
+  if (edges.length >= 8 && lone.length >= 4) for (const e of lone) add("scatteredEdges", e.el, `x=${e.x}`);
+
+  // 키트를 쓰는 화면에서 키트 토큰에 없는 색: 정적 검사가 못 보는 인라인·JS 스타일까지 잡습니다.
+  // 글자가 없는 채움(아이콘 타일, 차트 막대)은 키트 문서가 잰 값을 그대로 쓰도록 허용하므로 보지 않습니다.
+  if (kitPrimary) {
+    const palette = [{ r: 255, g: 255, b: 255 }, { r: 0, g: 0, b: 0 }];
+    for (const sheet of document.styleSheets) {
+      let rules;
+      try { rules = sheet.cssRules; } catch { continue; }
+      const kitSheet = /\/kit\.css(?:[?#]|$)/.test(sheet.href || "");
+      const walk = (list) => {
+        for (const rule of list) {
+          if (rule.cssRules) walk(rule.cssRules);
+          if (!rule.style) continue;
+          for (const name of rule.style) {
+            const value = rule.style.getPropertyValue(name).trim();
+            if (name.startsWith("--jk-")) { const c = rgba(value); if (c.a > 0) palette.push(c); }
+            // 키트 파일이 컴포넌트에 직접 쓴 색(파일 아이콘, 타일 등)도 키트의 색으로 봅니다.
+            else if (kitSheet) for (const m of value.match(/#[0-9a-f]{3,8}\b|rgba?\([^()]*\)/gi) || []) { const c = rgba(m); if (c.a > 0) palette.push(c); }
+          }
+        }
+      };
+      walk(rules);
+    }
+    const known = (c) => palette.some((p) => sameColor(p, c));
+    const seen = new Map();
+    for (const el of all) {
+      // style="--jk-hue:160"처럼 키트 컴포넌트가 정한 자리로 고른 색은 키트 안의 선택입니다.
+      if (!shown(el) || el.closest("svg,canvas,img,video,[data-jk-chart],.jk-chart") || /--jk-/.test(el.getAttribute("style") || "")) continue;
+      const s = css(el);
+      for (const [prop, value] of [["color", ownText(el) ? s.color : ""], ["background", (el.innerText || "").trim() ? s.backgroundColor : ""], ["border", (el.innerText || "").trim() && s.borderTopWidth !== "0px" && s.borderTopStyle !== "none" ? s.borderTopColor : ""]]) {
+        const c = rgba(value);
+        if (c.a < 0.99 || known(c)) continue;
+        const key = `${prop} rgb(${c.r} ${c.g} ${c.b})`;
+        if (seen.has(key)) continue;
+        seen.set(key, true);
+        add("offKitColor", el, key);
+      }
+    }
+  }
+
   return [...found.values()];
 }
 
@@ -907,7 +1017,7 @@ async function lint() {
     return [{ rule: "lintError", label: "읽기 쉬움 검사를 끝내지 못했습니다", count: 1, examples: [error.message.slice(0, 160)] }];
   }
 }
-const lintLine = (items) => items.map((i) => `${i.label} ${i.count} 곳（${i.examples.join("，")}）`).join("；");
+const lintLine = (items) => items.map((i) => `${i.label} ${i.count}곳(${i.examples.join(", ")})`).join("; ");
 
 async function settleAnimations(limit) {
   if (limit <= 0) return 0;
@@ -951,7 +1061,7 @@ async function selectorClip() {
       const r = el.getBoundingClientRect();
       return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
     })()`);
-    if (!box || box.width <= 0 || box.height <= 0) throw new Error(`--selector：요소가 없거나 너비와 높이가 다음과 같습니다: 0：${opt.selector}`);
+    if (!box || box.width <= 0 || box.height <= 0) throw new Error(`--selector: 요소가 없거나 너비나 높이가 0입니다: ${opt.selector}`);
     return { ...box, scale: flags.has("thumb") ? 0.5 : 1 };
   } catch (error) {
     if (transportFailure) throw error;
@@ -974,7 +1084,7 @@ const MASK_CSS = `*,*::before,*::after{text-shadow:none!important;-webkit-text-f
 ::placeholder{color:transparent!important}svg text,svg tspan{fill:transparent!important;stroke:transparent!important}`;
 const mask = () => evaluate(`(() => { const s = document.createElement("style"); s.id = "jstyle-mask"; s.textContent = ${JSON.stringify(MASK_CSS)}; document.head.append(s); return true; })()`);
 
-// 표시한 그림：테두리와 번호는 페이지 맨 위에 그립니다，문서 좌표에 맞춰 놓습니다，전체 페이지를 찍어도 맞습니다。
+// 표시한 그림: 테두리와 번호를 페이지 맨 위 층에 문서 좌표로 그리므로 전체 페이지를 찍어도 위치가 맞습니다.
 async function mark() {
   for (const { selector } of marks) await locate(selector, "--mark", false);
   const result = await evaluate(`((selectors) => {
@@ -986,15 +1096,15 @@ async function mark() {
     const missing = [];
     selectors.forEach(({ label, selector }) => {
       let found;
-      try { found = find(selector); } catch { missing.push(selector + "（선택자를 잘못 썼습니다）"); return; }
+      try { found = find(selector); } catch { missing.push(selector + " (선택자를 잘못 썼습니다)"); return; }
       const boxes = found.map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
-      if (!boxes.length) { missing.push(selector + (found.length ? "（요소가 보이지 않음）" : "")); return; }
+      if (!boxes.length) { missing.push(selector + (found.length ? " (요소가 보이지 않음)" : "")); return; }
       boxes.forEach((r, j) => {
         const box = document.createElement("div");
         box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid " + color + ";border-radius:3px;" +
           "left:" + (r.left + scrollX - 4) + "px;top:" + (r.top + scrollY - 4) + "px;width:" + (r.width + 8) + "px;height:" + (r.height + 8) + "px";
         if (j === 0) {
-          // 작은 요소의 번호는 테두리 밖에 둡니다，요소를 가리지 않도록；왼쪽에 자리가 없으면 오른쪽에 놓습니다。
+          // 작은 요소의 번호는 요소를 가리지 않도록 테두리 밖에 둡니다. 왼쪽에 자리가 없으면 오른쪽에 놓습니다.
           const small = r.width < 48 || r.height < 28;
           const pos = !small ? "left:-12px;top:-12px" : r.left + scrollX - 34 >= 0 ? "left:-30px;top:" + (r.height / 2 - 7) + "px" : "right:-30px;top:" + (r.height / 2 - 7) + "px";
           const tag = document.createElement("span");
@@ -1009,7 +1119,7 @@ async function mark() {
     document.body.append(layer);
     return missing;
   })(${JSON.stringify(marks)})`);
-  if (result.length) throw new Error(`--mark 요소를 찾을 수 없습니다：${result.join("；")}`);
+  if (result.length) throw new Error(`--mark로 표시할 요소를 찾지 못했습니다: ${result.join("; ")}`);
 }
 const unmark = () => evaluate(`(document.getElementById("jstyle-mark")?.remove(), true)`);
 
@@ -1019,20 +1129,20 @@ function hiddenReason(el) {
   const describe = (e) => e.tagName.toLowerCase() + (e.id ? "#" + e.id : "");
   for (let e = el; e; e = e.parentElement) {
     const style = getComputedStyle(e);
-    const owner = e === el ? "" : "조상 요소가 가림: " + describe(e) + " 숨기기：";
+    const owner = e === el ? "" : "조상 요소 " + describe(e) + "에서 숨김: ";
     if (style.display === "none") return owner + "display:none";
     // An ancestor's hidden visibility can be overridden by the child.
     if (e === el && (style.visibility === "hidden" || style.visibility === "collapse")) {
       let owner = e;
       while (owner.parentElement && getComputedStyle(owner.parentElement).visibility === style.visibility) owner = owner.parentElement;
-      return (owner === el ? "" : "조상 요소가 가림: " + describe(owner) + " 숨기기：") + "visibility:" + style.visibility;
+      return (owner === el ? "" : "조상 요소 " + describe(owner) + "에서 숨김: ") + "visibility:" + style.visibility;
     }
     if (Number(style.opacity) === 0) return owner + "opacity:0";
     if (style.contentVisibility === "hidden") return owner + "content-visibility:hidden";
-    if (e !== el && e.tagName === "DETAILS" && !e.open && !e.querySelector(":scope > summary")?.contains(el)) return "조상 요소가 가림: " + describe(e) + " 숨기기：details 펼치지 않음";
+    if (e !== el && e.tagName === "DETAILS" && !e.open && !e.querySelector(":scope > summary")?.contains(el)) return "조상 요소 " + describe(e) + "에서 숨김: details가 닫혀 있음";
   }
   const r = el.getBoundingClientRect();
-  if (!r.width || !r.height) return "크기: 0（너비 " + r.width + "px，높이 " + r.height + "px）";
+  if (!r.width || !r.height) return "크기 0(너비 " + r.width + "px, 높이 " + r.height + "px)";
   if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return "조상 요소나 브라우저 배치가 숨겼습니다";
   return null;
 }
@@ -1046,7 +1156,7 @@ function compatibleSelector(selector) {
   let css = "", nth, depth = 0;
   const unsupported = () => {
     const value = filters[0]?.value ?? legacyText ?? "Send money";
-    const error = new Error(`선택자를 바꿀 수 없습니다，받은 값: ${received}；글로 찾거나 다음을 쓰세요: CSS，번호 시작: 0 시작`);
+    const error = new Error(`선택자를 바꿀 수 없습니다. 받은 값: ${received}. 글로 찾거나 CSS를 쓰세요. 차례 번호는 0부터 셉니다`);
     error.selectorExample = filters.length || legacyText !== null ? `text=${JSON.stringify(value)}` : `${!depth && css.trim() || ".item"} >> nth=1`;
     throw error;
   };
@@ -1170,12 +1280,12 @@ async function locate(selector, context, scroll = true, action = "click", params
           return parts.join(" > ");
         };
         const top = document.elementFromPoint(x, y);
-        if (top && top !== el && !el.contains(top)) warnings.push("가운데를 가린 요소: " + identify(top) + " 가리고 있음，동작은 그대로 실행합니다");
+        if (top && top !== el && !el.contains(top)) warnings.push("요소 가운데가 " + identify(top) + "에 가려져 있습니다. 동작은 그대로 실행합니다");
         const disabled = [];
         if (el.hasAttribute("disabled") || el.matches(":disabled")) disabled.push("disabled");
         if (el.getAttribute("aria-disabled")?.toLowerCase() === "true") disabled.push('aria-disabled="true"');
         if (getComputedStyle(el).pointerEvents === "none") disabled.push("pointer-events: none");
-        if (disabled.length) warnings.push("대상이 비활성 상태입니다（" + disabled.join("、") + "），동작은 그대로 실행합니다");
+        if (disabled.length) warnings.push("대상이 비활성 상태입니다(" + disabled.join(", ") + "). 동작은 그대로 실행합니다");
       }
       return { x, y, warnings };
     }
@@ -1189,10 +1299,10 @@ async function locate(selector, context, scroll = true, action = "click", params
       for (const e of candidates) {
         const value = e.getAttribute(attr); if (seen.has(value)) continue; seen.add(value);
         const query = "[" + CSS.escape(attr) + "=" + JSON.stringify(value) + "]";
-        if (hints.length < 5) hints.push(attr + "=" + JSON.stringify(value) + (reason(e) ? "（보이지 않음）" : ""));
+        if (hints.length < 5) hints.push(attr + "=" + JSON.stringify(value) + (reason(e) ? " (보이지 않음)" : ""));
         if (!reason(e)) suggestions.push(query);
       }
-      if (!candidates.length && hints.length < 5) hints.push("페이지에 속성이 없습니다 " + attr);
+      if (!candidates.length && hints.length < 5) hints.push("페이지에 " + attr + " 속성이 없습니다");
     }
     if (selector.kind !== "css") {
       const distance = ${distance.toString()};
@@ -1207,7 +1317,7 @@ async function locate(selector, context, scroll = true, action = "click", params
     if (!hints.length) {
       const prefix = css.replace(/\s*[^\s]+$/, "").replace(/[>+~]\s*$/, "").trim();
       let matches = []; try { if (prefix) matches = [...document.querySelectorAll(prefix)]; } catch {}
-      hints.push("마지막 부분을 뺀 뒤 " + JSON.stringify(prefix || "（빈 값）") + " 일치 " + matches.length + " 개 요소");
+      hints.push("마지막 부분을 뺀 " + JSON.stringify(prefix || "(빈 값)") + "에 맞는 요소 " + matches.length + "개");
       if (matches.some((e) => !reason(e))) suggestions.push(prefix);
     }
     const closed = found[0]?.closest("details:not([open])"), summary = closed?.querySelector(":scope > summary");
@@ -1228,15 +1338,15 @@ async function locate(selector, context, scroll = true, action = "click", params
   if (result.invalid && result.detail?.startsWith("선택자를 바꿀 수 없습니다")) {
     const selectorExample = ["type", "fill", "select"].includes(action) ? JSON.stringify(result.selectorExample) : result.selectorExample;
     const rewrite = context === "--mark" ? `--mark ${quoteArg(`1=${result.selectorExample}`)}` : `${action} ${selectorExample}${suffix}`;
-    throw new Error(`${context}：${result.detail}；예: ${rewrite}`);
+    throw new Error(`${context}: ${result.detail}. 예: ${rewrite}`);
   }
-  if (result.invalid) throw new Error(`${context}：받은 값: ${source}，올바르지 않음: CSS；글로 된 선택자를 지원합니다 text="Send money" 와 button:has-text("Undo")，예: ${action} text="Send money"${suffix}`);
-  const scope = result.iframes || result.shadowRoots ? `；첫 문서 안에서만 요소를 찾습니다，페이지 안에 있음: ${result.iframes} 개 iframe、${result.shadowRoots} 개 열린 shadow root` : "";
-  if (result.missing) throw new Error(`${context}：요소를 찾을 수 없습니다 ${source}；단서：${result.hints.join("；")}；예: ${example}${scope}`);
-  if (result.count) throw new Error(`${context}：찾음 ${result.count} 개 요소 ${source}，모두 보이지 않습니다，직접 다룰 수 없음（${result.reasons.join("；")}）；보이게 하는 앞 단계를 먼저 실행하세요，지금 보이는 요소로 바꾸세요；단서：${result.hints.join("；")}；예: ${example}`);
+  if (result.invalid) throw new Error(`${context}: 올바른 CSS 선택자가 아닙니다. 받은 값: ${source}. text="Send money"나 button:has-text("Undo")처럼 글로 찾을 수도 있습니다. 예: ${action} text="Send money"${suffix}`);
+  const scope = result.iframes || result.shadowRoots ? `. 첫 문서 안에서만 요소를 찾습니다. 페이지에 iframe ${result.iframes}개, 열린 shadow root ${result.shadowRoots}개가 있습니다` : "";
+  if (result.missing) throw new Error(`${context}: 요소를 찾지 못했습니다: ${source}. 단서: ${result.hints.join("; ")}. 예: ${example}${scope}`);
+  if (result.count) throw new Error(`${context}: ${source}에 맞는 요소 ${result.count}개가 모두 보이지 않아 다룰 수 없습니다(${result.reasons.join("; ")}). 보이게 하는 앞 단계를 먼저 실행하거나 지금 보이는 요소로 바꾸세요. 단서: ${result.hints.join("; ")}. 예: ${example}`);
   for (const warning of result.warnings || []) {
-    const message = `${context}：${warning}`;
-    problems.push(message); console.log(`안내：${message}`);
+    const message = `${context}: ${warning}`;
+    problems.push(message); console.log(`안내: ${message}`);
   }
   return result;
 }
@@ -1245,7 +1355,7 @@ const mouse = (type, x, y, extra = {}) => cdp("Input.dispatchMouseEvent", { type
 async function runSteps(steps = [], observer = {}) {
   for (const [i, step] of steps.entries()) {
     const { action, selector, params } = step;
-    const context = ` ${i + 1} 단계「${step.raw}」`;
+    const context = `${i + 1}단계 "${step.raw}"`;
     await during(`${currentContext} / ${context}`, async () => {
       await observer.step?.(step, i);
       if (action === "wait") { await sleep(params.ms); return; }
@@ -1253,7 +1363,7 @@ async function runSteps(steps = [], observer = {}) {
         const end = Date.now() + timeoutMs(5000);
         while (true) {
           try { await locate(selector, context, false, action, params); break; }
-          catch (error) { if ((!error.message.includes("요소를 찾을 수 없습니다") && !error.message.includes("모두 보이지 않습니다")) || Date.now() >= end) throw error; await sleep(100); }
+          catch (error) { if ((!error.message.includes("요소를 찾지 못했습니다") && !error.message.includes("모두 보이지 않아")) || Date.now() >= end) throw error; await sleep(100); }
         }
         return;
       }
@@ -1280,9 +1390,9 @@ async function runSteps(steps = [], observer = {}) {
         await evaluate(`(() => {
           const el = (${findSource})(${JSON.stringify(selector)})[0];
           el.focus();
-          ${action === "select" ? `if (!(el instanceof HTMLSelectElement)) throw new Error(${JSON.stringify(`${context}：select 기본 select 요소가 필요합니다；예: select #country China`)});
+          ${action === "select" ? `if (!(el instanceof HTMLSelectElement)) throw new Error(${JSON.stringify(`${context}: select에는 기본 select 요소가 필요합니다. 예: select #country China`)});
           const option = [...el.options].find((o) => o.value === ${JSON.stringify(params.value)}) || [...el.options].find((o) => o.textContent.trim() === ${JSON.stringify(params.value)});
-          if (!option) throw new Error(${JSON.stringify(`${context}：드롭다운 항목을 찾을 수 없습니다 ${params.value}；예: select #country China`)});
+          if (!option) throw new Error(${JSON.stringify(`${context}: 드롭다운 항목을 찾지 못했습니다: ${params.value}. 예: select #country China`)});
           el.value = option.value; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));` : action === "fill" ? `
           if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
             const prototype = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
@@ -1292,7 +1402,7 @@ async function runSteps(steps = [], observer = {}) {
             el.replaceChildren(); el.textContent = ${JSON.stringify(params.text)};
             const range = document.createRange(); range.selectNodeContents(el); range.collapse(false);
             const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
-          } else throw new Error(${JSON.stringify(`${context}：fill 입력창이 필요합니다、입력창 또는 편집 가능한 요소；예: fill #message "hello world"`)});
+          } else throw new Error(${JSON.stringify(`${context}: fill에는 입력창이나 편집 가능한 요소가 필요합니다. 예: fill #message "hello world"`)});
           el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));` : ""}
           return true;
@@ -1314,20 +1424,20 @@ async function runSteps(steps = [], observer = {}) {
   }
 }
 
-// ---------- 로컬 그림 모음과 녹화 프레임：같은 비율의 배치를 공유 ----------
+// ---------- 로컬 그림 모음과 녹화 프레임: 같은 비율 배치를 함께 씁니다 ----------
 async function composeImages(items, file, columns, crop = null) {
   const example = stitching ? '--stitch before.png --stitch after.png --columns 2 --out shots' : 'page.html --record --frames 8 --columns 4 --out shots';
   const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".bmp": "image/bmp", ".svg": "image/svg+xml" };
   const inputs = items.map((item, i) => {
     try { return { ...item, data: `data:${types[extname(item.path).toLowerCase()] || "application/octet-stream"};base64,${readFileSync(item.path).toString("base64")}` }; }
-    catch (error) { throw new Error(`모음의 ${i + 1} 번째 이미지를 읽지 못했습니다，받은 값: ${item.path}（${error.code || error.message}）；예: --stitch before.png --label "바꾸기 전" --out shots`); }
+    catch (error) { throw new Error(`모음의 ${i + 1}번째 이미지를 읽지 못했습니다. 받은 값: ${item.path} (${error.code || error.message}). 예: --stitch before.png --label "바꾸기 전" --out shots`); }
   });
   // Render off the recorded page so its scripts, styles and fonts cannot alter the composition.
   await open("data:text/html,<meta charset=utf-8><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">", 0);
   const result = await evaluate(`(async (items, columns, crop) => {
     const images = await Promise.all(items.map((item, i) => new Promise((ok, no) => {
       const image = new Image(); image.onload = () => ok(image);
-      image.onerror = () => no(new Error('모음의 ' + (i + 1) + ' 번째 이미지를 디코딩할 수 없습니다，받은 값: ' + item.path + '；예: --stitch before.png --label "바꾸기 전" --out shots'));
+      image.onerror = () => no(new Error('모음의 ' + (i + 1) + '번째 이미지를 디코딩할 수 없습니다. 받은 값: ' + item.path + '. 예: --stitch before.png --label "바꾸기 전" --out shots'));
       image.src = item.data;
     })));
     const margin = 24, gap = 16, lineHeight = 24;
@@ -1335,9 +1445,9 @@ async function composeImages(items, file, columns, crop = null) {
     const regions = images.map((image, i) => {
       const scale = items[i].matchWidth !== undefined ? items[0].matchWidth / items[i].matchWidth : (items[i].scale ?? 1);
       const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
-      if (![scale, width, height].every((n) => Number.isFinite(n) && n > 0)) throw new Error('모음의 ' + (i + 1) + ' 번째 이미지의 비율이 너무 크거나 작습니다，받은 값: ' + scale + '；예: ' + ${JSON.stringify(SCALE_EXAMPLE)});
-      if (items[i].matchWidth > image.naturalWidth) throw new Error('모음의 ' + (i + 1) + ' 번째 물체의 너비가 원본을 넘습니다，받은 값: ' + items[i].matchWidth + '，원본 너비 ' + image.naturalWidth + '；예: ' + ${JSON.stringify(STITCH_EXAMPLE)});
-      if (crop && (crop.x + crop.width > width + 1e-7 || crop.y + crop.height > height + 1e-7)) throw new Error('모음의 ' + (i + 1) + ' 번째 자르기 영역이 이미지 밖입니다，받은 값: ' + JSON.stringify(crop) + '，비율을 맞춘 뒤: ' + width + '×' + height + '；자를 영역을 줄이거나 먼저 빼세요: --crop 전체 그림 보기，예: ' + ${JSON.stringify(SCALE_EXAMPLE)});
+      if (![scale, width, height].every((n) => Number.isFinite(n) && n > 0)) throw new Error('모음의 ' + (i + 1) + '번째 이미지의 배율이 너무 크거나 작습니다. 받은 값: ' + scale + '. 예: ' + ${JSON.stringify(SCALE_EXAMPLE)});
+      if (items[i].matchWidth > image.naturalWidth) throw new Error('모음의 ' + (i + 1) + '번째 물체 너비가 원본 너비보다 큽니다. 받은 값: ' + items[i].matchWidth + ', 원본 너비: ' + image.naturalWidth + '. 예: ' + ${JSON.stringify(STITCH_EXAMPLE)});
+      if (crop && (crop.x + crop.width > width + 1e-7 || crop.y + crop.height > height + 1e-7)) throw new Error('모음의 ' + (i + 1) + '번째 자르기 영역이 이미지 밖에 있습니다. 받은 값: ' + JSON.stringify(crop) + ', 배율을 맞춘 크기: ' + width + '×' + height + '. 자를 영역을 줄이거나 --crop을 빼고 전체 그림을 먼저 보세요. 예: ' + ${JSON.stringify(SCALE_EXAMPLE)});
       const region = crop || { x: 0, y: 0, width, height };
       return { scale, width: region.width, height: region.height,
         sourceCrop: { x: region.x / scale, y: region.y / scale, width: region.width / scale, height: region.height / scale } };
@@ -1373,7 +1483,7 @@ async function composeImages(items, file, columns, crop = null) {
     dimensions.forEach((item, i) => { const row = Math.floor(i / columns); heights[row] = Math.max(heights[row] || 0, item.height + item.labelHeight); });
     canvas.width = columns * cell + (columns - 1) * gap + margin * 2;
     canvas.height = heights.reduce((sum, height) => sum + height, 0) + (heights.length - 1) * gap + margin * 2;
-    if (canvas.width > 32767 || canvas.height > 32767 || canvas.width * canvas.height > 67108864) throw new Error('그림 모음의 캔버스가 너무 큽니다，받은 값: ' + canvas.width + '×' + canvas.height + '；이미지 수를 줄이세요/프레임 수 또는 열 수 조절，예: ' + ${JSON.stringify(example)});
+    if (canvas.width > 32767 || canvas.height > 32767 || canvas.width * canvas.height > 67108864) throw new Error('그림 모음의 캔버스가 너무 큽니다. 받은 값: ' + canvas.width + '×' + canvas.height + '. 이미지 수나 프레임 수를 줄이거나 열 수를 조절하세요. 예: ' + ${JSON.stringify(example)});
     ctx.fillStyle = '#ececea'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.font = font; ctx.textBaseline = 'top';
     let top = margin;
@@ -1388,7 +1498,7 @@ async function composeImages(items, file, columns, crop = null) {
       return { ...item, x, y: top, label: items[i].label || '', labelY: top + item.height + 8 };
     });
     const data = canvas.toDataURL('image/png').split(',')[1];
-    if (!data) throw new Error('그림 모음을 내보낼 수 없습니다 PNG；이미지 수를 줄이세요/프레임 수，예: ' + ${JSON.stringify(example)});
+    if (!data) throw new Error('그림 모음을 PNG로 내보낼 수 없습니다. 이미지 수나 프레임 수를 줄이세요. 예: ' + ${JSON.stringify(example)});
     return { data, width: canvas.width, height: canvas.height, columns, ...(crop ? { crop } : {}), items: layout };
   })(${JSON.stringify(inputs)}, ${columns}, ${JSON.stringify(crop)})`);
   writeFileSync(file, Buffer.from(result.data, "base64"));
@@ -1396,7 +1506,7 @@ async function composeImages(items, file, columns, crop = null) {
   return { file: basename(file), ...layout };
 }
 
-// ---------- 나란히 보기 그림：같은 브라우저에서 캡처를 한 장으로 모읍니다 ----------
+// ---------- 나란히 보기 그림: 같은 브라우저에서 캡처를 한 장으로 모읍니다 ----------
 async function sheet(items, file, w, h) {
   const cell = Math.min(w, 420);
   const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -1413,7 +1523,7 @@ figcaption{margin-top:10px}</style><main>${figures}</main>`;
   return screenshot(file, true);
 }
 
-// ---------- 비교 그림：참고 그림과 나란히 캡처、겹쳐 보기、차이 그림 만들기 ----------
+// ---------- 비교 그림: 참고 그림과 캡처를 나란히 놓고 겹친 그림과 차이 그림을 만듭니다 ----------
 const IMAGE_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 const CELLS = ["왼쪽 위", "위 가운데", "오른쪽 위", "왼쪽 가운데", "가운데", "오른쪽 가운데", "왼쪽 아래", "아래 가운데", "오른쪽 아래"];
 async function compare(buildPath, refPath, file) {
@@ -1424,7 +1534,7 @@ async function compare(buildPath, refPath, file) {
 main{display:grid;grid-template-columns:repeat(2,720px);gap:24px 20px;align-items:start}figure{margin:0}
 canvas{width:100%;display:block;border-radius:8px;box-shadow:0 1px 3px #0002;background:#fff}figcaption{margin-top:8px}</style>
 <main><figure><canvas id="ref"></canvas><figcaption>참고</figcaption></figure><figure><canvas id="build"></canvas><figcaption>지금</figcaption></figure>
-<figure><canvas id="overlay"></canvas><figcaption>겹쳐 보기（지금 50% 참고 그림 위에 겹칩니다）</figcaption></figure><figure><canvas id="diff"></canvas><figcaption id="note">차이</figcaption></figure></main>
+<figure><canvas id="overlay"></canvas><figcaption>겹쳐 보기(참고 그림 위에 지금 화면을 50%로 겹침)</figcaption></figure><figure><canvas id="diff"></canvas><figcaption id="note">차이</figcaption></figure></main>
 <script>(async () => {
   const load = (src) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("참고 그림을 열 수 없습니다")); i.src = src; });
   const [ref, build] = await Promise.all([load(${JSON.stringify(ref)}), load(${JSON.stringify(build)})]);
@@ -1433,7 +1543,7 @@ canvas{width:100%;display:block;border-radius:8px;box-shadow:0 1px 3px #0002;bac
   paint("ref", (x) => x.drawImage(ref, 0, 0, W, refH));
   paint("build", (x) => x.drawImage(build, 0, 0));
   paint("overlay", (x) => { x.drawImage(ref, 0, 0, W, refH); x.globalAlpha = 0.5; x.drawImage(build, 0, 0); });
-  // 줄이기 480 너비로 맞춘 뒤 픽셀 색을 비교：어느 채널이든 차이가 넘음: 0.1 계산“차이 있음”，안티앨리어싱과 1~2픽셀 차이를 무시합니다
+  // 480px 너비로 줄인 뒤 픽셀 색을 비교합니다. 어느 채널이든 차이가 0.1을 넘을 때만 "차이 있음"으로 세어 안티앨리어싱과 1~2픽셀 차이를 무시합니다
   const sw = 480, sh = Math.max(1, Math.round(H * sw / W));
   const sample = (img) => { const c = document.createElement("canvas"); c.width = sw; c.height = sh; const x = c.getContext("2d", { willReadFrequently: true });
     const k = img.naturalWidth / W; x.drawImage(img, 0, 0, img.naturalWidth, H * k, 0, 0, sw, sh); return x.getImageData(0, 0, sw, sh).data; };
@@ -1463,16 +1573,16 @@ canvas{width:100%;display:block;border-radius:8px;box-shadow:0 1px 3px #0002;bac
   await open(`file://${tmp}`);
   let result = null;
   for (let i = 0; i < 50 && !result; i++) { result = await evaluate(`window.__compare || null`); if (!result) await sleep(100); }
-  if (!result || result.error) throw new Error(`비교 그림을 만들지 못했습니다：${result?.error || "시간 초과"}`);
+  if (!result || result.error) throw new Error(`비교 그림을 만들지 못했습니다: ${result?.error || "시간 초과"}`);
   await screenshot(file, true);
   const worst = result.cells.map((v, i) => ({ v, i })).sort((x, y) => y.v - x.v).slice(0, 3).map(({ v, i }) => `${CELLS[i]} ${v}%`);
   const gap = Math.abs(result.refHeight - result.buildHeight) / result.buildHeight > 0.05
-    ? `；너비를 맞춘 참고 그림의 높이: ${result.refHeight}px，캡처 높이 ${result.buildHeight}px，겹치는 곳만 비교했습니다` : "";
+    ? `; 너비를 맞춘 참고 그림 높이 ${result.refHeight}px, 캡처 높이 ${result.buildHeight}px, 겹치는 부분만 비교` : "";
   return { file: basename(file), overall: result.overall, cells: Object.fromEntries(CELLS.map((c, i) => [c, result.cells[i]])),
-    message: `${basename(file)}：차이가 뚜렷한 픽셀 비율: ${result.overall}%，가장 많은 칸 ${worst.join("、")}${gap}` };
+    message: `${basename(file)}: 차이가 뚜렷한 픽셀 비율 ${result.overall}%, 차이가 가장 큰 칸 ${worst.join(", ")}${gap}` };
 }
 
-// 인코딩도 비동기로 실행합니다，브라우저가 끊겨도 동기 인코딩이 종료를 막지 않습니다。
+// 인코딩도 비동기로 실행합니다. 브라우저가 끊겨도 동기 인코딩이 종료를 막지 않게 하기 위해서입니다.
 function runFfmpeg(args, timeout) {
   return new Promise((ok) => {
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
@@ -1580,7 +1690,7 @@ async function record(url, w, h, { steps = [], name = "", entry = flags.has("ent
     await setViewport(w, h, zoom);
     ({ identifier } = await cdp("Page.addScriptToEvaluateOnNewDocument", { source: `(${recordTiming.toString()})()` }));
     if (entry) {
-      // 첫 빈 페이지의 흰 바탕을 직접 지정합니다：시스템이 어두운 테마일 때，브라우저가 다음을 처리합니다: about:blank 짙은 회색으로 그립니다，같은 녹화도 기기가 바뀌면 첫 부분이 달라집니다。
+      // 첫 빈 페이지의 흰 바탕을 직접 지정합니다. 시스템이 어두운 테마이면 브라우저가 about:blank를 짙은 회색으로 그려 같은 녹화도 기기에 따라 첫 부분이 달라지기 때문입니다.
       await open("data:text/html,<html style='background:%23fff'>", 0);
       // Seed the video with a painted blank page, never the preceding evidence item.
       frames.push(await captureFrame("blank"));
@@ -1626,7 +1736,7 @@ async function record(url, w, h, { steps = [], name = "", entry = flags.has("ent
           const original = `record${name ? "-" + name : ""}-stream-end.jpg`;
           writeFileSync(join(out, original), readFileSync(streamEnd.name));
           consistency.original = original;
-          warnings.push(`녹화 마지막 프레임과 캡처가 뚜렷이 다릅니다，일부를 찍지 못했을 수 있습니다；멈춘 마지막 모습의 기준: ${motion}-end.jpg 기준，녹화의 마지막 프레임으로 보완했습니다，원래 마지막 프레임은 여기에 보관: ${original}；전환은 따로 다시 녹화하세요：${currentRetryCommand} --hold 2000`);
+          warnings.push(`녹화 마지막 프레임이 캡처와 뚜렷이 달라 일부를 찍지 못했을 수 있습니다. 멈춘 마지막 모습은 ${motion}-end.jpg를 기준으로 녹화의 마지막 프레임을 보완했고, 원래 마지막 프레임은 ${original}에 보관했습니다. 전환은 따로 다시 녹화하세요: ${currentRetryCommand} --hold 2000`);
         }
       }
     }
@@ -1669,20 +1779,20 @@ async function record(url, w, h, { steps = [], name = "", entry = flags.has("ent
       const samples = sequenceFrames(frames, finished, Number(opt.frames));
       const sequence = await during(`${currentContext} / 녹화의 여러 프레임`, () => composeImages(samples.map((frame) => ({ ...frame, label: `${(frame.timeMs / 1000).toFixed(3)} s` })), join(out, `${motion}-sequence.png`), Number(opt.columns || Math.min(4, samples.length))));
       details.sequence = { ...sequence, frames: samples.map(({ path, ...time }) => time) };
-      sequenceMessage = ` 와 ${sequence.file}`;
+      sequenceMessage = `, ${sequence.file}`;
     }
-    if (opt.frames !== undefined && !flags.has("record")) return { issues, ...details, message: `연속 그림：${details.sequence.file}（${(finished - frames[0].t).toFixed(1)} 초），영상을 인코딩하지 않음` };
+    if (opt.frames !== undefined && !flags.has("record")) return { issues, ...details, message: `연속 그림: ${details.sequence.file} (${(finished - frames[0].t).toFixed(1)}초), 영상을 인코딩하지 않음` };
     const ffmpeg = (await runFfmpeg(["-version"], 5000)).status === 0;
-    if (!ffmpeg) return { issues, ...details, failed: true, message: `녹화：설치되지 않음 ffmpeg，남긴 것: ${motion}-start/mid/end.jpg 세 프레임${sequenceMessage}` };
+    if (!ffmpeg) return { issues, ...details, failed: true, message: `녹화: ffmpeg가 없어 영상을 만들지 않았습니다. 남긴 파일: ${motion}-start/mid/end.jpg 세 프레임${sequenceMessage}` };
     // Generated basenames are safe for concat's quoting, even when --out contains an apostrophe.
     // Keep the final still frame through the end of --hold; screencasts only emit changed frames.
     const list = screencastList(frames, finished);
     writeFileSync(join(dir, "list.txt"), list);
     const r = await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", join(dir, "list.txt"),
       "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30", "-pix_fmt", "yuv420p", join(out, video)], 60000);
-    if (r.status !== 0) return { issues, ...details, failed: true, message: `녹화：ffmpeg 합치기 실패（${r.error?.code === "ETIMEDOUT" ? `${60 * timeoutScale} 초 안에 합치지 못했습니다` : r.error?.message || r.stderr.trim().split("\n").pop()}），보관함 ${motion}-start/mid/end.jpg 세 프레임${sequenceMessage}` };
+    if (r.status !== 0) return { issues, ...details, failed: true, message: `녹화: ffmpeg로 영상을 합치지 못했습니다(${r.error?.code === "ETIMEDOUT" ? `${60 * timeoutScale}초 안에 끝나지 않음` : r.error?.message || r.stderr.trim().split("\n").pop()}). 남긴 파일: ${motion}-start/mid/end.jpg 세 프레임${sequenceMessage}` };
     rmSync(dir, { recursive: true, force: true });
-    return { issues, ...details, message: `녹화：${video}（${(finished - frames[0].t).toFixed(1)} 초）와 ${motion}-start/mid/end.jpg${sequenceMessage}` };
+    return { issues, ...details, message: `녹화: ${video} (${(finished - frames[0].t).toFixed(1)}초), ${motion}-start/mid/end.jpg${sequenceMessage}` };
   } finally {
     const index = listeners.indexOf(onFrame); if (index >= 0) listeners.splice(index, 1);
     try { if (!transportFailure && !browserNeedsRestart) await cdp("Page.stopScreencast"); }
@@ -1718,7 +1828,7 @@ const MOTION_PROBE = `(() => {
   addEventListener("transitionrun", (e) => touch(e.target, "transition:" + e.propertyName), true);
   new MutationObserver((list) => { for (const m of list) touch(m.target, "js:" + m.attributeName); })
     .observe(document, { subtree: true, attributes: true, attributeFilter: ["style", "transform", "viewBox", "d", "x", "y", "cx", "cy", "r", "points", "opacity", "stroke-dashoffset"] });
-  // 첫 화면은 화면 좌표로 잽니다：고정된 무대 자체는 움직임으로 세지 않습니다，무대 안의 층이 바뀌어야 합니다。
+  // 첫 화면은 화면 좌표로 잽니다. 고정된 무대 자체는 움직임으로 세지 않고, 무대 안의 층이 바뀌어야 셉니다.
   function read(el) {
     const r = el.getBoundingClientRect();
     const page = phase === "hero" ? 0 : 1;
@@ -1806,23 +1916,23 @@ async function probeMotion(url, w, h, steps = []) {
     const names = { load: "처음 들어올 때", steps: "--steps 동작", hero: "첫 화면 스크롤", scroll: "처음부터 끝까지 스크롤" };
     const weak = (p) => p.maxMove < 4 && p.maxSize < 0.02 && p.maxOpacity < 0.3;
     for (const [k, p] of Object.entries(phases)) {
-      // 첫 화면의 깊이 변화는 선택 사항입니다：층 수와 이동 폭만 알립니다，고른 페이지에서 확인할 때 사용，문제로 세지 않음。
+      // 첫 화면의 깊이 변화는 선택 사항입니다. 고른 페이지를 확인할 때 쓰도록 층 수와 이동 폭만 알리고 문제로 세지 않습니다.
       if (k === "hero") {
         p.layers = p.top.filter((i) => i.size >= 0.05 || i.move >= h * 0.05).length;
         continue;
       }
       if (k === "scroll") {
         p.scrollable = scrollable;
-        if (!p.elements && scrollable) issues.push("스크롤：스크롤에 따른 변화를 찾지 못했습니다；소개 화면、브랜드 화면、소개·전시 화면에는 스크롤 이야기가 필요합니다");
+        if (!p.elements && scrollable) issues.push("스크롤: 스크롤에 따른 변화를 찾지 못했습니다. 소개, 브랜드, 전시 화면에는 스크롤 연출이 필요합니다");
         continue;
       }
-      if (!p.elements) issues.push(`${names[k]}：움직임을 찾지 못했습니다${k === "load" && !steps.length ? "；조작 효과에는 함께 필요합니다: --steps 변화를 찾을 수 있습니다" : ""}`);
-      else if (p.loops === p.elements) issues.push(`${names[k]}：계속 도는 애니메이션만 있습니다，한 번만 재생하는 항목이 없습니다:${k === "load" ? "첫 등장" : "반응"}`);
-      else if (weak(p)) issues.push(`${names[k]}：움직임이 너무 작습니다，알아보기 어렵습니다（가장 큰 이동 ${p.maxMove}px，크기 변화 ${(p.maxSize * 100).toFixed(1)}%，투명도 변화 ${p.maxOpacity}）`);
+      if (!p.elements) issues.push(`${names[k]}: 움직임을 찾지 못했습니다${k === "load" && !steps.length ? ". 조작 효과는 --steps를 함께 줘야 찾을 수 있습니다" : ""}`);
+      else if (p.loops === p.elements) issues.push(`${names[k]}: 계속 도는 애니메이션만 있고 한 번만 재생하는 ${k === "load" ? "첫 등장" : "반응"}이 없습니다`);
+      else if (weak(p)) issues.push(`${names[k]}: 움직임이 너무 작아 알아보기 어렵습니다(가장 큰 이동 ${p.maxMove}px, 크기 변화 ${(p.maxSize * 100).toFixed(1)}%, 투명도 변화 ${p.maxOpacity})`);
     }
-    const brief = (k, p) => k === "scroll" && !p.scrollable ? "페이지에 스크롤이 없습니다，스크롤 검사를 건너뜁니다" : k === "hero" ? `첫 화면 스크롤 ${p.layers} 개 층이 바뀜，가장 큰 확대 ${(p.maxSize * 100).toFixed(1)}%，가장 큰 이동 ${p.maxMove}px`
-      : `${names[k]} ${p.elements} 개 요소가 움직임，가장 큰 이동 ${p.maxMove}px，투명도 변화 ${p.maxOpacity}`;
-    return { phases, issues: [...problems, ...issues], message: "움직임 살펴보기：" + Object.entries(phases).map(([k, p]) => brief(k, p)).join("；") };
+    const brief = (k, p) => k === "scroll" && !p.scrollable ? "페이지에 스크롤이 없어 스크롤 검사를 건너뜀" : k === "hero" ? `첫 화면 스크롤: 층 ${p.layers}개가 바뀜, 가장 큰 확대 ${(p.maxSize * 100).toFixed(1)}%, 가장 큰 이동 ${p.maxMove}px`
+      : `${names[k]}: 요소 ${p.elements}개가 움직임, 가장 큰 이동 ${p.maxMove}px, 투명도 변화 ${p.maxOpacity}`;
+    return { phases, issues: [...problems, ...issues], message: "움직임 살펴보기: " + Object.entries(phases).map(([k, p]) => brief(k, p)).join("; ") };
   } finally { await cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier }); }
 }
 
@@ -1846,7 +1956,7 @@ function reserveFamily(preferred, files) {
   let name = preferred, n = 2;
   while (files(name).some((file) => usedFiles.has(file))) name = `${preferred ? preferred + "-" : ""}${n++}`;
   files(name).forEach((file) => usedFiles.add(file));
-  if (name !== preferred) notices.push(`파일 이름이 겹칩니다，다르게 나눴습니다：${files(preferred)[0]} → ${files(name)[0]}`);
+  if (name !== preferred) notices.push(`파일 이름이 겹쳐 이름을 바꿨습니다: ${files(preferred)[0]} → ${files(name)[0]}`);
   return name;
 }
 saveFatalReport = (error) => {
@@ -1857,11 +1967,11 @@ const evidence = flags.has("evidence");
 // One completed item produces one stderr progress line; stdout keeps its existing summary.
 let completed = 0, progressTotal = 0;
 function progress(file, failed = false) {
-  console.error(`[${++completed}/${progressTotal}] ${file} ${failed === "skipped" ? "건너뛰기，보고서에 남겼습니다" : failed ? "실패，보고서에 남겼습니다" : "끝남"}`);
+  console.error(`[${++completed}/${progressTotal}] ${file} ${failed === "skipped" ? "건너뜀, 보고서에 기록" : failed ? "실패, 보고서에 기록" : "완료"}`);
 }
 function skipped(file, metadata, reason) {
   report.push({ file, ...metadata, skipped: true, issues: [reason] });
-  lines.push(`${file}  ⚠ 건너뛰기：${reason}`); progress(file, "skipped");
+  lines.push(`${file}  ⚠ 건너뜀: ${reason}`); progress(file, "skipped");
 }
 function retryItem(file, metadata, extra = "") {
   const group = groups.find((g) => g.reportName === (metadata.group || "") && !(evidence && file.endsWith(".png")));
@@ -1887,9 +1997,9 @@ async function item(file, metadata, work, extra = "") {
   catch (error) {
     if (transportFailure) throw error;
     report.push({ file, ...metadata, failed: true, issues: [...problems, error.message] });
-    lines.push(`${file}  ⚠ 실패：${error.message}`); process.exitCode = 1; failed = true;
+    lines.push(`${file}  ⚠ 실패: ${error.message}`); process.exitCode = 1; failed = true;
     // Ordinary one-item failures retain their old stderr diagnostic; batches can finish the rest.
-    console.error(`shoot：${error.message}`);
+    console.error(`shoot: ${error.message}`);
   }
   progress(file, failed || report.slice(firstResult).some((r) => r.failed));
 }
@@ -1918,13 +2028,13 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
         await screenshot(file, flags.has("full"), selector ? await selectorClip() : thumb ? { x: 0, y: 0, width: w, height: h, scale: 0.5 } : null);
         const issues = await check(), hints = thumb ? [] : await lint();
         entry = { file: basename(file), ...meta, ...(thumb ? { thumb: true } : {}), animationWaitMs, issues, lint: hints };
-        lines.push(`${basename(file)}${issues.length ? "  ⚠ " + issues.join("；") : ""}${hints.length ? "  ◇ 읽기 쉬움 안내：" + lintLine(hints) : ""}`);
+        lines.push(`${basename(file)}${issues.length ? "  ⚠ " + issues.join("; ") : ""}${hints.length ? "  ◇ 읽기 쉬움 안내: " + lintLine(hints) : ""}`);
         report.push(entry); shots.push({ path: file, label: state || "page" });
         if (batchMode) targetShots.push({ path: file, label: [meta.name, state, suffix].filter(Boolean).join(" · ") });
       });
       if (!shots.some((shot) => basename(shot.path) === `${name}.png`)) {
         for (const extra of [marks.length && "marked", useMask && "masked", refImage && "compare"].filter(Boolean)) {
-          skipped(`${name}-${extra}.png`, meta, `원래 캡처 ${name}.png 실패，이 항목을 만들 수 없습니다`);
+          skipped(`${name}-${extra}.png`, meta, `원래 캡처 ${name}.png가 실패해 이 항목을 만들 수 없습니다`);
         }
         continue;
       }
@@ -1954,12 +2064,12 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       if (shots.length > 1) await item(`${sheetName}.png`, meta, async () => {
         lines.push(basename(await sheet(shots, join(out, `${sheetName}.png`), w, h)));
       });
-      else skipped(`${sheetName}.png`, meta, `받은 것: ${shots.length} 장 캡처 성공，모음 그림에 필요한 최소 개수: 2 장`);
+      else skipped(`${sheetName}.png`, meta, `성공한 캡처가 ${shots.length}장뿐입니다. 모음 그림에는 2장 이상이 필요합니다`);
       if (useMask) {
         if (masked.length > 1) await item(`${sheetName}-masked.png`, meta, async () => {
           lines.push(basename(await sheet(masked, join(out, `${sheetName}-masked.png`), w, h)));
         });
-        else skipped(`${sheetName}-masked.png`, meta, `받은 것: ${masked.length} 장 글자 가리기 성공，모음 그림에 필요한 최소 개수: 2 장`);
+        else skipped(`${sheetName}-masked.png`, meta, `글자를 가린 캡처가 ${masked.length}장뿐입니다. 모음 그림에는 2장 이상이 필요합니다`);
       }
     }
   }
@@ -1970,7 +2080,7 @@ async function motionBatch() {
     const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom: 1, ...(group.reportName ? { group: group.reportName } : {}) };
     await item(file, meta, async () => {
       const result = await probeMotion(withState(states[0]), sizes[0].w, sizes[0].h, group.steps);
-      lines.push(result.message + (result.issues.length ? "  ⚠ " + result.issues.join("；") : ""));
+      lines.push(result.message + (result.issues.length ? "  ⚠ " + result.issues.join("; ") : ""));
       report.push({ file, ...meta, motion: result.phases, issues: result.issues });
     });
   }
@@ -2002,7 +2112,7 @@ try {
     await item("stitch.png", {}, async () => {
       const result = await composeImages(stitchInputs, join(out, "stitch.png"), Number(opt.columns || 2), opt.crop);
       report.push({ ...result, issues: [] });
-      lines.push(`그림 모음：${result.file}（${result.width}×${result.height}，${result.columns} 열）`);
+      lines.push(`그림 모음: ${result.file} (${result.width}×${result.height}, ${result.columns}열)`);
     });
   } else {
     for (const [index, candidate] of targets.entries()) {
@@ -2033,20 +2143,20 @@ try {
         const result = await composeImages(targetShots, join(out, "sheet.png"), targetShots.length);
         report.push({ ...result, issues: [] }); lines.push("sheet.png");
       });
-      else skipped("sheet.png", {}, `받은 것: ${targetShots.length} 장 캡처 성공，모음 그림에 필요한 최소 개수: 2 장`);
+      else skipped("sheet.png", {}, `성공한 캡처가 ${targetShots.length}장뿐입니다. 모음 그림에는 2장 이상이 필요합니다`);
     }
   }
-} catch (error) { if (!transportFailure) console.error(`shoot：${error.message}`); process.exitCode = 1; }
+} catch (error) { if (!transportFailure) console.error(`shoot: ${error.message}`); process.exitCode = 1; }
 writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));
-console.log(`출력 폴더：${out}`);
+console.log(`출력 폴더: ${out}`);
 for (const notice of notices) console.log(`- ${notice}`);
 for (const l of lines) console.log(`- ${l}`);
 const total = report.reduce((n, r) => n + r.issues.length, 0);
-if (report.length) console.log(total ? `찾음 ${total} 개 문제，자세히 보기: report.json` : `검사를 통과했습니다: 콘솔 오류, 가로 넘침, 깨진 이미지가 없습니다${flags.has("motion") ? "，세 움직임을 모두 찾았습니다" : ""}`);
+if (report.length) console.log(total ? `문제 ${total}개를 찾았습니다. 자세한 내용은 report.json에 있습니다.` : `검사를 통과했습니다. 콘솔 오류, 가로 넘침, 깨진 이미지가 없습니다${flags.has("motion") ? ". 세 단계의 움직임도 모두 찾았습니다" : ""}.`);
 const hinted = [...new Set(report.flatMap((r) => (r.lint || []).map((i) => i.label)))];
-if (hinted.length) console.log(`읽기 쉬움과 그리기 안내 ${hinted.length} 종류：${hinted.join("、")}。자세히 보기: report.json 의 lint`);
+if (hinted.length) console.log(`읽기 쉬움과 그리기 안내 ${hinted.length}종류: ${hinted.join(", ")}. 자세한 내용은 report.json의 lint에 있습니다.`);
 const reviewerManual = resolve(dirname(process.argv[1]), "../references/reviewer-manual.md");
-if (evidence && existsSync(reviewerManual)) console.log(`점검자에게 전달：다음을 ${reviewerManual} 확인 자료 폴더와 ${out} 독립 점검 에이전트에게 전달 Agent`);
+if (evidence && existsSync(reviewerManual)) console.log(`점검자에게 전달: 독립 점검 에이전트(Agent)에게 안내 문서와 확인 자료 폴더를 넘기세요. 안내 문서: ${reviewerManual}, 확인 자료 폴더: ${out}`);
 finishing = true;
 await cleanup();
 process.exit(process.exitCode || 0);

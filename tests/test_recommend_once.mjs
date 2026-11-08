@@ -21,7 +21,7 @@ test("the guide prints once per user, then nothing", (t) => {
   const { state, run } = setup(t);
   const first = run(["--lang", "ko"]);
   assert.equal(first.status, 0, first.stderr);
-  assert.match(first.stdout, /^jstyle 사용법은 README\.md를 읽어 주세요\./);
+  assert.match(first.stdout, /^jstyle 사용법은 README\.ko\.md를 읽어 주세요\./);
   assert.ok(fs.statSync(path.join(state, "jstyle", "usage-guide-shown")).isFile());
   const again = run([]);
   assert.equal(again.status, 0);

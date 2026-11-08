@@ -99,10 +99,10 @@ console.error('CANDIDATE_LOADED');
   fs.mkdirSync(outside);
   let result = shoot([page, "--root", outside, "--out", path.join(work, "other-shots")], work);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
-  assert.ok(result.stderr.includes("로컬 대상이 범위 밖입니다: --root"));
+  assert.ok(result.stderr.includes("로컬 대상이 --root 밖에 있습니다"));
   result = shoot([`${page},${outsideFile}`, "--root", dir, "--out", path.join(work, "mixed-shots")], work);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
-  assert.ok(result.stderr.includes("로컬 대상이 범위 밖입니다: --root"));
+  assert.ok(result.stderr.includes("로컬 대상이 --root 밖에 있습니다"));
   for (const broad of [os.tmpdir(), path.parse(dir).root]) {
     result = shoot([page, "--root", broad, "--out", path.join(work, "broad-shots")], work);
     assert.notEqual(result.status, 0, result.stdout + result.stderr);

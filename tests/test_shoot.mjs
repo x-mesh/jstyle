@@ -228,7 +228,7 @@ test("unknown option", async () => {
   for (const args of [["--xxx"], ["--xxx", "value"]]) {
     const result = await node(args);
     assert.equal(result.status, 1, args.join(" "));
-    includes(result.stderr, "알 수 없는 선택지 --xxx");
+    includes(result.stderr, "알 수 없는 선택지입니다: --xxx");
     includes(result.stderr, "이렇게 쓰려던 것인가요:");
     assert.equal(result.stdout, "");
   }
@@ -239,7 +239,7 @@ test("missing option value", async () => {
     for (const following of [[], ["--force"]]) {
       const result = await node([option, ...following]);
       assert.equal(result.status, 1, `${option} ${following.join(" ")}`);
-      assert.equal(result.stderr, `shoot：${option} 값 하나가 필요합니다\n`);
+      assert.equal(result.stderr, `shoot: ${option}에는 값 하나가 필요합니다.\n`);
     }
   }
 });
@@ -291,7 +291,7 @@ test("explorer directory and manifest dry run", async (t) => {
     assert.equal(result.status, ok ? 0 : 1, result.stdout + result.stderr);
     return ok ? JSON.parse(result.stdout) : result.stderr;
   };
-  includes(await plan(folder, false), "폴더에서 안을 찾을 수 없습니다 HTML");
+  includes(await plan(folder, false), "폴더에서 HTML을 찾지 못했습니다");
   for (const name of ["b.html", "a.html", "style-explorer.html"]) fs.writeFileSync(path.join(folder, name), "<div>Candidate</div>");
   const expected = ["a.html", "b.html"].map((name) => path.join(folder, name));
   assert.deepEqual((await plan(folder)).targets, expected);
@@ -311,7 +311,7 @@ test("explorer directory and manifest dry run", async (t) => {
     assert.deepEqual(parsed.targets, [...expected].reverse());
   }
   fs.writeFileSync(manifest, "{bad json");
-  includes(await plan(folder, false), "읽을 수 없습니다 manifest");
+  includes(await plan(folder, false), "manifest를 읽을 수 없습니다");
 });
 
 test("dry run corpus regressions", async () => {
@@ -408,20 +408,20 @@ test("option forms aliases and errors", async () => {
   assert.deepEqual(parsed.sizes, [{ w: 1440, h: 900 }, { w: 390, h: 844 }, { w: 800, h: 600 }]);
   assert.deepEqual(parsed.zooms, [1, 2]);
   assert.deepEqual((await dry("--size", "mobile")).sizes, [{ w: 390, h: 844 }]);
-  assert.ok(parsed.notices.some((n) => n.includes("크기 겹친 항목을 뺐습니다")), parsed.notices.join("\n"));
+  assert.ok(parsed.notices.some((n) => n.includes("크기에서 겹친 항목을 뺐습니다")), parsed.notices.join("\n"));
   assert.deepEqual((await dry()).sizes, [{ w: 390, h: 844 }]);
   assert.equal((await dry("--thumb")).options.wait, "150");
-  includes(await dry("--thumb", "--full", FAIL), "--thumb 작은 미리보기에만 씁니다");
+  includes(await dry("--thumb", "--full", FAIL), "--thumb는 작은 미리보기에만 쓰므로");
   for (const flag of ["--full", "--thumb", "--mask", "--sheet", "--record", "--motion", "--entry", "--evidence"]) {
     const error = await dry(flag, "extra", FAIL);
-    includes(error, "page.html 와 extra");
-    includes(error, flag + " 인수를 받지 않음");
+    includes(error, "page.html, extra");
+    includes(error, flag + "에는 값을 쓰지 않습니다");
   }
   for (const [args, expected] of [
     [["--zoon", "2"], "--zoom"],
-    [["--motion", ".respond"], "--motion 인수를 받지 않음"],
-    [["--full", "extra"], "page.html 와 extra"],
-    [["--record=true"], "인수를 받지 않음"], [["--zoom=0"], "--zoom 1,2"],
+    [["--motion", ".respond"], "--motion에는 값을 쓰지 않습니다"],
+    [["--full", "extra"], "page.html, extra"],
+    [["--record=true"], "--record에는 값을 쓰지 않습니다"], [["--zoom=0"], "--zoom 1,2"],
     [["--size=0x900"], "--size desktop"], [["--wait=abc"], "--wait 1000"],
     [["--steps", "clik .open"], "이렇게 쓰려던 것인가요: click"],
     [["--steps", "drag .a 1 nope"], "drag .tiles .paper 240 0"],
@@ -471,12 +471,12 @@ test("stitch and sequence options validate without launching", async (t) => {
     [["--stitch"], "--stitch before.png"],
     [["--label", "바꾸기 전"], '--stitch before.png --label "바꾸기 전"'],
     [["--stitch", image, "--label", "앞", "--label", "뒤"], "--label"],
-    [["--stitch", path.join(temp, "missing.png")], "모음의 1 번째 이미지"],
+    [["--stitch", path.join(temp, "missing.png")], "모음의 1번째 이미지"],
     [["--stitch", temp], "파일이 아닙니다"],
-    [["page.html", "--stitch", image], "그림 모음에는 페이지나 캡처가 필요하지 않습니다"],
-    [["--stitch", image, image, image], "이미지마다 앞에 적어야 합니다: --stitch"],
-    [["--stitch", image, "--record"], "그림 모음에는 페이지나 캡처가 필요하지 않습니다"],
-    [["--stitch", image, "--frames", "8"], "그림 모음에는 페이지나 캡처가 필요하지 않습니다"],
+    [["page.html", "--stitch", image], "그림 모음에는 페이지나 캡처·녹화 선택지를 쓰지 않습니다"],
+    [["--stitch", image, image, image], "이미지마다 앞에 --stitch를 붙이세요"],
+    [["--stitch", image, "--record"], "그림 모음에는 페이지나 캡처·녹화 선택지를 쓰지 않습니다"],
+    [["--stitch", image, "--frames", "8"], "그림 모음에는 페이지나 캡처·녹화 선택지를 쓰지 않습니다"],
     [["--frames", "8"], "페이지나 그림 모음 입력이 없습니다"],
     [["page.html", "--record", "--frames"], "--record --frames 8"],
     [["page.html", "--columns", "2"], "--record --frames 8 --columns 4"],
@@ -690,7 +690,7 @@ if(scrollY<1)console.error('selector-did-not-scroll');return [];}})</script>`);
 
 browserTest("selector missing hidden and zero size fail", async (ctx) => {
   writePage(ctx, '<!doctype html><div hidden id="hidden">Hidden</div><div id="zero" style="width:0;height:0"></div>');
-  for (const [selector, diagnostic] of [[".missing", "요소를 찾을 수 없습니다"], ["#hidden", "모두 보이지 않습니다"], ["#zero", "크기: 0"]]) {
+  for (const [selector, diagnostic] of [[".missing", "요소를 찾지 못했습니다"], ["#hidden", "모두 보이지 않아"], ["#zero", "크기 0"]]) {
     const result = await runFailure(ctx, path.join(ctx.folder, "bad-crop"), "--selector", selector);
     includes(result.stderr, "--selector");
     includes(result.stderr, diagnostic);
@@ -848,8 +848,8 @@ browserTest("stitch normalizes common elements and crops after scaling", async (
       }
     }
   }
-  for (const [options, hint] of [[["--crop", "0,0,1200,300"], "자르기 영역이 이미지 밖입니다"],
-    [["--match-width", "2000"], "물체의 너비가 원본을 넘습니다"]]) {
+  for (const [options, hint] of [[["--crop", "0,0,1200,300"], "자르기 영역이 이미지 밖에 있습니다"],
+    [["--match-width", "2000"], "물체 너비가 원본 너비보다 큽니다"]]) {
     const output = path.join(ctx.folder, "invalid");
     const result = await node(["--stitch", first, ...options, "--out", output], { env: ctx.env, timeout: 30 });
     assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -881,7 +881,7 @@ browserTest("stitch wraps labels and reports decode errors", async (ctx) => {
   fs.writeFileSync(corrupt, "not an image");
   result = await node(["--stitch", image, "--stitch", corrupt, "--out", path.join(ctx.folder, "corrupt")], { env: ctx.env, timeout: 30 });
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  includes(result.stderr, " 2 번째 이미지를 디코딩할 수 없습니다，받은 값: " + corrupt);
+  includes(result.stderr, "2번째 이미지를 디코딩할 수 없습니다. 받은 값: " + corrupt);
   includes(result.stderr, "예: --stitch before.png");
   await assertNoBrowserLeftovers(ctx);
 });
@@ -1246,8 +1246,8 @@ new IntersectionObserver(e=>e.forEach(x=>x.isIntersecting&&x.target.classList.ad
   output = path.join(ctx.folder, "still");
   await shoot(ctx, output, "--motion", "--size", "1280x800");
   const issues = report(output)[0].issues.join("\n");
-  includes(issues, "처음 들어올 때：움직임을 찾지 못했습니다");
-  includes(issues, "스크롤：스크롤에 따른 변화를 찾지 못했습니다");
+  includes(issues, "처음 들어올 때: 움직임을 찾지 못했습니다");
+  includes(issues, "스크롤: 스크롤에 따른 변화를 찾지 못했습니다");
 });
 
 browserTest("motion skips scroll check on single screen", async (ctx) => {
@@ -1260,7 +1260,7 @@ h1{animation:rise .5s ease-out both}</style></head><body><h1>Game</h1></body></h
   const probe = report(output)[0];
   assert.deepEqual(probe.issues, []);
   assert.ok(!probe.motion.scroll.scrollable);
-  includes(result.stdout, "페이지에 스크롤이 없습니다");
+  includes(result.stdout, "페이지에 스크롤이 없어");
 });
 
 browserTest("record entry captures first appearance", async (ctx) => {
@@ -1375,8 +1375,8 @@ body::before{content:"";position:absolute;left:0;top:0;width:12px;height:12px;ba
 .pseudo-seg{position:relative;display:inline-block;padding:8px 16px;color:#fff}
 .pseudo-seg::before{content:"";position:absolute;inset:0;background:#111;border-radius:8px;z-index:-1}
 </style></head><body>
-<p class="soft">Secondary text at about 3.5 to 1 contrast is spared by the 3.0 floor.</p>
-<p class="low">Body text at about 2.3 to 1 contrast still fails the 3.0 floor.</p>
+<p class="soft">Secondary text at about 3.5 to 1 contrast now fails the WCAG AA 4.5 floor.</p>
+<p class="low">Body text at about 2.3 to 1 contrast fails the 4.5 floor.</p>
 <p class="faint">Body text at 1.16 to 1 on a plain white background must also be reported.</p>
 <p class="faint-tiny">흰 바탕에서 거의 보이지 않고 글자도 작은 문단입니다、줄 간격이 좁은 여러 줄 한국어 본문，대비가 낮아도 배치 검사를 건너뛰지 않는지 봅니다。</p>
 <div class="seg"><span class="seg-pill"></span><span class="seg-label">Active Tab</span></div>
@@ -1386,7 +1386,7 @@ body::before{content:"";position:absolute;left:0;top:0;width:12px;height:12px;ba
   await shoot(ctx, output, "--size", "1280x800");
   const lint = Object.fromEntries(report(output)[0].lint.map((item) => [item.rule, item]));
   assert.ok("contrastLow" in lint);
-  assert.equal(lint.contrastLow.count, 3);
+  assert.equal(lint.contrastLow.count, 4);
   assert.ok("smallText" in lint);
   assert.ok("tightLeading" in lint);
 });
@@ -1410,6 +1410,40 @@ nav a.active::before{content:"";position:absolute;left:0;top:4px;width:3px;heigh
   assert.deepEqual(report(output)[0].lint, []);
 });
 
+browserTest("lint finds clipped text, crowded targets, scattered edges and off-kit colors", async (ctx) => {
+  writePage(ctx, `<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>
+:root{--jk-primary:#0abe3a;--jk-on-primary:#fff;--jk-ink:#222}
+body{margin:0;padding:40px;font:16px/1.6 sans-serif;color:var(--jk-ink);background:#fff}
+.clip{width:90px;overflow:hidden;white-space:nowrap}.dots{width:90px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.tiny{width:16px;height:16px;padding:0;border:0;margin:0}.alone{position:absolute;left:600px;top:40px}
+.stack{position:relative;height:40px}.stack button{position:absolute;top:0;width:80px;height:32px}.stack .b{left:60px}
+.off{color:#5e686c}.ok{color:var(--jk-ink)}.go{background:var(--jk-primary);color:var(--jk-on-primary);border:0;padding:8px 16px}
+.e1{margin-left:17px}.e2{margin-left:53px}.e3{margin-left:91px}.e4{margin-left:137px}
+</style></head><body>
+<p class="clip">이 문장은 상자보다 훨씬 깁니다</p><p class="dots">이 문장은 말줄임표로 끝납니다</p><span class="sr">화면 읽기 전용</span>
+<div><button class="tiny" aria-label="하나"></button><button class="tiny" aria-label="둘"></button></div>
+<button class="tiny alone" aria-label="떨어진 버튼"></button>
+<p>문장 안의 <a href="#x">작은 링크</a>는 크기 기준에서 뺍니다.</p>
+<div class="stack"><button class="a">겹침 가</button><button class="b">겹침 나</button></div>
+<p class="off">키트에 없는 푸른 회색 글자</p><p class="ok">키트 글자</p><button class="go">주 버튼</button>
+<p class="e1">첫째 줄 시작점</p><p class="e2">둘째 줄 시작점</p><p class="e3">셋째 줄 시작점</p><p class="e4">넷째 줄 시작점</p>
+</body></html>`);
+  const output = path.join(ctx.folder, "lint-extended");
+  await shoot(ctx, output, "--size", "1280x800");
+  const lint = Object.fromEntries(report(output)[0].lint.map((item) => [item.rule, item]));
+  assert.equal(lint.clipped?.count, 1, JSON.stringify(lint.clipped));
+  assert.match(lint.clipped.examples[0], /clip/);
+  assert.equal(lint.smallTarget?.count, 2, JSON.stringify(lint.smallTarget));
+  assert.ok(lint.overlapTarget, "overlapTarget");
+  // Browser default link and button colors are not kit colors either, so an unstyled control is reported.
+  assert.equal(lint.offKitColor?.count, 3, JSON.stringify(lint.offKitColor));
+  assert.ok(lint.offKitColor.examples.some((x) => /p\.off.*rgb\(94 104 108\)/.test(x)));
+  assert.ok(!lint.offKitColor.examples.some((x) => /p\.ok|주 버튼/.test(x)));
+  assert.ok(lint.scatteredEdges?.count >= 4, JSON.stringify(lint.scatteredEdges));
+  assert.ok(!lint.contrastLow, JSON.stringify(lint.contrastLow));
+});
+
 browserTest("compare against reference", async (ctx) => {
   const reference = path.join(ctx.folder, "reference");
   await shoot(ctx, reference, "--states", "a", "--size", "800x600");
@@ -1423,7 +1457,7 @@ browserTest("compare against reference", async (ctx) => {
   entry = report(other)[0];
   assert.ok(entry.compare.overall > 20, String(entry.compare.overall));
   assert.equal(Object.keys(entry.compare.cells).length, 9);
-  includes(result.stdout, "차이가 뚜렷한 픽셀 비율:");
+  includes(result.stdout, "차이가 뚜렷한 픽셀 비율 ");
   const missing = await node([ctx.page, "--compare", path.join(ctx.folder, "nope.png")], { env: ctx.env, timeout: 30 });
   assert.notEqual(missing.status, 0);
   includes(missing.stderr, "참고 그림을 찾을 수 없습니다");
@@ -1439,7 +1473,7 @@ const good = document.querySelector('#good'); good.getContext('webgl2') || good.
 </script></body>`);
   const output = path.join(ctx.folder, "webgl");
   await shoot(ctx, output);
-  includes(report(output)[0].issues.join("\n"), "WebGL：1 개 캔버스에서 그리기 컨텍스트를 만들지 못함");
+  includes(report(output)[0].issues.join("\n"), "WebGL: 캔버스 1개에서 그리기 컨텍스트를 만들지 못해");
 });
 
 browserTest("fill replaces and fires events while type inserts at cursor", async (ctx) => {
@@ -1474,8 +1508,8 @@ document.querySelector('#verify').onclick=()=>{
 
 browserTest("fill rejects non editable elements with context", async (ctx) => {
   const result = await runFailure(ctx, path.join(ctx.folder, "fill-invalid"), "--steps", "fill #go hello");
-  includes(result.stderr, " 1 단계「fill #go hello」");
-  includes(result.stderr, "fill 입력창이 필요합니다、입력창 또는 편집 가능한 요소");
+  includes(result.stderr, '1단계 "fill #go hello"');
+  includes(result.stderr, "fill에는 입력창이나 편집 가능한 요소가 필요합니다");
   includes(result.stderr, '예: fill #message "hello world"');
 });
 
@@ -1498,12 +1532,12 @@ if(clicks!==3 || doubles!==1 || hovers!==1 || hits!==0)console.error('blocked-ac
   const issues = report(output)[0].issues;
   assert.equal(issues.length, 3, JSON.stringify(issues));
   for (const [index, action] of ["hover", "click", "dblclick"].entries()) {
-    const message = ` ${index + 1} 단계「${action} #target」：가운데를 가린 요소: div.veil 가리고 있음`;
+    const message = `${index + 1}단계 "${action} #target": 요소 가운데가 div.veil에 가려져 있습니다`;
     includes(issues[index], message);
     includes(result.stdout, message);
     includes(issues[index], "동작은 그대로 실행합니다");
   }
-  includes(result.stdout, "찾음 3 개 문제");
+  includes(result.stdout, "문제 3개를 찾았습니다");
 });
 
 browserTest("descendant at center is not a blocker and mark does not warn", async (ctx) => {
@@ -1515,7 +1549,7 @@ document.querySelector('#target').ondblclick=()=>{if(count!==3)console.error('de
   const output = path.join(ctx.folder, "descendant");
   const result = await shoot(ctx, output, "--steps", "hover #target; click #target; dblclick #target", "--mark", "#disabled");
   assert.deepEqual(report(output)[0].issues, []);
-  excludes(result.stdout, "안내：");
+  excludes(result.stdout, "안내:");
 });
 
 browserTest("disabled reasons are warnings and do not stop actions", async (ctx) => {
@@ -1531,11 +1565,11 @@ document.querySelector('#verify').onclick=()=>{if(count!==1)console.error('aria-
   const issues = report(output)[0].issues;
   for (const [step, reason] of [["hover #disabled", "disabled"], ["click #aria", 'aria-disabled="true"'],
     ["dblclick #pointer", "pointer-events: none"], ["click #inherited", "disabled"]]) {
-    assert.ok(issues.some((issue) => issue.includes(`「${step}」：대상이 비활성 상태입니다（${reason}）`)), JSON.stringify(issues));
+    assert.ok(issues.some((issue) => issue.includes(`"${step}": 대상이 비활성 상태입니다(${reason})`)), JSON.stringify(issues));
     includes(result.stdout, reason);
   }
   assert.ok(!issues.some((issue) => issue.includes("콘솔 오류")), JSON.stringify(issues));
-  includes(result.stdout, `찾음 ${issues.length} 개 문제`);
+  includes(result.stdout, `문제 ${issues.length}개를 찾았습니다`);
 });
 
 browserTest("action warnings are in recording and motion reports", async (ctx) => {
@@ -1548,20 +1582,20 @@ browserTest("action warnings are in recording and motion reports", async (ctx) =
   assert.equal(entries.length, 2);
   assert.ok("motion" in entries[0]);
   for (const entry of entries) {
-    assert.ok(entry.issues.some((issue) => issue.includes("가운데를 가린 요소: div#overlay 가리고 있음")), JSON.stringify(entry));
+    assert.ok(entry.issues.some((issue) => issue.includes("요소 가운데가 div#overlay에 가려져 있습니다")), JSON.stringify(entry));
     assert.ok(entry.issues.some((issue) => issue.includes('aria-disabled="true"')), JSON.stringify(entry));
   }
-  includes(result.stdout, "가운데를 가린 요소: div#overlay 가리고 있음");
-  includes(result.stdout, `찾음 ${entries.reduce((sum, r) => sum + r.issues.length, 0)} 개 문제`);
+  includes(result.stdout, "요소 가운데가 div#overlay에 가려져 있습니다");
+  includes(result.stdout, `문제 ${entries.reduce((sum, r) => sum + r.issues.length, 0)}개를 찾았습니다`);
   // A later failure must not erase warnings already raised by the recording.
   const failed = path.join(ctx.folder, "warning-before-failure");
   result = await runFailure(ctx, failed, "--record", "--steps", "click #target; click .missing", "--hold", "0");
   const entry = report(failed)[0];
   assert.ok(entry.failed);
-  assert.ok(entry.issues.some((issue) => issue.includes("가운데를 가린 요소: div#overlay 가리고 있음")), JSON.stringify(entry));
+  assert.ok(entry.issues.some((issue) => issue.includes("요소 가운데가 div#overlay에 가려져 있습니다")), JSON.stringify(entry));
   assert.ok(entry.issues.some((issue) => issue.includes('aria-disabled="true"')), JSON.stringify(entry));
-  assert.ok(entry.issues.some((issue) => issue.includes("요소를 찾을 수 없습니다 .missing")), JSON.stringify(entry));
-  includes(result.stdout, `찾음 ${entry.issues.length} 개 문제`);
+  assert.ok(entry.issues.some((issue) => issue.includes("요소를 찾지 못했습니다: .missing")), JSON.stringify(entry));
+  includes(result.stdout, `문제 ${entry.issues.length}개를 찾았습니다`);
   assert.deepEqual(listDir(failed, (name) => name.startsWith("frames")), []);
 });
 
@@ -1577,8 +1611,8 @@ document.querySelector('#closed').attachShadow({mode:'closed'}).innerHTML='<butt
   for (const args of [["--steps", "click #framed"], ["--steps", "click text=Shadowed"],
     ["--steps", "fill #shadowed hello"], ["--mark", "#shadowed"]]) {
     const result = await runFailure(ctx, path.join(ctx.folder, "scope"), ...args);
-    includes(result.stderr, "요소를 찾을 수 없습니다");
-    includes(result.stderr, "첫 문서 안에서만 요소를 찾습니다，페이지 안에 있음: 2 개 iframe、2 개 열린 shadow root");
+    includes(result.stderr, "요소를 찾지 못했습니다");
+    includes(result.stderr, "첫 문서 안에서만 요소를 찾습니다. 페이지에 iframe 2개, 열린 shadow root 2개가 있습니다");
   }
   writePage(ctx, '<!doctype html><link rel="icon" href="data:,"><body></body>');
   const result = await runFailure(ctx, path.join(ctx.folder, "no-roots"), "--steps", "click .missing");
@@ -1587,9 +1621,9 @@ document.querySelector('#closed').attachShadow({mode:'closed'}).innerHTML='<butt
 
 browserTest("missing element scope counts iframes and shadow roots independently", async (ctx) => {
   for (const [markup, expected] of [
-    ['<iframe srcdoc="<p>Frame</p>"></iframe>', "1 개 iframe、0 개 열린 shadow root"],
+    ['<iframe srcdoc="<p>Frame</p>"></iframe>', "iframe 1개, 열린 shadow root 0개"],
     [`<div id="host"></div><script>document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<p>Shadow</p>';</script>`,
-      "0 개 iframe、1 개 열린 shadow root"],
+      "iframe 0개, 열린 shadow root 1개"],
   ]) {
     writePage(ctx, '<!doctype html><link rel="icon" href="data:,">' + markup);
     const result = await runFailure(ctx, path.join(ctx.folder, "root-counts"), "--steps", "click .missing");
@@ -1633,12 +1667,12 @@ if(count!==13 || document.querySelector('input').value!=='replacement' || docume
 
 browserTest("selector errors include context and hints", async (ctx) => {
   for (const [raw, expected] of [
-    ['wait 0; click [id="missing"]', [" 2 단계", 'click [id="missing"]', 'id="go"']],
+    ['wait 0; click [id="missing"]', ["2단계", 'click [id="missing"]', 'id="go"']],
     ["click text=전", null],
     ["click text=없는 대상으로 바꾸기", ["보이는 글", "전환"]],
-    ["click body .missing", ['"body" 일치 1 개 요소']],
-    ["click button:unknown", ["올바르지 않음: CSS", 'text="Send money"', 'button:has-text("Undo")']],
-    ["waitfor .missing", [" 1 단계", "waitfor .missing", "요소를 찾을 수 없습니다"]],
+    ["click body .missing", ['"body"에 맞는 요소 1개']],
+    ["click button:unknown", ["올바른 CSS 선택자가 아닙니다", 'text="Send money"', 'button:has-text("Undo")']],
+    ["waitfor .missing", ["1단계", "waitfor .missing", "요소를 찾지 못했습니다"]],
   ]) {
     if (expected === null) {
       // Containment fallback succeeds. Python skipped this under a non-UTF-8 filesystem encoding because it
@@ -1681,12 +1715,12 @@ browserTest("playwright exact text and nth do not fall back", async (ctx) => {
   writePage(ctx, `<!doctype html><link rel="icon" href="data:,">
 <button>Save more</button><button class="item" hidden>Hidden</button><button class="item">Visible</button>`);
   let result = await runFailure(ctx, path.join(ctx.folder, "exact-missing"), "--steps", 'wait 0; click button:text-is("Save")');
-  includes(result.stderr, " 2 단계");
-  includes(result.stderr, "요소를 찾을 수 없습니다");
+  includes(result.stderr, "2단계");
+  includes(result.stderr, "요소를 찾지 못했습니다");
   result = await runFailure(ctx, path.join(ctx.folder, "hidden-nth"), "--steps", "click .item >> nth=0");
-  includes(result.stderr, "모두 보이지 않습니다");
+  includes(result.stderr, "모두 보이지 않아");
   result = await runFailure(ctx, path.join(ctx.folder, "missing-nth"), "--steps", "click .item >> nth=2");
-  includes(result.stderr, "요소를 찾을 수 없습니다");
+  includes(result.stderr, "요소를 찾지 못했습니다");
   await shoot(ctx, path.join(ctx.folder, "last-nth"), "--steps", "hover .item >> nth=-1");
 });
 
@@ -1696,7 +1730,7 @@ browserTest("unsupported playwright combinations give context and copyable examp
     [':is(button:has-text("Save"))', 'text="Save"'],
     ['button:has-text("Save") >> text=Draft', 'text="Save"']]) {
     const result = await runFailure(ctx, path.join(ctx.folder, "unsupported"), "--steps", "wait 0; hover " + selector);
-    includes(result.stderr, " 2 단계");
+    includes(result.stderr, "2단계");
     includes(result.stderr, "받은 값: " + selector);
     includes(result.stderr, "예: hover " + rewrite);
   }
@@ -1747,7 +1781,7 @@ browserTest("named and unnamed record groups", async (ctx) => {
 browserTest("evidence all artifacts and partial failure", ffmpegSkip("ffmpeg is needed for complete evidence"), async (ctx) => {
   const output = path.join(ctx.folder, "evidence");
   const evidence = await shoot(ctx, output, "--evidence", "--states=a,b", "--hold=100", "--steps", "toggle: click #go");
-  includes(evidence.stdout, "점검자에게 전달：");
+  includes(evidence.stdout, "점검자에게 전달:");
   includes(evidence.stdout, "reviewer-manual.md");
   assertArtifacts(output, ["a.png", "b.png", "a-masked.png", "b-masked.png", "sheet.png", "sheet-masked.png",
     "a-@2x.png", "record-entry.mp4", "motion-entry-start.jpg", "motion-entry-mid.jpg", "motion-entry-end.jpg",
@@ -1894,7 +1928,7 @@ browserTest("browser timeout retries once", WINDOWS ? "POSIX launch wrapper" : f
   const output = path.join(ctx.folder, "retried");
   const result = await node([ctx.page, "--out", output], { env, timeout: 110 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  includes(result.stderr, "45 초 안에 시작하지 못했습니다");
+  includes(result.stderr, "45초 안에 시작하지 못했습니다");
   includes(result.stderr, "한 번 더 시도합니다");
   includes(result.stderr, "--timeout-scale 2");
   includes(result.stderr, "여러 작업을 동시에 하면 느려질 수 있습니다");
@@ -2017,26 +2051,26 @@ browserTest("hidden matches report count reason and visible example", async (ctx
   const cases = [
     ['style="display:none"', "", "display:none"],
     ['style="visibility:hidden"', "", "visibility:hidden"],
-    ['style="width:0;height:0;padding:0;border:0"', "", "크기: 0"],
-    ["", "display:none", "조상 요소가 가림: div#container 숨기기：display:none"],
-    ["", "visibility:hidden", "조상 요소가 가림: div#container 숨기기：visibility:hidden"],
-    ["", "opacity:0", "조상 요소가 가림: div#container 숨기기：opacity:0"],
+    ['style="width:0;height:0;padding:0;border:0"', "", "크기 0"],
+    ["", "display:none", "조상 요소 div#container에서 숨김: display:none"],
+    ["", "visibility:hidden", "조상 요소 div#container에서 숨김: visibility:hidden"],
+    ["", "opacity:0", "조상 요소 div#container에서 숨김: opacity:0"],
   ];
   for (const [attrs, parentStyle, reason] of cases) {
     writePage(ctx, `<!doctype html><link rel="icon" href="data:,">
 <button data-view="activity">Activity</button><div id="container" style="${parentStyle}">
 <button data-view="accounts" ${attrs}>Accounts</button><button data-view="accounts" ${attrs}>Accounts 2</button></div>`);
     const result = await runFailure(ctx, path.join(ctx.folder, "hidden"), "--size", "desktop", "--steps", 'click [data-view="accounts"]');
-    includes(result.stderr, "찾음 2 개 요소");
+    includes(result.stderr, "요소 2개가 모두 보이지 않아");
     includes(result.stderr, reason);
-    excludes(result.stderr, "요소를 찾을 수 없습니다");
-    includes(result.stderr, "보이게 하는 앞 단계를 먼저 실행하세요");
+    excludes(result.stderr, "요소를 찾지 못했습니다");
+    includes(result.stderr, "보이게 하는 앞 단계를 먼저 실행하거나");
     includes(result.stderr, '예: click [data-view="activity"]');
   }
   writePage(ctx, `<!doctype html><link rel="icon" href="data:,"><details id="tools">
 <summary>Tools</summary><button data-view="accounts">Accounts</button></details>`);
   const result = await runFailure(ctx, path.join(ctx.folder, "closed"), "--steps", 'click [data-view="accounts"]');
-  includes(result.stderr, "details 펼치지 않음");
+  includes(result.stderr, "details가 닫혀 있음");
   includes(result.stderr, "예: click #tools > summary");
   await shoot(ctx, path.join(ctx.folder, "opened"), "--steps", 'click #tools > summary; click [data-view="accounts"]');
 });
@@ -2179,7 +2213,7 @@ browserTest("second screenshot timeout marks item failed and continues evidence"
   assert.equal(result.status, 1, result.stdout + result.stderr);
   const entries = report(output);
   assert.ok(entries[0].failed);
-  includes(entries[0].issues.at(-1), "Page.captureScreenshot 180 초");
+  includes(entries[0].issues.at(-1), "Page.captureScreenshot 요청이 180초");
   assert.ok(!entries.some((row) => row.file === "browser"));
   assert.ok(entries.some((row) => row.file === "motion-probe-toggle"));
   assertArtifacts(output, ["page-@2x.png", "record-entry.mp4", "record-toggle.mp4", "report.json"]);
@@ -2217,7 +2251,7 @@ browserTest("stale screencast warns preserves stream and appends screenshot", ff
   const entry = report(output)[0];
   assert.equal(entry.consistency.status, "mismatch");
   includes(entry.warnings[0], "일부를 찍지 못했을 수 있습니다");
-  includes(result.stdout, "멈춘 마지막 모습의 기준: motion-end.jpg 기준");
+  includes(result.stdout, "멈춘 마지막 모습은 motion-end.jpg를 기준으로");
   assert.ok(sameBytes(path.join(output, "record-stream-end.jpg"), stale));
   assert.ok(entry.consistency.pixelRatio < 0.005, "A thin missing border must survive whole-viewport dilution");
   assert.ok((await framePixel(path.join(output, "motion-end.jpg"), 306, 80))[1] > 220);
@@ -2237,9 +2271,9 @@ browserTest("cdp request times out in current step", async (ctx) => {
   const result = await node([ctx.page, "--out", output, "--size", "desktop", "--steps", "click #prepare; click #hang"], { env, timeout: 20 });
   assert.equal(result.status, 1, result.stdout + result.stderr);
   const elapsed = (performance.now() - start) / 1000;
-  includes(result.stderr, " 2 단계「click #hang」");
-  includes(result.stderr, "CDP Runtime.evaluate 30 초 안에 응답하지 않았습니다");
-  includes(result.stderr, "CDP Runtime.evaluate 60 초 안에 응답하지 않았습니다");
+  includes(result.stderr, '2단계 "click #hang"');
+  includes(result.stderr, "CDP Runtime.evaluate 요청이 30초 안에 응답하지 않았습니다");
+  includes(result.stderr, "CDP Runtime.evaluate 요청이 60초 안에 응답하지 않았습니다");
   assert.equal(count(result.stderr, "한 번 더 시도합니다"), 1);
   assert.deepEqual(journalRows(journal).filter((row) => row.stage === "cdp").map((row) => row.timeout), [30000, 60000]);
   assert.ok(elapsed < 20, String(elapsed));
@@ -2263,7 +2297,7 @@ browserTest("browser disconnect interrupts steps and cleans frames", WINDOWS ? "
   const result = await node([ctx.page, "--out", output, "--record", "--hold", "100", "--steps", "disconnect: click #kill; wait 60000"],
     { env: { ...ctx.env, CHROME_PATH: wrapper }, timeout: 15 });
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  includes(result.stderr, " 2 단계「wait 60000」");
+  includes(result.stderr, '2단계 "wait 60000"');
   includes(result.stderr, "브라우저 연결이 갑자기 끊겼습니다");
   assert.ok(performance.now() - start < 10000);
   assert.deepEqual(listDir(output, (name) => name.startsWith("frames")), []);
@@ -2274,12 +2308,12 @@ browserTest("deduplicated states sizes zooms and filename collisions", async (ct
   let output = path.join(ctx.folder, "deduplicated");
   let result = await shoot(ctx, output, "--states", "a,a,b,a", "--size", "desktop,1440x900,phone,mobile", "--zoom", "1,1.0");
   assert.equal(report(output).length, 4);
-  for (const message of ["상태 겹친 항목을 뺐습니다", "크기 겹친 항목을 뺐습니다", "배율 겹친 항목을 뺐습니다"]) includes(result.stdout, message);
+  for (const message of ["상태에서 겹친 항목을 뺐습니다", "크기에서 겹친 항목을 뺐습니다", "배율에서 겹친 항목을 뺐습니다"]) includes(result.stdout, message);
   output = path.join(ctx.folder, "group-collision");
   result = await shoot(ctx, output, "--states", "a,a-b", "--steps", "b-c: wait 0", "--steps", "c: wait 0");
   assert.equal(new Set(report(output).map((r) => r.file)).size, 4);
   assertArtifacts(output, ["a-b-c.png", "a-b-c-2.png"]);
-  includes(result.stdout, "파일 이름이 겹칩니다，다르게 나눴습니다");
+  includes(result.stdout, "파일 이름이 겹쳐 이름을 바꿨습니다");
   output = path.join(ctx.folder, "variant-collision");
   await shoot(ctx, output, "--states", "a,a-masked,sheet", "--mask", "--sheet");
   assertArtifacts(output, ["a.png", "a-masked.png", "a-masked-2.png", "a-masked-2-masked.png",

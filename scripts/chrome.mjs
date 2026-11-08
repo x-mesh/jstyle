@@ -26,14 +26,14 @@ export function findChrome() {
     const r = spawnSync(process.platform === "win32" ? "where.exe" : "which", [name], { encoding: "utf8" });
     if (r.status === 0 && r.stdout.trim()) return r.stdout.trim().split(/\r?\n/)[0];
   }
-  throw new Error("찾을 수 없습니다 Chrome、Chromium 또는 Edge；하나를 설치하세요，환경변수로 지정할 수도 있습니다: CHROME_PATH 경로 지정。");
+  throw new Error("Chrome, Chromium, Edge를 찾지 못했습니다. 하나를 설치하거나 CHROME_PATH에 경로를 지정하세요.");
 }
 
 export function createChrome({ timeoutMs = ms => ms, prefix = "jstyle-browser-", label = "browser" } = {}) {
   const chromePath = findChrome();
   let profile, chrome, handedOff;
-  // 처음 띄운 프로세스가 실제 브라우저가 아닐 수 있습니다：일부 버전은 다른 프로세스에 브라우저를 넘기고 끝납니다。
-  // 그래서 먼저 브라우저가 스스로 끝나게 합니다，이번 임시 폴더 이름으로 남은 프로세스를 찾습니다。
+  // 처음 띄운 프로세스가 실제 브라우저가 아닐 수 있습니다. 일부 버전은 다른 프로세스에 브라우저를 넘기고 끝납니다.
+  // 그래서 먼저 브라우저가 스스로 끝나게 한 뒤, 이번 임시 폴더 이름으로 남은 프로세스를 찾습니다.
   function closeBrowser(ws) {
     return new Promise((ok) => {
       const socket = ws, timer = setTimeout(() => ok(false), 3000);
@@ -52,7 +52,7 @@ export function createChrome({ timeoutMs = ms => ms, prefix = "jstyle-browser-",
     return (r.stdout || "").split("\n").filter((line) => line.includes(name)).map((line) => Number(line.trim().split(/\s+/)[0])).filter((pid) => pid && pid !== process.pid);
   }
   function killProfileProcesses() {
-    // 두 번 찾습니다：첫 확인 뒤 생긴 자식 프로세스도 닫아야 합니다。
+    // 첫 확인 뒤에 생긴 자식 프로세스도 닫아야 하므로 두 번 찾습니다.
     for (let pass = 0; pass < 2; pass++) {
       const pids = profileProcesses(); if (!pids.length) return;
       for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
@@ -62,10 +62,10 @@ export function createChrome({ timeoutMs = ms => ms, prefix = "jstyle-browser-",
     if (!profile) return;
     const remove = (maxRetries) => rmSync(profile, { recursive: true, force: true, maxRetries, retryDelay: 100 });
     try {
-      // 실제 브라우저가 처음 프로세스와 다르면，연결이 끊겼다고 프로세스가 끝난 것은 아닙니다，종료 이벤트를 기다릴 수 없습니다，폴더 이름으로 마무리합니다。
+      // 실제 브라우저가 처음 프로세스와 다르면 연결이 끊겨도 프로세스는 끝나지 않았을 수 있고 종료 이벤트도 기다릴 수 없으므로, 폴더 이름으로 찾아 정리합니다.
       if (!closed || handedOff) killProfileProcesses();
       try { remove(5); } catch { killProfileProcesses(); remove(10); }
-    } catch (error) { console.error(`${label}：임시 폴더를 지우지 못했습니다（${error.code || error.message}），나중에 직접 지울 수 있습니다：${profile}`); }
+    } catch (error) { console.error(`${label}: 임시 폴더를 지우지 못했습니다(${error.code || error.message}). 나중에 직접 지우세요: ${profile}`); }
     profile = undefined;
   }
   async function stopChrome(ws) {
@@ -93,7 +93,7 @@ export function createChrome({ timeoutMs = ms => ms, prefix = "jstyle-browser-",
       const poll = setInterval(() => { const url = fromPortFile(); if (url) finish(null, url); }, 100);
       const onData = (d) => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) finish(null, m[1]); };
       const onError = (e) => finish(e);
-      // 브라우저가 이미 다른 프로세스로 넘어갔을 수 있습니다，포트 파일은 나중에 생길 수 있습니다，그래서 바로 실패로 보지 않습니다。
+      // 브라우저가 이미 다른 프로세스로 넘어갔고 포트 파일이 나중에 생길 수 있으므로, 바로 실패로 처리하지 않습니다.
       const onExit = () => { handedOff = true; exited = setTimeout(() => finish(new Error("브라우저가 일찍 끝났습니다")), timeoutMs(10000)); };
       function finish(error, url) {
         clearTimeout(timer); clearTimeout(exited); clearInterval(poll);

@@ -93,7 +93,7 @@ export class ManifestError extends PyError {
   constructor(problems) {
     super("ManifestError", problems.length === 1
       ? problems[0]
-      : `manifest 있음 ${problems.length} 곳을 고쳐야 합니다：\n` + problems.map((problem, index) => `  ${index + 1}. ${problem}`).join("\n"));
+      : `manifest에서 고칠 곳이 ${problems.length}군데 있습니다:\n` + problems.map((problem, index) => `  ${index + 1}. ${problem}`).join("\n"));
     this.problems = problems;
   }
 }
@@ -150,11 +150,11 @@ function checkCss(css, label) {
   const tokens = cssTokens(css).filter((token) => token.kind !== "comment" && token.kind !== "space");
   const checkResource = (value) => {
     const lowered = pyStrip(cssUnescape(value)).toLowerCase();
-    if (!lowered.startsWith("data:") && !lowered.startsWith("#")) throw valueError(`${label}: CSS 밖의 파일 참조를 포함함`);
+    if (!lowered.startsWith("data:") && !lowered.startsWith("#")) throw valueError(`${label}: CSS에 외부 파일 참조가 들어 있습니다`);
   };
   tokens.forEach((token, index) => {
     if (token.text === "@" && index + 1 < tokens.length && tokens[index + 1].kind === "ident" && cssUnescape(tokens[index + 1].text).toLowerCase() === "import") {
-      throw valueError(`${label}: 파일 안에 넣어 주세요: CSS，쓰지 않습니다 @import`);
+      throw valueError(`${label}: CSS는 @import 대신 파일 안에 직접 넣어 주세요`);
     }
     const name = token.kind === "ident" ? cssUnescape(token.text).toLowerCase() : "";
     if (!RESOURCE_FUNCTIONS.includes(name)) return;
@@ -221,14 +221,14 @@ export function readAsset(target, used) {
   const size = wrapFs(() => fs.statSync(target).size);
   const { maxResourceBytes: one, maxTotalResourceBytes: all } = limits;
   if (size > one) {
-    throw valueError(`로컬 파일 ${target} 값: ${size} 바이트，파일 하나의 최대 크기 ${one}를 넘습니다. 제한값: ${one} 바이트；`
-      + `파일을 압축하거나 잘라 다음 크기로 줄이세요: ${one} 바이트 이내，원래 경로를 유지한 뒤 다시 실행하세요`);
+    throw valueError(`로컬 파일 ${target}의 크기가 ${size} 바이트로, 파일 하나의 최대 크기 ${one} 바이트를 넘습니다. `
+      + `파일을 압축하거나 잘라 ${one} 바이트 이내로 줄이고, 같은 경로에 둔 채 다시 실행하세요`);
   }
   const counted = new PathSet([...used.values(), target]);
   const total = counted.values().reduce((sum, item) => sum + wrapFs(() => fs.statSync(item).size), 0);
   if (total > all) {
-    throw valueError(`안에 넣은 파일의 총 크기 ${total} 바이트，전체 최대 크기 ${all}를 넘습니다. 제한값: ${all} 바이트；`
-      + `안에서 참조한 이미지를 줄이세요、글꼴 또는 영상，입력 파일 전체가 넘지 않게 합니다: ${all} 바이트로 줄인 뒤 다시 실행하세요`);
+    throw valueError(`안에 넣은 파일의 총 크기가 ${total} 바이트로, 전체 최대 크기 ${all} 바이트를 넘습니다. `
+      + `안에서 참조한 이미지, 글꼴, 영상의 크기를 줄이고 입력 파일 전체가 ${all} 바이트를 넘지 않게 한 뒤 다시 실행하세요`);
   }
   used.add(target);
   return wrapFs(() => fs.readFileSync(target));
@@ -283,20 +283,20 @@ function localFile(ref, base) {
     parts = resourceParts(ref);
   } catch (error) {
     if (!isValueError(error)) throw error;
-    throw valueError(`파일 주소가 올바르지 않습니다：${ref}；참조를 있는 파일의 절대 경로로 바꾼 뒤 다시 만드세요`);
+    throw valueError(`파일 주소가 올바르지 않습니다: ${ref}. 참조를 실제 파일의 절대 경로로 바꾼 뒤 다시 만드세요`);
   }
   if ((parts.scheme && parts.scheme.toLowerCase() !== "file") || !["", "localhost"].includes(parts.netloc) || ref.startsWith("//")) {
     const destination = joinPath(base, nameOf(unquote(parts.path)) || "resource.bin");
     const command = `curl -L --fail --output ${shlexQuote(destination)} -- ${shlexQuote(ref)}`;
-    throw valueError(`외부 파일 ${ref} 오프라인에서 쓸 수 없음；먼저 실행 \`${command}\`，`
-      + `다음 참조를 바꾸세요: ${jsonDumps(ref)} 다음으로 바꾸세요: ${jsonDumps(destination)} 다시 만드세요`);
+    throw valueError(`외부 파일은 오프라인에서 쓸 수 없습니다: ${ref}. 먼저 \`${command}\`를 실행하고, `
+      + `참조 ${jsonDumps(ref)}를 ${jsonDumps(destination)}로 바꾼 뒤 다시 만드세요`);
   }
   // A file URL's /C:/... is not a Windows filesystem path. Decode it with
   // the platform converter, which also handles percent-escaped filenames.
   const target = resolvePath(joinPath(base, url2pathname(parts.path)));
   if (!isFile(target)) {
-    throw valueError(`로컬 파일을 찾을 수 없습니다 ${ref}（읽은 값: ${target}）；`
-      + `파일을 다음 위치에 저장하세요: ${jsonDumps(target)}，참조를 실제 파일의 절대 경로로 바꾼 뒤 다시 만드세요`);
+    throw valueError(`로컬 파일을 찾을 수 없습니다: ${ref}(찾은 경로: ${target}). `
+      + `파일을 ${jsonDumps(target)}에 저장하거나, 참조를 실제 파일의 절대 경로로 바꾼 뒤 다시 만드세요`);
   }
   return target;
 }
@@ -375,7 +375,7 @@ function embedCss(css, base, used, stack = []) {
         last = closing(first + 1);
         ref = value(tokens[first + 1].end, tokens[last].start);
       } else {
-        throw valueError('CSS @import 읽어 들일 수 없습니다；다음으로 고치세요: @import "이미 있는 파일의 절대 경로.css";');
+        throw valueError('CSS @import를 읽을 수 없습니다. @import "이미 있는 파일의 절대 경로.css"; 형식으로 고치세요');
       }
       let end = last + 1;
       while (end < tokens.length && tokens[end].text !== ";") {
@@ -387,7 +387,7 @@ function embedCss(css, base, used, stack = []) {
       let imported;
       if (target === null) {
         // Embedded imports have no local base; decode and check them as well.
-        if (!ref.toLowerCase().startsWith("data:text/css")) throw valueError('CSS @import 로컬 파일을 쓰세요: CSS 파일，예: @import "./style.css";');
+        if (!ref.toLowerCase().startsWith("data:text/css")) throw valueError('CSS @import에는 로컬 CSS 파일을 쓰세요. 예: @import "./style.css";');
         const comma = ref.indexOf(",");
         if (comma < 0) throw valueError("not enough values to unpack (expected 2, got 1)");
         const header = ref.slice(0, comma);
@@ -646,11 +646,11 @@ class AssetCheck extends HTMLParser {
   handleStarttag(tag, attrList) {
     const attrs = new Map(attrList);
     if (tag === "head" && this.headPosition === null) this.headPosition = [this.index, this.getStarttagText()];
-    if (["iframe", "frame", "object", "embed"].includes(tag)) throw valueError("안 HTML 중첩 문서를 지원하지 않음；정지 내용이나 캡처를 주세요");
+    if (["iframe", "frame", "object", "embed"].includes(tag)) throw valueError("안의 HTML에는 중첩 문서(iframe, frame, object, embed)를 쓸 수 없습니다. 정지 내용이나 캡처를 주세요");
     if (tag === "style") this.inStyle = true;
     if (attrs.get("style")) this.styles.push(attrs.get("style"));
-    if (tag === "base") throw valueError("안 HTML 포함하면 안 됨 base；파일을 안에 넣어야 합니다");
-    if (tag === "meta" && getOr(attrs, "http-equiv", "").toLowerCase() === "refresh") throw valueError("안 HTML 자동으로 다른 곳을 열면 안 됩니다");
+    if (tag === "base") throw valueError("안의 HTML에는 base 태그를 쓸 수 없습니다. 참조 파일은 HTML 안에 넣어야 합니다");
+    if (tag === "meta" && getOr(attrs, "http-equiv", "").toLowerCase() === "refresh") throw valueError("안의 HTML은 자동으로 다른 페이지로 이동하면 안 됩니다");
     for (const key of ["src", "poster", "data", "href", "xlink:href"]) {
       const value = getOr(attrs, key, "") || "";
       if (!value || value.toLowerCase().startsWith("#") || value.toLowerCase().startsWith("data:")) continue;
@@ -690,7 +690,7 @@ function prepareImage(source, used = null) {
   if (data.subarray(0, 8).equals(Buffer.from("\x89PNG\r\n\x1a\n", "latin1"))) mime = "image/png";
   else if (data.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) mime = "image/jpeg";
   else if (data.subarray(0, 4).toString("latin1") === "RIFF" && data.subarray(8, 12).toString("latin1") === "WEBP") mime = "image/webp";
-  else throw valueError(`${nameOf(source)}: 정지 미리보기 지원 형식: PNG、JPEG 와 WebP`);
+  else throw valueError(`${nameOf(source)}: 정지 미리보기는 PNG, JPEG, WebP만 지원합니다`);
   return `data:${mime};base64,` + data.toString("base64");
 }
 
@@ -704,10 +704,10 @@ function localUrl(value, label) {
     void parts.port; // Reject malformed ports before generating CSP origins.
   } catch (error) {
     if (!isValueError(error)) throw error;
-    throw valueError(`${label}올바른 로컬 주소여야 합니다: http(s) 주소，받은 값: ${value}`);
+    throw valueError(`${label}값은 올바른 로컬 http(s) 주소여야 합니다. 받은 값: ${value}`);
   }
   if (!["http", "https"].includes(parts.scheme) || !LOOPBACK.includes((parts.hostname || "").toLowerCase()) || parts.username || parts.password) {
-    throw valueError(`${label}로컬 개발 서버 주소만 받을 수 있습니다，예: http://localhost:5173/orders；받은 값: ${value}`);
+    throw valueError(`${label}값으로는 로컬 개발 서버 주소만 쓸 수 있습니다(예: http://localhost:5173/orders). 받은 값: ${value}`);
   }
   return value;
 }
@@ -717,8 +717,8 @@ const HEX_COLOR = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{
 function palette(value, where) {
   const colors = jsonDumps(value).match(HEX_COLOR) ?? [];
   if (!colors.length) {
-    throw valueError(`${where}palette 쓸 수 있는 16진 색 값이 없습니다，받은 값: ${jsonDumps(value)}；`
-      + '다음으로 고치세요: "palette": ["#1a2b3c", "#ffffff"]');
+    throw valueError(`${where}palette에 쓸 수 있는 16진 색 값이 없습니다(받은 값: ${jsonDumps(value)}). `
+      + '"palette": ["#1a2b3c", "#ffffff"]처럼 고치세요');
   }
   return colors;
 }
@@ -751,24 +751,24 @@ function nativeViewport(value, where) {
     const [width, height] = dimensions.map((n) => (isInt(n) ? n : BigInt(n.value)));
     return new Map([["width", width], ["height", height]]);
   }
-  throw valueError(`${where}nativeViewport 너비와 높이는 양의 정수여야 합니다；받은 값: ${jsonDumps(value)}；`
-    + '예: "1920x1080"、"1920×1080" 또는 {"width":1920,"height":1080}');
+  throw valueError(`${where}nativeViewport의 너비와 높이는 양의 정수여야 합니다(받은 값: ${jsonDumps(value)}). `
+    + '예: "1920x1080", "1920×1080" 또는 {"width":1920,"height":1080}');
 }
 
 function readManifest(target) {
   if (!isFile(target)) {
-    throw valueError(`찾을 수 없습니다 manifest：${target}。먼저 작업 폴더에 적어 둡니다 manifest.json，필드 안내: references/style-explorer.md 의“입력 준비”`);
+    throw valueError(`manifest를 찾을 수 없습니다: ${target}. 먼저 작업 폴더에 manifest.json을 만드세요. 필드 설명은 references/style-explorer.md의 "입력 준비"에 있습니다`);
   }
   let raw;
   try {
     raw = jsonLoads(readText(target));
   } catch (error) {
     if (error instanceof PyError && error.type === "JSONDecodeError") {
-      throw valueError(`manifest 올바르지 않음: JSON： ${error.lineno} 줄의 ${error.colno} 열，${error.msg}`);
+      throw valueError(`manifest JSON이 올바르지 않습니다: ${error.lineno}번째 줄 ${error.colno}번째 열, ${error.msg}`);
     }
     throw error;
   }
-  if (!isDict(raw)) throw valueError("manifest 맨 바깥은 객체여야 합니다，안에 들어 있음 candidates 배열");
+  if (!isDict(raw)) throw valueError("manifest의 맨 바깥은 candidates 배열을 담은 객체여야 합니다");
   return raw;
 }
 
@@ -822,7 +822,7 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
   };
   const folder = parentOf(manifestPath);
 
-  if (raw.has("schemaVersion") && !pyEquals(raw.get("schemaVersion"), 1n)) problems.push("manifest.schemaVersion 필요한 값: 1");
+  if (raw.has("schemaVersion") && !pyEquals(raw.get("schemaVersion"), 1n)) problems.push("manifest.schemaVersion은 1이어야 합니다");
   const data = { schemaVersion: 1n };
   for (const [name, fallback] of [["project", null], ["brief", null], ["round", "01"]]) {
     if (raw.has(name) || fallback !== null) {
@@ -831,18 +831,18 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
     }
   }
   if (raw.has("lang")) {
-    if (!["ko", "en"].includes(raw.get("lang"))) problems.push('manifest.lang 가능한 값: "ko" 또는 "en"');
+    if (!["ko", "en"].includes(raw.get("lang"))) problems.push('manifest.lang은 "ko" 또는 "en"이어야 합니다');
     data.lang = raw.get("lang");
   }
   if (raw.has("serve")) {
     const serve = raw.get("serve");
     if (!isDict(serve)) {
-      problems.push("serve 객체여야 합니다，예: {\"command\": \"pnpm dev\", \"cwd\": \"/프로젝트의 절대 경로\", \"url\": \"http://localhost:3000\"}");
+      problems.push("serve는 객체여야 합니다. 예: {\"command\": \"pnpm dev\", \"cwd\": \"/프로젝트의 절대 경로\", \"url\": \"http://localhost:3000\"}");
     } else {
       if (!isStr(serve.get("command")) || !pyStrip(serve.get("command"))) problems.push("serve.command 비어 있지 않은 문자열이어야 합니다");
       if (serve.has("cwd") && (!isStr(serve.get("cwd")) || !isAbsolutePath(serve.get("cwd")))) problems.push("serve.cwd 절대 경로여야 합니다");
       if (serve.has("url")) {
-        if (!isStr(serve.get("url")) || !pyStrip(serve.get("url"))) problems.push("serve.url 비어 있지 않은 로컬 값이어야 합니다: http(s) 주소");
+        if (!isStr(serve.get("url")) || !pyStrip(serve.get("url"))) problems.push("serve.url은 비어 있지 않은 로컬 http(s) 주소여야 합니다");
         else attempt(() => localUrl(serve.get("url"), "serve.url "));
       }
     }
@@ -850,7 +850,7 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
   }
   let candidates = raw.get("candidates");
   if (!isList(candidates) || !candidates.length) {
-    problems.push("candidates 디자인 안이 하나 이상 필요합니다");
+    problems.push("candidates에 디자인 안이 하나 이상 필요합니다");
     candidates = [];
   }
   const seen = new Set();
@@ -866,14 +866,14 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
       .map((c, i) => [c, i + 1])
       .filter(([c]) => isDict(c) && !c.has("nativeViewport"))
       .map(([c, i]) => pyStr(getOr(c, "id", BigInt(i))))
-      .join("、");
+      .join(", ");
     const where = affected ? `manifest(안 ${affected}): ` : "manifest.";
     viewport = attempt(() => nativeViewport(raw.get("nativeViewport"), where));
   }
   candidates.forEach((candidate, offset) => {
     const index = offset + 1;
     if (!isDict(candidate)) {
-      problems.push(` ${index} 번째 안은 객체여야 합니다`);
+      problems.push(`${index}번째 안은 객체여야 합니다`);
       return;
     }
     const before = problems.length;
@@ -886,30 +886,30 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
         suffix += 1;
       }
     } else if (!isStr(identifier) || !pyStrip(identifier)) {
-      problems.push(` ${index} 개 안 id 비어 있지 않은 문자열이어야 합니다`);
+      problems.push(`${index}번째 안의 id는 비어 있지 않은 문자열이어야 합니다`);
       identifier = null;
     } else {
       identifier = pyStrip(identifier);
       if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(identifier)) {
-        problems.push(`안 id "${identifier}" 올바르지 않음：소문자만 씁니다、숫자、하이픈과 밑줄，글자나 숫자로 시작，예: "a" 또는 "dir-2"`);
+        problems.push(`안 id "${identifier}"가 올바르지 않습니다. 소문자, 숫자, 하이픈, 밑줄만 쓰고 글자나 숫자로 시작해야 합니다. 예: "a" 또는 "dir-2"`);
       } else if (seen.has(identifier)) {
-        problems.push(`안 id "${identifier}" 겹칩니다，안마다 다른 값을 쓰세요: id`);
+        problems.push(`안 id "${identifier}"가 겹칩니다. 안마다 다른 id를 쓰세요`);
       }
       seen.add(identifier);
     }
-    const where = identifier ? `안 ${identifier}：` : ` ${index} 개 안：`;
+    const where = identifier ? `안 ${identifier}: ` : `${index}번째 안: `;
     const candidateViewport = candidate.has("nativeViewport")
       ? attempt(() => nativeViewport(candidate.get("nativeViewport"), where))
       : viewport;
     let kind = getOr(candidate, "kind", "html");
     if (!(isStr(kind) && ["html", "image", "url"].includes(kind))) {
-      problems.push(`${where}kind 가능한 값: "html"、"image" 또는 "url"，받은 값: ${jsonDumps(kind)}`);
+      problems.push(`${where}kind는 "html", "image", "url" 중 하나여야 합니다(받은 값: ${jsonDumps(kind)})`);
       kind = null;
     }
     const baseline = getOr(candidate, "baseline", false);
     const interactive = getOr(candidate, "interactive", false);
-    if (!isBool(baseline) || !isBool(interactive)) problems.push(`${where}baseline 와 interactive 올바른 형식: true 또는 false`);
-    else if (interactive && kind !== "html" && kind !== null) problems.push(`${where}interactive 용도: html 안`);
+    if (!isBool(baseline) || !isBool(interactive)) problems.push(`${where}baseline과 interactive는 true 또는 false여야 합니다`);
+    else if (interactive && kind !== "html" && kind !== null) problems.push(`${where}interactive는 html 안에만 쓸 수 있습니다`);
     let source = null;
     let url = null;
     if (kind === "url") {
@@ -923,11 +923,11 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
             const direct = resolvePath(joinPath(folder, name));
             if (isFile(direct)) return direct;
             const target = localFile(name, folder);
-            if (target === null) throw valueError('로컬 파일을 가리키게 해 주세요，예: "source": "./a.html"');
+            if (target === null) throw valueError('로컬 파일을 가리켜야 합니다. 예: "source": "./a.html"');
             return target;
           } catch (error) {
             if (!isValueError(error)) throw error;
-            throw valueError(`${where}source ${error.message}`);
+            throw valueError(`${where}source: ${error.message}`);
           }
         };
         source = attempt(sourceFile);
@@ -967,7 +967,7 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
       ...(candidateViewport ? { nativeViewport: candidateViewport } : {}),
     });
   });
-  if (output.filter((c) => c.baseline).length > 1) problems.push("기존 화면 안은 최대 하나입니다（baseline: true）");
+  if (output.filter((c) => c.baseline).length > 1) problems.push("기존 화면 안(baseline: true)은 하나만 둘 수 있습니다");
   if (problems.length) throw new ManifestError(problems);
   // The current version always sits first so every direction is read against it.
   output.sort((a, b) => Number(!a.baseline) - Number(!b.baseline));
@@ -1026,7 +1026,7 @@ function loadInput(source) {
   if (nameOf(target).toLowerCase() === "manifest.json") return loadManifest(target);
   if (suffixOf(target).toLowerCase() === ".json") return loadManifest(target);
   if (HTML_SUFFIXES.includes(suffixOf(target).toLowerCase())) return loadHtmlFiles([target]);
-  throw valueError(`디자인 안의 폴더를 입력해야 합니다、HTML 파일 또는 manifest.json：${target}`);
+  throw valueError(`디자인 안 폴더, HTML 파일 또는 manifest.json을 입력해야 합니다: ${target}`);
 }
 
 function countOf(text, part) {
@@ -1041,7 +1041,7 @@ export function build(source, output, { force = false, stderr = process.stderr }
   const [data, inputs] = loadInput(source);
   if (inputs.has(output) || isRelativeTo(output, SKILL_ROOT)) throw valueError("출력으로 입력을 덮어쓸 수 없습니다. 스킬 설치 폴더에도 쓸 수 없습니다.");
   if (exists(output) && !force) {
-    throw new PyError("FileExistsError", `출력이 이미 있습니다：${output}。업데이트하려면 다음을 더하세요: --force，유지하려면 다음을 쓰세요: --output 다른 경로를 쓰세요`);
+    throw new PyError("FileExistsError", `출력 파일이 이미 있습니다: ${output}. 덮어쓰려면 --force를 더하고, 기존 파일을 유지하려면 --output으로 다른 경로를 지정하세요`);
   }
   const template = embedLocalFiles(readText(TEMPLATE), parentOf(TEMPLATE), inputs);
   const skillFile = joinPath(SKILL_ROOT, "SKILL.md");
@@ -1183,7 +1183,7 @@ export function main(argv = process.argv.slice(2), { prog = "build_explorer.mjs"
   } catch (error) {
     const caught = fromNodeError(error);
     if (isValueError(caught) || isOSError(caught) || isTypeError(caught)) {
-      writeLine(process.stderr, `비교 화면을 만들지 못했습니다：${caught.message}`);
+      writeLine(process.stderr, `비교 화면을 만들지 못했습니다: ${caught.message}`);
       return 1;
     }
     throw error;

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const MESSAGES = {
   en: "Read README.md for jstyle usage. Open assets/extended/index.html to inspect the pattern library.",
-  ko: "jstyle 사용법은 README.md를 읽어 주세요. 패턴은 assets/extended/index.html에서 볼 수 있습니다.",
+  ko: "jstyle 사용법은 README.ko.md를 읽어 주세요. 패턴은 assets/extended/index.html에서 볼 수 있습니다.",
 };
 const CHOICES = Object.keys(MESSAGES).sort();
 const PROG = "recommend_once.mjs";

@@ -36,6 +36,9 @@ usage   jstyle <command> [options]
   image    웹용 이미지 크기와 srcset 만들기
   measure  참고 그림의 색과 배치 비율 재기
 
+검사
+  check    키트 토큰 덮어쓰기와 토큰 밖 색·모서리·글자 크기 찾기
+
 환경
   doctor   Node·브라우저·설치 위치 확인
   version  버전 표시
@@ -244,10 +247,12 @@ async function main(argv) {
       return runScript("prep-image.mjs", rest);
     case "measure":
       return runScript("measure_reference.mjs", rest);
+    case "check":
+      return runScript("check.mjs", rest);
     case "doctor":
       return doctor(rest);
     default: {
-      const names = ["explore", "serve", "kit", "library", "shoot", "media", "image", "measure", "doctor", "version"];
+      const names = ["explore", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "doctor", "version"];
       const near = names.find((name) => name.startsWith(command.slice(0, 2)));
       fail(`알 수 없는 명령: ${command}`);
       if (near) hint("try", `jstyle ${near}`);

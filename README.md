@@ -1,137 +1,137 @@
 # jstyle
 
-[English](README.en.md)
+[한국어](README.ko.md)
 
-jstyle은 화면을 만들고 다듬는 AI 에이전트를 위한 스킬입니다. 디자인 방향을 정하고, 실제 화면을 보며 배치와 사용 흐름을 고치는 데 도움을 줍니다.
+jstyle is a UI design skill for AI agents. It helps an agent set a design direction and check a real interface.
 
-![회색 뼈대, 효과 미리보기, 컴포넌트로 이어지는 작업을 표현한 그림](assets/readme/jstyle-workflow.webp)
+![An illustration of a wireframe, an effect preview, and a component card](assets/readme/jstyle-workflow.webp)
 
-업무 화면용 컴포넌트 키트가 들어 있습니다. 목록, 표, 설정, 상세 시트처럼 정보가 많은 화면에 씁니다.
+jstyle includes a component kit for business screens. Use it for dense screens, such as lists, tables, settings, and detail sheets.
 
-![jstyle kit의 상세 시트로 만든 고객 화면](assets/readme/kit-detail-sheet.webp)
+![A customer screen built with the jstyle kit detail sheet](assets/readme/kit-detail-sheet.webp)
 
-패턴 라이브러리에는 꾸미기·시작 효과 9종, 카드 패턴 25개, 랜딩 연구 14개, 제품 UI 연구 12개가 있습니다. 패턴을 직접 눌러 보고, 효과를 고른 뒤 재생 속도를 바꾸거나 HTML 코드를 복사할 수 있습니다.
+The pattern library has nine visual and entry effects, 25 card patterns, 14 landing studies, and 12 product UI studies. Select an effect, change its speed, and copy its standalone HTML.
 
-## 설치
+## Install
 
-Node.js와 `npx`가 필요합니다. 현재 프로젝트에서 사용할 스킬은 해당 프로젝트 폴더에서 설치합니다.
+Install Node.js and `npx`. Run this command in your project folder:
 
 ```bash
 npx skills add x-mesh/jstyle
 ```
 
-설치할 에이전트를 고르면 해당 에이전트의 스킬 폴더에 `jstyle`이 추가됩니다. Codex에만 설치하려면 다음 명령을 사용합니다.
+Select the agents that will use the skill. To install only for Codex, run:
 
 ```bash
 npx skills add x-mesh/jstyle --agent codex --skill jstyle
 ```
 
-모든 프로젝트에서 사용하려면 `-g`를 붙입니다.
+To install for all projects, add `-g`:
 
 ```bash
 npx skills add x-mesh/jstyle -g
 ```
 
-이미 내려받은 폴더에서 설치하려면 해당 폴더 안에서 `npx skills add .`을 실행합니다.
+To install from a local copy, run `npx skills add .` in that folder.
 
-### 명령으로 쓰기
+### Use the command
 
-비교 화면 생성기, 캡처 도구, 이미지 도구는 `jstyle` 명령으로도 쓸 수 있습니다. Node 22 이상이 필요합니다.
+The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. The command needs Node 22 or later.
 
 ```bash
 npm i -g github:x-mesh/jstyle
 jstyle doctor
 ```
 
-`jstyle doctor`는 Node, 브라우저, 명령의 설치 위치를 확인합니다. 전체 명령은 `jstyle --help`로 봅니다. 설치하지 않았다면 스킬 폴더에서 `node bin/jstyle.mjs <명령>`으로 같은 일을 합니다.
+`jstyle doctor` checks Node, the browser, and the location of the command. Run `jstyle --help` to see all commands.
+If you do not install the command, run `node bin/jstyle.mjs <command>` in the skill folder.
 
-## 먼저 써 보기
+## Get started
 
-설치한 뒤 에이전트에게 다음처럼 요청합니다.
+After installation, ask the agent to use jstyle:
 
 ```text
-jstyle을 사용해 기존 대시보드의 메뉴와 빈 화면을 다듬어 주세요.
+Use jstyle to improve the navigation and empty state of my dashboard.
 ```
 
-에이전트는 [SKILL.md](SKILL.md)에서 작업 범위와 필요한 참고 문서를 찾습니다. 기존 화면을 살펴보기만 해 달라고 요청할 수도 있습니다.
-
-패턴을 직접 보려면 이 저장소를 내려받은 뒤, 저장소 루트에서 다음 명령을 실행합니다. Node 22 이상이 필요합니다.
+Download this repository to open the pattern library. Run this command from its root folder. The command needs Node 22 or later.
 
 ```bash
 node bin/jstyle.mjs library
 ```
 
-브라우저에서 패턴 라이브러리가 열립니다. 열리지 않으면 터미널에 나온 주소를 엽니다. 왼쪽에서 효과를 고르고 **재생**을 누르면 미리보기가 움직입니다. **코드 보기**에서 해당 효과의 독립 HTML을 복사할 수 있습니다. 카드 패턴은 이름과 용도로 검색할 수 있습니다.
+The pattern library opens in the browser. If it does not open, open the address in the terminal output. Select an effect and press the play button. Open the code panel to copy the standalone HTML. Use search or a category filter to find a card pattern.
 
-랜딩 연구와 제품 UI 연구는 공개 페이지와 제품 화면을 대조해 다시 만든 토큰과 화면 패턴입니다. 사람과 조직 이름은 가상 데이터입니다.
+The landing and product UI studies rebuild tokens and screen patterns from public pages and product screens. All person and team names are mock data. The library pages are in Korean.
 
-![패턴 라이브러리의 제품 UI 연구에서 구성원 프로필 시트를 보는 화면](assets/readme/product-ui-study.webp)
+![The product UI study with a member profile sheet](assets/readme/product-ui-study.webp)
 
-목록, 표, 설정, 승인처럼 정보가 많은 업무 화면에는 컴포넌트 키트를 씁니다. 빌드 없이 `kit.css`와 `kit.js`를 붙여 쓰며, 다음 명령으로 문서를 엽니다.
+Use the component kit for dense business screens, such as lists, tables, settings, and approvals. Add `kit.css` and `kit.js` to a page. No build step is necessary. To open the kit documentation, run:
 
 ```bash
 node bin/jstyle.mjs kit
 ```
 
-![jstyle kit의 데이터 그리드에서 사용량을 고치는 화면](assets/readme/component-kit.webp)
+![The jstyle kit data grid with an edited usage cell](assets/readme/component-kit.webp)
 
-예제의 내용과 바꾼 값은 브라우저 메모리에만 있으며, 새로고침하면 처음 상태로 돌아갑니다. 예제는 인증이나 서버 저장에 연결되지 않았습니다.
+The examples use mock data. The page keeps edits in memory until you refresh it. The examples do not connect to authentication or server storage.
 
-## 여러 시안 비교하기
+## Compare design drafts
 
-방향을 정하기 어려우면 에이전트에게 시안 여러 개를 비교 화면으로 보여 달라고 요청합니다.
+If you cannot choose a direction, ask the agent for several drafts on one comparison page:
 
 ```text
-jstyle로 주문 관리 화면의 첫 화면 시안을 세 가지 만들어 비교 화면으로 보여 주세요.
+Use jstyle to make three drafts of the first screen of the order dashboard. Show them on a comparison page.
 ```
 
-에이전트는 각 방향을 먼저 글로 설명합니다. 실제 화면으로 보고 싶다고 하면 안마다 첫 화면 HTML을 하나씩 만들고 비교 화면 한 장으로 모읍니다. 개수를 정하지 않으면 세 가지를 만듭니다.
+The agent first describes each direction in text. If you want to see the screens, it makes one HTML first screen for each draft and puts them on one comparison page. If you do not give a number, it makes three drafts.
 
-비교 화면에서는 안을 나란히 보거나 하나씩 실제 크기로 봅니다. 기본 화면 크기는 데스크톱 1280×900과 모바일 390×844입니다. 마음에 드는 안에서 **고르기**를 누르면 `01회: 02 이름 안을 고릅니다` 같은 문장이 복사됩니다. 이 문장과 좋은 점·싫은 점을 에이전트에게 보내면 고른 안으로 작업을 이어 갑니다.
+The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
+Press **Select** on the draft that you prefer. The page copies a sentence such as `Round 01: Go with 02 Name`. Send this sentence and your comments to the agent. The agent continues with the selected draft.
 
-![주문 관리 첫 화면 시안 세 가지를 나란히 놓은 비교 화면](assets/readme/style-explorer.webp)
+![A comparison page with three drafts of an order dashboard side by side](assets/readme/style-explorer.en.webp)
 
-이미 만든 시안이 있으면 직접 비교 화면을 만들 수 있습니다.
+If you already have drafts, make the comparison page yourself:
 
 ```bash
 jstyle explore ./designs
 ```
 
-폴더 안의 HTML 파일이 각각 하나의 안이 되고, 이름은 HTML의 `<title>`이나 파일 이름을 씁니다. 결과는 폴더 안의 `style-explorer.html`이며, 터미널에서 실행하면 로컬 서버로 띄워 브라우저에서 엽니다. 시안을 고친 뒤 다시 만들려면 `--force`를 붙입니다.
+Each HTML file in the folder becomes one draft. The name comes from the HTML `<title>` or from the file name. The result is `style-explorer.html` in the folder. If you run the command in a terminal, it starts a local server and opens the page in the browser. To make the page again after you change a draft, add `--force`.
 
-- 휴대폰이나 다른 컴퓨터에서 보기: `--host 0.0.0.0`을 붙이고 터미널에 나온 `Other devices` 주소를 엽니다. 같은 네트워크의 다른 사람도 이 주소를 열 수 있습니다.
-- 지금 화면과 함께 보기: `manifest.json`에서 기존 화면을 `"baseline": true`로 넣으면 첫 항목에 놓입니다. 실행 중인 개발 서버의 페이지는 `"kind": "url"`로 넣을 수 있지만 다른 기기에서는 보이지 않습니다.
-- 다음 회차: 고른 안을 다듬어 다시 비교할 때는 `explore/02/`처럼 회차 폴더를 새로 만들고 `round`를 `"02"`로 올립니다. 지난 회차는 그대로 남깁니다.
+- Open the page on a phone or another computer: add `--host 0.0.0.0`, then open the `Other devices` address in the terminal output. Other people in the same network can also open this address.
+- Compare with the current screen: in `manifest.json`, add the current screen with `"baseline": true`. It becomes the first item. A page from a running development server can use `"kind": "url"`, but other devices cannot show it.
+- Start the next round: to compare refined drafts, make a new round folder such as `explore/02/` and set `round` to `"02"`. Keep the previous round as it is.
 
-manifest 필드는 [비교 화면 문서](references/style-explorer.md)와 `jstyle explore --help-build`에 있습니다.
+The manifest fields are in the [comparison page reference](references/style-explorer.md) and in `jstyle explore --help-build`.
 
-## 작업 방식
+## Workflow
 
-1. 사용자와 작업, 실제 내용, 지켜야 할 브랜드와 기기 조건을 정리합니다.
-2. 화면의 중심 대상과 주된 동작을 정하고 배치와 주요 상태를 잡습니다.
-3. 대표 화면과 작업 흐름을 만든 뒤 실제 화면에서 읽기 쉬움과 동작을 확인합니다.
+1. Record the user, task, content, brand, and device constraints.
+2. Choose the main object and action. Set the layout and key states.
+3. Build a representative screen. Check its text and actions in the browser.
 
-사용자가 디자인 방향을 비교해 달라고 하면 [여러 시안을 한 화면에 모아](#여러-시안-비교하기) 고르게 합니다. 기존 화면을 바꾸지 않고 살펴보는 작업에도 쓸 수 있습니다. 자세한 경로는 [참고 문서 목록](SKILL.md#작업에-맞는-문서)에서 고릅니다.
+The agent can [compare design directions on one page](#compare-design-drafts) or review an existing screen without file changes. The [skill guide](SKILL.md) links to the relevant references.
 
-## 함께 들어 있는 도구
+## Tools
 
-- [비교 화면 생성기](references/style-explorer.md): 여러 디자인 안을 한 페이지에 모아 비교합니다. Node 22 이상이 필요합니다.
-- [캡처 도구](references/tools.md): 화면 크기별 스크린샷과 움직임의 연속 프레임을 만듭니다. Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다.
-- [이미지 도구](references/media.md): 이미지 자료를 찾고 크기를 바꾸는 방법을 안내합니다.
+- [Comparison page generator](references/style-explorer.md): Compare design options on one page. It needs Node 22 or later.
+- [Screenshot tool](references/tools.md): Capture screens and animation frames. It needs Node 22 or later and Chrome, Chromium, or Edge.
+- [Image tools](references/media.md): Find and resize image assets.
 
-작업 중 만든 캡처와 시안은 기본적으로 `.jstyle`에 둡니다. 최종 코드와 이미지는 작업 중인 프로젝트의 정식 위치에 둡니다.
+The default workspace for drafts and screenshots is `.jstyle`. Put final code and assets in the target project.
 
-## 확인
+## Check
 
-프로젝트 루트에서 다음 명령을 실행합니다.
+Run these commands from the project root:
 
 ```bash
 npm run check
 node --test "tests/test_*.mjs"
 ```
 
-패턴의 브라우저 검사에는 Node 22 이상과 Chrome, Chromium 또는 Edge가 필요합니다. `package.json`의 이름은 `jstyle`이며, npm 레지스트리에는 올리지 않고 GitHub에서 바로 설치합니다.
+The pattern browser test needs Node 22 or later and Chrome, Chromium, or Edge. The package name is `jstyle`. The package is not on the npm registry. Install it from GitHub.
 
-## 라이선스
+## License
 
-[MIT 라이선스](LICENSE)의 원본 저작권 고지를 유지합니다.
+The [MIT license](LICENSE) preserves the original copyright notice.

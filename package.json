@@ -1,6 +1,6 @@
 {
   "name": "jstyle",
-  "version": "0.34.1",
+  "version": "0.35.0",
   "private": true,
   "description": "화면을 만들고 다듬는 스킬과 직접 써 볼 수 있는 UI 패턴 모음",
   "bin": {

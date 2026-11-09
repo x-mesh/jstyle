@@ -554,6 +554,8 @@ export function joinProject(hub, root, { keep = true } = {}) {
   if (slug !== undefined) {
     // A folder that was only borrowed becomes a kept project once something joins it to keep, and counts toward the kept limit.
     if (!keep || !hub.transient.delete(slug)) return { slug, evicted: [], saved: true };
+    // Keeping it is a use; a new object leaves the snapshot's one for the undo.
+    hub.times.set(slug, { ...hub.times.get(slug), lastUsed: new Date().toISOString() });
   } else {
     let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
     // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.

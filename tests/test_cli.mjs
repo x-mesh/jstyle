@@ -1889,13 +1889,18 @@ test("keeping a borrowed folder in a hub with 50 kept projects drops the oldest 
   hub.times.get("kept7").lastUsed = new Date(0).toISOString();
   const borrowed = folder("borrowed");
   const { slug } = joinProject(hub, borrowed, { keep: false });
+  hub.times.get(slug).lastUsed = new Date(1).toISOString();
   hub.onProjects = () => false;
   assert.equal(joinProject(hub, borrowed).saved, false);
   assert.ok(hub.projects.has("kept7"), "an undone keep left the oldest kept project out");
   assert.ok(hub.transient.has(slug));
+  assert.equal(hub.times.get(slug).lastUsed, new Date(1).toISOString(), "an undone keep changed lastUsed");
   hub.onProjects = null;
+  const before = Date.now();
   const kept = joinProject(hub, borrowed);
   assert.deepEqual(kept, { slug, evicted: ["kept7"], saved: true });
+  // Keeping it is a use, so the next kept join does not drop it first.
+  assert.ok(Date.parse(hub.times.get(slug).lastUsed) >= before);
   assert.equal(hub.transient.has(slug), false);
   assert.equal(savedProjects(hub).length, 50);
   assert.ok(savedProjects(hub).some((p) => p.slug === slug));

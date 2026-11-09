@@ -6,8 +6,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+export function jstyleHome() {
+  return process.env.JSTYLE_HOME || path.join(os.homedir(), ".jstyle");
+}
+
 export function registryDir() {
-  return path.join(process.env.JSTYLE_HOME || path.join(os.homedir(), ".jstyle"), "servers");
+  return path.join(jstyleHome(), "servers");
 }
 
 const recordFile = (pid) => path.join(registryDir(), `${pid}.json`);

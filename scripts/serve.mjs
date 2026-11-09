@@ -9,6 +9,7 @@ import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { MAX_PROJECTS } from "./lib/hubstore.mjs";
 import { isAlive, removeRecord, writeRecord } from "./lib/registry.mjs";
 
 const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.meta.url), "utf8")).types;
@@ -200,6 +201,7 @@ function receiveChoice(request, choice, send) {
       if (!insideRoot(at.root, html)) return json(400, { error: "page" });
       data = readExplorerData(html);
       if (!data) return json(400, { error: "page" });
+      usedProject(choice, at.slug);
       file = path.join(path.dirname(html), CHOICE_FILE);
       page = path.relative(at.root, html).split(path.sep).join("/");
       project = at.slug;
@@ -384,7 +386,18 @@ function readJson(request, limit, done) {
 }
 
 export function createServer({ root, page, choice = null, onActivity = null }) {
+  // A hub serves many projects, so no request may end the process: an error answers 500 instead.
   return http.createServer((request, response) => {
+    try {
+      handle(request, response);
+    } catch {
+      if (response.headersSent) return response.destroy();
+      response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      response.end("Server error\n");
+    }
+  });
+
+  function handle(request, response) {
     const send = (status, headers, body = "") => {
       // Without no-store, browsers reuse an old script after an edit, which
       // leaves new sidebar entries visible but inert.
@@ -393,7 +406,12 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
     };
     const json = (status, value) => send(status, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify(value) + "\n");
     if (!allowedHost(request)) return send(403, { "Content-Type": "text/plain; charset=utf-8" }, "Host not allowed\n");
-    const url = new URL(request.url, "http://localhost");
+    let url;
+    try {
+      url = new URL(request.url, "http://localhost");
+    } catch {
+      return send(400, { "Content-Type": "text/plain; charset=utf-8" }, "Bad request\n");
+    }
     const own = url.pathname.startsWith("/__jstyle/");
     if (own && !ownRequest(request)) return json(403, { error: "site" });
     onActivity?.();
@@ -418,6 +436,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       }
       const at = projectAt(choice, url.pathname);
       if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
+      usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
       if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
       return serveFile(at.root, at.rest, url.pathname, true);
@@ -462,7 +481,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       const type = MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
       send(200, { "Content-Type": type, "Content-Length": stat.size, "Last-Modified": stat.mtime.toUTCString() }, fs.readFileSync(file));
     }
-  });
+  }
 }
 
 function openBrowser(url) {
@@ -483,7 +502,9 @@ function withQuery(target, search) {
 }
 
 export function pageUrls({ host, port, page, search = "" }) {
-  const local = withQuery(`http://${WILDCARD.has(host) ? "127.0.0.1" : host}:${port}/${page}`, search);
+  const name = WILDCARD.has(host) ? "127.0.0.1" : host;
+  // An IPv6 literal such as ::1 needs brackets in a URL.
+  const local = withQuery(`http://${name.includes(":") ? `[${name}]` : name}:${port}/${page}`, search);
   return { local, other: WILDCARD.has(host) ? withQuery(`http://${hostname()}:${port}/${page}`, search) : null };
 }
 
@@ -499,19 +520,75 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // A hub serves one or more project folders, each under /<slug>/, and takes
 // picks for every explorer in them; the page in each post says which.
 export function hubChoice(onChoice, { once = false } = {}) {
-  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), onChoice, once, closed: false, onProjects: null };
+  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0 };
 }
 
 export function addProject(hub, root) {
+  return joinProject(hub, root).slug;
+}
+
+// evicted lists the projects that left to keep the list at MAX_PROJECTS.
+export function joinProject(hub, root) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) if (known === real) return slug;
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "") || "project";
+  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [] };
+  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
+  // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
+  base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
   if (base.startsWith("__")) base = `p${base}`;
   let slug = base;
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
   hub.projects.set(slug, real);
+  const now = new Date().toISOString();
+  hub.times.set(slug, { added: now, lastUsed: now });
+  // The saved list stays small: past the limit the project used longest ago goes.
+  const evicted = [];
+  while (hub.projects.size > MAX_PROJECTS) {
+    const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
+    hub.projects.delete(oldest);
+    hub.times.delete(oldest);
+    evicted.push(oldest);
+  }
+  if (evicted.length) hub.onEvicted?.(evicted);
   hub.onProjects?.();
-  return slug;
+  return { slug, evicted };
+}
+
+// The shape addProject makes; a saved slug outside it was not written by this code.
+const MAX_SLUG = 255;
+const SLUG = new RegExp(`^[\\p{L}\\p{N}_][\\p{L}\\p{N}._-]{0,${MAX_SLUG - 1}}$`, "u");
+
+// Puts back projects a hub saved, under the slugs they had. A folder that is
+// gone or may no longer be served is left out and reported.
+export function restoreProjects(hub, entries) {
+  const restored = [];
+  const dropped = [];
+  for (const entry of entries.slice(-MAX_PROJECTS)) {
+    const real = SLUG.test(entry.slug) && !entry.slug.startsWith("__") ? servableFolder(entry.root) : null;
+    if (!real || hub.projects.has(entry.slug) || [...hub.projects.values()].includes(real)) {
+      dropped.push(entry.root);
+      continue;
+    }
+    hub.projects.set(entry.slug, real);
+    const now = new Date().toISOString();
+    hub.times.set(entry.slug, { added: typeof entry.added === "string" ? entry.added : now, lastUsed: typeof entry.lastUsed === "string" ? entry.lastUsed : now });
+    restored.push(entry.slug);
+  }
+  return { restored, dropped };
+}
+
+export function savedProjects(hub) {
+  return [...hub.projects].map(([slug, root]) => ({ slug, root, ...hub.times.get(slug) }));
+}
+
+// lastUsed decides which project goes first past the limit; saving it at most once a minute is enough.
+function usedProject(hub, slug) {
+  const times = hub.times.get(slug);
+  if (!times) return;
+  const now = Date.now();
+  times.lastUsed = new Date(now).toISOString();
+  if (now - hub.usedAt < 60000) return;
+  hub.usedAt = now;
+  hub.onUsed?.();
 }
 
 export function projectList(hub) {
@@ -570,14 +647,25 @@ function receiveProject(request, hub, json) {
       if (typeof body.remove === "string") {
         if (!hub.projects.has(body.remove)) return json(404, { error: "project" });
         if (hub.projects.size === 1) return json(409, { error: "last" });
+        const projects = [...hub.projects];
+        const times = [...hub.times];
         hub.projects.delete(body.remove);
-        hub.onProjects?.();
+        hub.times.delete(body.remove);
+        // A removal the list cannot keep would come back on the next start, so it is undone and refused.
+        if (hub.onProjects?.() === false) {
+          hub.projects.clear();
+          for (const [slug, root] of projects) hub.projects.set(slug, root);
+          hub.times.clear();
+          for (const [slug, value] of times) hub.times.set(slug, value);
+          hub.onProjects?.();
+          return json(500, { error: "save" });
+        }
         return json(200, { ok: true, removed: body.remove });
       }
       const real = servableFolder(body.root);
       if (!real) return json(400, { error: "root" });
-      const slug = addProject(hub, real);
-      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/` });
+      const { slug, evicted } = joinProject(hub, real);
+      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/`, ...(evicted.length ? { evicted } : {}) });
     } catch (error) {
       try {
         json(500, { error: String(error?.message ?? error) });

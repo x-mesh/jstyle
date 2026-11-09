@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import { createServer as httpServer, request } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -638,4 +639,301 @@ test("removing the project a hub started with points its record at a remaining p
   assert.equal(record.root, fs.realpathSync(second));
   assert.equal(new URL(record.url).pathname, `/${path.basename(second)}/`);
   assert.equal((await fetch(port, "GET", new URL(record.url).pathname)).status, 200);
+});
+
+const hubStore = (port, label = "127.0.0.1") => path.join(process.env.JSTYLE_HOME, "hubs", `${label}-${port}.json`);
+
+function rawRequest(port, text) {
+  return new Promise((resolve) => {
+    let reply = "";
+    const socket = net.connect(port, "127.0.0.1", () => socket.end(text));
+    socket.on("data", (data) => { reply += data; });
+    socket.on("close", () => resolve(reply.split("\r\n")[0]));
+    socket.on("error", () => resolve(reply.split("\r\n")[0]));
+  });
+}
+
+test("a hub keeps its projects and their addresses across restarts and drops folders that are gone", { timeout: 60000 }, async (t) => {
+  const first = buildPages(t);
+  const twin = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-twin-"));
+  t.after(() => fs.rmSync(twin, { recursive: true, force: true }));
+  // A second folder with the same name gets <name>-2; that address must survive a restart.
+  const second = path.join(twin, path.basename(first));
+  fs.cpSync(first, second, { recursive: true });
+  const gone = buildPages(t);
+  const goneReal = fs.realpathSync(gone);
+  const port = await freePort();
+  const name = path.basename(first);
+  let child = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  await waitForUrl(child);
+  assert.equal(JSON.parse(jstyle(["hub", second, "--no-open", "--port", String(port)]).stdout).project, `${name}-2`);
+  assert.equal(jstyle(["hub", gone, "--no-open", "--port", String(port)]).status, 0);
+  const saved = JSON.parse(fs.readFileSync(hubStore(port), "utf8"));
+  assert.equal(saved.schema, 1);
+  assert.deepEqual(saved.projects.map((p) => [p.slug, p.root]), [[name, fs.realpathSync(first)], [`${name}-2`, fs.realpathSync(second)], [path.basename(gone), goneReal]]);
+  // Windows has no POSIX modes; the file lives in the user's profile there.
+  if (process.platform !== "win32") assert.equal(fs.statSync(hubStore(port)).mode & 0o777, 0o600);
+  await new Promise((resolve) => {
+    child.on("exit", resolve);
+    child.kill("SIGKILL");
+  });
+  fs.rmSync(gone, { recursive: true, force: true });
+  // Started again from the second folder only, the hub brings the first one back and keeps both addresses.
+  child = spawn(process.execPath, [CLI, "hub", second, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  let stderr = "";
+  child.stderr.on("data", (data) => { stderr += data; });
+  await waitForUrl(child);
+  const listed = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  assert.deepEqual(listed.projects.map((p) => p.slug), [name, `${name}-2`]);
+  assert.equal((await fetch(port, "GET", `/${name}-2/admin/explore/01/style-explorer.html`)).status, 200);
+  assert.equal((await fetch(port, "GET", `/${name}/admin/explore/01/style-explorer.html`)).status, 200);
+  assert.ok(stderr.includes(goneReal), stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(hubStore(port), "utf8")).projects.map((p) => p.slug), [name, `${name}-2`]);
+  // Letting go of a project also takes it out of the saved list.
+  assert.equal(jstyle(["stop", `${name}-2`]).status, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(hubStore(port), "utf8")).projects.map((p) => p.slug), [name]);
+});
+
+test("a --wait hub and a hub on a random port save no project list", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const random = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => random.kill("SIGKILL"));
+  const { port } = await waitForUrl(random);
+  const port2 = await freePort();
+  const waiter = spawn(process.execPath, [CLI, "hub", root, "--wait", "--no-open", "--port", String(port2)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => waiter.kill("SIGKILL"));
+  const waiting = await waitForUrl(waiter);
+  assert.equal(fs.existsSync(hubStore(port)), false);
+  assert.equal(fs.existsSync(hubStore(waiting.port)), false);
+});
+
+test("a request a server cannot parse is answered and does not end it", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  const { port } = await waitForUrl(hub);
+  const folder = buildExplorer(t);
+  const served = spawn(process.execPath, [CLI, "serve", path.join(folder, "style-explorer.html"), "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => served.kill("SIGKILL"));
+  const plain = await waitForUrl(served);
+  for (const at of [port, plain.port]) {
+    assert.match(await rawRequest(at, `GET //[ HTTP/1.1\r\nHost: 127.0.0.1:${at}\r\nConnection: close\r\n\r\n`), /^HTTP\/1\.1 400/);
+    assert.equal((await fetch(at, "GET", "/__jstyle/alive")).status, 204);
+  }
+});
+
+test("restoring saved projects skips bad slugs, unservable folders and repeats, and a full list lets the oldest go", async (t) => {
+  const { addProject, hubChoice, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
+  const { MAX_PROJECTS, readHubStore } = await import("../scripts/lib/hubstore.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-restore-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const folder = (name) => {
+    const dir = path.join(parent, name);
+    fs.mkdirSync(dir, { recursive: true });
+    return fs.realpathSync(dir);
+  };
+  const hub = hubChoice(() => {});
+  const kept = folder("kept");
+  const { restored, dropped } = restoreProjects(hub, [
+    { slug: "kept", root: kept, added: "2026-01-01T00:00:00.000Z", lastUsed: "2026-01-02T00:00:00.000Z" },
+    { slug: "__jstyle", root: folder("own") },
+    { slug: "../up", root: folder("up") },
+    { slug: "home", root: os.homedir() },
+    { slug: "missing", root: path.join(parent, "missing") },
+    { slug: "again", root: kept },
+    { slug: "kept", root: folder("other") },
+  ]);
+  assert.deepEqual(restored, ["kept"]);
+  assert.equal(dropped.length, 6);
+  assert.deepEqual(savedProjects(hub), [{ slug: "kept", root: kept, added: "2026-01-01T00:00:00.000Z", lastUsed: "2026-01-02T00:00:00.000Z" }]);
+  // A long folder name makes a long slug, and that slug must come back too.
+  const longName = "l".repeat(120);
+  const longHub = hubChoice(() => {});
+  const longSlug = addProject(longHub, folder(longName));
+  assert.deepEqual(restoreProjects(hubChoice(() => {}), savedProjects(longHub)).restored, [longSlug]);
+  for (let n = 0; n < MAX_PROJECTS; n += 1) addProject(hub, folder(`p${n}`));
+  assert.equal(hub.projects.size, MAX_PROJECTS);
+  assert.equal(hub.projects.has("kept"), false);
+  // A file this code did not write is refused as a whole, so the hub does not overwrite it unread.
+  const broken = path.join(parent, "broken.json");
+  fs.writeFileSync(broken, "{not json");
+  assert.throws(() => readHubStore(broken), /broken\.json/);
+  assert.deepEqual(readHubStore(path.join(parent, "none.json")), []);
+});
+
+test("each address keeps its own project list file", async () => {
+  const { hubStoreFile } = await import("../scripts/lib/hubstore.mjs");
+  const name = (host) => path.basename(hubStoreFile(host, 8765));
+  assert.deepEqual(["127.0.0.1", "::1", "localhost", "0.0.0.0", "::", "192.168.1.9"].map(name), ["127.0.0.1-8765.json", "ip6-loopback-8765.json", "localhost-8765.json", "any-8765.json", "any-8765.json", "192.168.1.9-8765.json"]);
+});
+
+test("a hub that cannot take its port leaves a broken project list where it is", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  // Another program holds the port, so this run fails with EADDRINUSE and must not touch the list.
+  const holder = httpServer();
+  await new Promise((resolve) => holder.listen(0, "127.0.0.1", resolve));
+  t.after(() => holder.close());
+  const { port } = holder.address();
+  fs.mkdirSync(path.dirname(hubStore(port)), { recursive: true });
+  fs.writeFileSync(hubStore(port), "{not json");
+  const run = jstyle(["hub", root, "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(fs.readFileSync(hubStore(port), "utf8"), "{not json");
+  assert.equal(fs.existsSync(`${hubStore(port)}.broken`), false);
+});
+
+test("a pick for a page the hub refuses does not count as using its project", async (t) => {
+  const { addProject, hubChoice } = await import("../scripts/serve.mjs");
+  const root = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slug = addProject(hub, root);
+  hub.times.get(slug).lastUsed = "2000-01-01T00:00:00.000Z";
+  const server = createServer({ root, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const refused = await fetch(server.address().port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/a.html`, id: "candidate-1" }) });
+  assert.equal(refused.status, 400);
+  assert.equal(hub.times.get(slug).lastUsed, "2000-01-01T00:00:00.000Z");
+});
+
+test("a saved slug longer than any folder name makes is not restored", async (t) => {
+  const { hubChoice, restoreProjects } = await import("../scripts/serve.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-slug-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.deepEqual(restoreProjects(hubChoice(() => {}), [{ slug: "s".repeat(5000), root: fs.realpathSync(dir) }]).restored, []);
+});
+
+test("joining a full hub names the project that had to go, on both sides", { timeout: 120000 }, async (t) => {
+  const { MAX_PROJECTS } = await import("../scripts/lib/hubstore.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-full-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const folder = (name) => {
+    const dir = path.join(parent, name);
+    fs.mkdirSync(dir);
+    return dir;
+  };
+  const hub = spawn(process.execPath, [CLI, "hub", folder("p00"), "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  let hubErr = "";
+  hub.stderr.on("data", (data) => { hubErr += data; });
+  const { port, token } = await waitForUrl(hub);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  for (let n = 1; n < MAX_PROJECTS; n += 1) {
+    const reply = await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folder(`p${String(n).padStart(2, "0")}`) }) });
+    assert.equal(reply.status, 200);
+  }
+  const full = await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folder("extra") }) });
+  assert.deepEqual(JSON.parse(full.body).evicted, ["p00"]);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.match(hubErr, /p00/);
+  // The CLI that joins tells its user too.
+  const joined = jstyle(["hub", folder("late"), "--no-open", "--port", String(port)]);
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.deepEqual(JSON.parse(joined.stdout).evicted, ["p01"]);
+  assert.match(joined.stderr, /p01/);
+});
+
+async function hasIpv6Loopback() {
+  const probe = httpServer();
+  return new Promise((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+  });
+}
+
+test("a second hub run joins a hub on ::1 through ::1", { timeout: 30000 }, async (t) => {
+  if (!(await hasIpv6Loopback())) return t.skip("no IPv6 loopback");
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--host", "::1", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  await new Promise((resolve, reject) => {
+    let stderr = "";
+    hub.stderr.on("data", (data) => {
+      stderr += data;
+      if (/Serving .* at http:\/\/\[::1\]:\d+\//.test(stderr)) resolve();
+    });
+    hub.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const joined = jstyle(["hub", second, "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.match(JSON.parse(joined.stdout).url, new RegExp(`^http://\\[::1\\]:${port}/`));
+  assert.equal((await fetch(port, "GET", `/${path.basename(second)}/`, { host: "::1" })).status, 200);
+});
+
+for (const [label, text] of [["cannot be parsed", "{not json"], ["has another shape", JSON.stringify({ schema: 2, projects: [] })]]) {
+  test(`a hub whose saved list ${label} sets it aside as .broken and still starts`, { timeout: 30000 }, async (t) => {
+    const root = buildPages(t);
+    const port = await freePort();
+    fs.mkdirSync(path.dirname(hubStore(port)), { recursive: true });
+    fs.writeFileSync(hubStore(port), text);
+    const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+    t.after(() => hub.kill("SIGKILL"));
+    let stderr = "";
+    hub.stderr.on("data", (data) => { stderr += data; });
+    await waitForUrl(hub);
+    // The list is set aside right after the address line, once the port is held.
+    for (let n = 0; n < 50 && !fs.existsSync(`${hubStore(port)}.broken`); n += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(fs.readFileSync(`${hubStore(port)}.broken`, "utf8"), text);
+    assert.deepEqual(JSON.parse(fs.readFileSync(hubStore(port), "utf8")).projects.map((p) => p.slug), [path.basename(root)]);
+    assert.match(stderr, /\.broken/);
+    assert.equal((await fetch(port, "GET", `/${path.basename(root)}/`)).status, 200);
+  });
+}
+
+test("an error inside a request answers 500 and the server keeps answering", async (t) => {
+  let thrown = false;
+  const server = createServer({
+    root: ROOT,
+    page: "SKILL.md",
+    onActivity: () => {
+      if (thrown) return;
+      thrown = true;
+      throw new Error("boom");
+    },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  assert.equal((await fetch(port, "GET", "/SKILL.md")).status, 500);
+  assert.equal((await fetch(port, "GET", "/SKILL.md")).status, 200);
+});
+
+test("removing a project whose list cannot be saved fails and keeps the project", async (t) => {
+  const { addProject, hubChoice } = await import("../scripts/serve.mjs");
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slugs = [addProject(hub, first), addProject(hub, second)];
+  hub.onProjects = () => false;
+  const server = createServer({ root: first, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const reply = await fetch(server.address().port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ remove: slugs[0] }) });
+  assert.equal(reply.status, 500);
+  assert.equal(JSON.parse(reply.body).error, "save");
+  assert.deepEqual([...hub.projects.keys()], slugs);
+  assert.ok(hub.times.has(slugs[0]));
+});
+
+test("a long folder name with a supplementary-plane letter at the cut makes a whole slug", async (t) => {
+  const { hubChoice } = await import("../scripts/serve.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-emoji-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  // 244 ASCII letters and U+20000, a letter outside the BMP: 248 bytes on disk, and its two UTF-16 halves sit across the 245th unit.
+  const dir = path.join(parent, `${"a".repeat(244)}\u{20000}`);
+  fs.mkdirSync(dir);
+  const hub = hubChoice(() => {});
+  const server = createServer({ root: parent, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const reply = await fetch(server.address().port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: dir }) });
+  assert.equal(reply.status, 200, reply.body);
+  const { slug } = JSON.parse(reply.body);
+  assert.equal(slug.isWellFormed(), true);
 });

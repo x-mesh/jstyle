@@ -258,6 +258,8 @@ folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄
 같은 포트에 허브가 이미 떠 있으면 새 서버를 띄우지 않고 그 허브에 이 폴더를 붙인 뒤
 {hub, project, url} JSON 한 줄을 쓰고 끝납니다. 허브의 / 주소는 붙은 프로젝트를 모두 보여 줍니다.
 jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
+고정 포트의 허브는 붙은 프로젝트 목록을 저장해 두고, 같은 주소에서 다시 시작하면 같은 /<프로젝트>/ 주소로 되살립니다.
+사라진 폴더는 시작할 때 목록에서 뺍니다. --wait와 --port 0 허브는 저장하지 않습니다.
 
 --wait는 첫 선택을 기다렸다가 고른 안을 project, page와 함께 JSON 한 줄로 쓰고 끝납니다.
 --wait는 자기 서버를 띄우며, 포트를 jstyle 서버가 쓰고 있으면 빈 포트를 씁니다.
@@ -266,7 +268,8 @@ jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
 
 // Serves every explorer under a folder from one server, with a hub page at /.
 async function hubCommand(argv) {
-  const { parseServeArgs, serve, hubChoice, addProject, projectList } = await import("../scripts/serve.mjs");
+  const { parseServeArgs, serve, hubChoice, addProject, projectList, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
+  const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
   let options;
   try {
     options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
@@ -286,6 +289,21 @@ async function hubCommand(argv) {
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  choice.onEvicted = (evicted) => process.stderr.write(`${yellow("!")} 프로젝트가 상한을 넘어 가장 오래 쓰지 않은 ${evicted.join(", ")}를 뺐습니다\n`);
+  // A hub on a fixed port keeps its projects for the next start there; --wait and a random port are one-off.
+  const store = !options.wait && options.port ? hubStoreFile(options.host, options.port) : null;
+  let unreadable = null;
+  if (store) {
+    let saved = [];
+    try {
+      saved = readHubStore(store);
+    } catch (error) {
+      unreadable = error;
+    }
+    const { restored, dropped } = restoreProjects(choice, saved);
+    if (restored.length) process.stderr.write(`${dim(`저장된 프로젝트 ${restored.length}개를 다시 붙였습니다: ${restored.join(", ")}`)}\n`);
+    for (const gone of dropped) process.stderr.write(`${dim(`사라졌거나 띄울 수 없는 폴더를 목록에서 뺐습니다: ${gone}`)}\n`);
+  }
   const slug = addProject(choice, root);
   // The record names the first remaining project, so ps and stop never point at a project the hub let go of.
   const hubExtra = (record) => {
@@ -298,12 +316,42 @@ async function hubCommand(argv) {
     return { ...extra, project: first.project, root: first.root, url: url.href };
   };
   const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
-  choice.onProjects = () => registry.refresh?.();
+  // Nothing is saved until this process holds the port, so a start that fails leaves the list of the hub that holds it.
+  let saving = false;
+  // Returns false when the list could not be written, so a removal can be undone.
+  const save = () => {
+    if (!saving) return true;
+    try {
+      writeHubStore(store, savedProjects(choice));
+      return true;
+    } catch (error) {
+      process.stderr.write(`${yellow("!")} 프로젝트 목록을 저장하지 못했습니다(다음에 다시 시작하면 이 목록이 없습니다): ${error.message}\n`);
+      return false;
+    }
+  };
+  choice.onProjects = () => {
+    registry.refresh?.();
+    return save();
+  };
+  choice.onUsed = save;
   let server;
   try {
     server = await serve({ root, page: `${encodeURIComponent(slug)}/`, host: options.host, port: options.port, open: options.open, choice, registry });
   } catch (error) {
     return fail(error.message, 1);
+  }
+  if (store) {
+    // Only now, holding the port, may this run set aside a list it could not read.
+    if (unreadable) {
+      process.stderr.write(`${yellow("!")} ${unreadable.message}. 이 목록은 ${store}.broken으로 옮기고 새로 시작합니다\n`);
+      try {
+        fs.renameSync(store, `${store}.broken`);
+      } catch {
+        // The save below replaces it.
+      }
+    }
+    saving = true;
+    save();
   }
   if (!options.wait) return null;
   process.stderr.write(`${dim("wait:")} 어느 비교 화면에서든 고르거나 보내면 끝납니다\n`);
@@ -333,7 +381,7 @@ async function sharedHub({ host, port, within = null }) {
   return (await answersAs(hub)) ? hub : null;
 }
 
-// Joining and leaving talk to the hub on 127.0.0.1, so only a hub listening on loopback can be shared.
+// Joining and leaving talk to the hub on its own loopback address, so only a hub listening on loopback can be shared.
 function joinable(record) {
   return record.kind === "hub" && !record.wait && Boolean(record.token) && Array.isArray(record.projects) && LOOPBACK_HOSTS.has(record.host);
 }
@@ -357,10 +405,15 @@ async function freePortFor(port) {
   return listRecords().some((r) => r.port === port) ? 0 : port;
 }
 
+// The address a recorded server answers on: a wildcard server also answers on 127.0.0.1.
+function reachHost(record) {
+  return record.host === "0.0.0.0" || record.host === "::" || !record.host ? "127.0.0.1" : record.host;
+}
+
 function postJson(record, pathname, body) {
   return new Promise((resolve) => {
     const data = JSON.stringify(body);
-    const request = http.request({ host: "127.0.0.1", port: record.port, path: pathname, method: "POST", timeout: 3000, headers: { "Content-Type": "application/json", "X-Jstyle-Token": record.token, "Content-Length": Buffer.byteLength(data) } }, (response) => {
+    const request = http.request({ host: reachHost(record), port: record.port, path: pathname, method: "POST", timeout: 3000, headers: { "Content-Type": "application/json", "X-Jstyle-Token": record.token, "Content-Length": Buffer.byteLength(data) } }, (response) => {
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => {
@@ -380,7 +433,8 @@ function postJson(record, pathname, body) {
 }
 
 function hubUrl(hub, pathname) {
-  return `http://127.0.0.1:${hub.port}${pathname}?t=${hub.token}`;
+  const host = reachHost(hub);
+  return `http://${host.includes(":") ? `[${host}]` : host}:${hub.port}${pathname}?t=${hub.token}`;
 }
 
 function openUrl(url) {
@@ -392,8 +446,10 @@ async function joinHub(hub, root, open) {
   const reply = await postJson(hub, "/__jstyle/projects", { root });
   if (reply.status !== 200) return fail(`떠 있는 허브(${hub.port})에 폴더를 붙이지 못했습니다(${reply.body?.error ?? reply.status}): ${root}`, 1);
   const url = hubUrl(hub, reply.body.base);
-  process.stdout.write(JSON.stringify({ hub: hub.port, project: reply.body.slug, url }) + "\n");
+  const evicted = reply.body.evicted ?? [];
+  process.stdout.write(JSON.stringify({ hub: hub.port, project: reply.body.slug, url, ...(evicted.length ? { evicted } : {}) }) + "\n");
   process.stderr.write(`${green("✓")} 떠 있는 허브(${hub.port})에 프로젝트 ${reply.body.slug} 추가\n  ${url}\n`);
+  if (evicted.length) process.stderr.write(`${yellow("!")} 허브의 프로젝트가 상한을 넘어 가장 오래 쓰지 않은 ${evicted.join(", ")}를 뺐습니다\n`);
   if (open) openUrl(url);
   return 0;
 }

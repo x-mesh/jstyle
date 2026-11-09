@@ -1695,9 +1695,9 @@ test("kit, library and any served file open on the daemon under their own addres
   assert.equal(library.status, 0, library.stderr);
   assert.match(library.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/__skill/assets/extended/index\\.html\\?t=[0-9a-f]+#cards`));
   assert.equal((await fetch(port, "GET", new URL(/http:\/\/\S+/.exec(library.stderr)[0]).pathname)).status, 200);
-  // The skill folder keeps the hub's rules: no dot files, and it is not a project.
+  // Only what kit and library pages link to is served from the skill folder.
   assert.equal((await fetch(port, "GET", "/__skill/.gitignore")).status, 404);
-  assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 200);
+  assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 404);
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-plain-"));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   fs.writeFileSync(path.join(folder, "plain.html"), "<main>plain</main>");
@@ -1864,6 +1864,21 @@ test("a borrowed folder never pushes a kept project out: 50 kept projects stay w
   assert.deepEqual(evicted, []);
   assert.ok(hub.projects.has(slug));
   assert.equal(savedProjects(hub).length, 50);
+});
+
+test("a daemon serves from the skill folder only the files kit and library pages link to", async (t) => {
+  const { SKILL_SLUG } = await import("../scripts/serve.mjs");
+  const hub = hubChoice(() => {}, { daemon: true });
+  const server = createServer({ root: os.tmpdir(), page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const status = async (rest) => (await fetch(server.address().port, "GET", `/${SKILL_SLUG}${rest}`)).status;
+  for (const shown of ["/assets/kit/index.html", "/assets/extended/index.html", "/references/extended/components.md", "/README.local.md"]) {
+    assert.equal(await status(shown), 200, shown);
+  }
+  for (const hidden of ["", "/", "/package.json", "/SKILL.md", "/bin/jstyle.mjs", "/scripts/serve.mjs", "/tests/test_cli.mjs", "/assets%2f..%2fpackage.json", "/assets/%2e%2e/bin/jstyle.mjs"]) {
+    assert.equal(await status(hidden), 404, hidden);
+  }
 });
 
 test("keeping a borrowed folder in a hub with 50 kept projects drops the oldest kept one, or nothing when that cannot be saved", async (t) => {

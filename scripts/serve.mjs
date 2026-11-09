@@ -449,7 +449,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
         return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       }
       const at = projectAt(choice, url.pathname, { builtin: true });
-      if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
+      if (!at || (at.builtin && !skillFileShown(at.root, at.rest))) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
       usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
       if (at.rest === "/" && !at.builtin) return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
@@ -649,6 +649,13 @@ function projectAt(hub, pathname, { builtin = false } = {}) {
   const own = builtin && !hub.projects.has(slug) ? hub.builtin?.get(slug) : null;
   const root = hub.projects.get(slug) ?? own;
   return root ? { slug, root, rest: slash < 0 ? "" : pathname.slice(slash), builtin: Boolean(own) } : null;
+}
+
+// kit and library pages link only into these; the skill's code, tests and package files stay off the daemon.
+const SKILL_SHOWN = new Set(["assets", "references"]);
+function skillFileShown(root, rest) {
+  const parts = path.relative(root, localPath(root, rest)).split(path.sep);
+  return SKILL_SHOWN.has(parts[0]) || (parts.length === 1 && parts[0] === "README.local.md");
 }
 
 function hubJson(hub, page) {

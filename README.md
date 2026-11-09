@@ -113,6 +113,7 @@ When you serve the page, the page writes the selected draft and the notes to `ch
 - Open the page on a phone or another computer: add `--host 0.0.0.0`, then open the `Other devices` address in the terminal output. Other people in the same network can also open this address.
 - Compare with the current screen: in `manifest.json`, add the current screen with `"baseline": true`. It becomes the first item. A page from a running development server can use `"kind": "url"`, but other devices cannot show it.
 - Start the next round: to compare refined drafts, make a new round folder such as `explore/02/` and set `round` to `"02"`. Keep the previous round as it is.
+- Manage running servers: run `jstyle ps` to see the servers and their addresses again, and `jstyle stop <port|project|all>` to end them. A server closes on its own after 30 minutes with no open page and no request.
 - Work on several pages: run `jstyle hub` to serve every comparison page under `.jstyle` from one server. The first page lists the rounds and their status for each page, and the page menu at the top of a comparison page moves to another page.
 
 The manifest fields are in the [comparison page reference](references/style-explorer.md) and in `jstyle explore --help-build`.

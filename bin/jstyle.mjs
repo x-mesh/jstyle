@@ -145,8 +145,8 @@ async function serveExplorer({ root, page, host, port, open, wait }) {
   process.stderr.write(`${dim("wait:")} 비교 화면에서 안을 고르면 끝납니다\n`);
   const record = await pick;
   process.stdout.write(JSON.stringify({ ...record, file: choice.file }) + "\n");
-  const label = record.baseline ? "기존 화면" : record.number;
-  process.stderr.write(`${green("✓")} 고른 안: ${label} ${record.name}\n  ${choice.file}\n`);
+  const label = record.id === null ? `고른 안 없이 의견 ${record.comments.length}개` : `고른 안: ${record.baseline ? "기존 화면" : record.number} ${record.name}`;
+  process.stderr.write(`${green("✓")} ${label}\n  ${choice.file}\n`);
   // Let the 200 response reach the page before the sockets are closed.
   await new Promise((resolve) => setTimeout(resolve, 200));
   server.closeAllConnections();

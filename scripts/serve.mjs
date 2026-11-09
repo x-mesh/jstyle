@@ -12,8 +12,10 @@ const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
 export const CHOICE_PATH = "/__jstyle/choice";
 export const CHOICE_FILE = "choice.json";
-const MAX_CHOICE_BYTES = 64 * 1024;
+const MAX_CHOICE_BYTES = 256 * 1024;
 const MAX_NOTES = 4000;
+const MAX_COMMENTS = 50;
+const MAX_COMMENT = 2000;
 
 function escapeHtml(text) {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -62,18 +64,64 @@ export function readExplorerData(file) {
   }
 }
 
-function choiceRecord(data, body) {
-  const index = data.candidates.findIndex((candidate) => candidate.id === body.id);
-  if (index < 0) return null;
-  const candidate = data.candidates[index];
+const shortText = (value, limit) => typeof value === "string" && value.length <= limit;
+
+// Keeps only the element fields the picker sends (frame-mesh's selection
+// summary); anything else in the page's message is dropped.
+function elementRef(value) {
+  if (!value || typeof value !== "object" || !shortText(value.label, 300) || !shortText(value.path, 2000)) return null;
+  const element = { label: value.label, path: value.path };
+  if (value.size != null) {
+    if (!shortText(value.size, 32)) return null;
+    element.size = value.size;
+  }
+  if (value.text != null) {
+    if (!shortText(value.text, 400)) return null;
+    element.text = value.text;
+  }
+  if (value.parent != null) {
+    if (!shortText(value.parent.label, 300) || !shortText(value.parent.path, 2000)) return null;
+    element.parent = { label: value.parent.label, path: value.parent.path };
+  }
+  if (value.styles != null) {
+    const entries = typeof value.styles === "object" && !Array.isArray(value.styles) ? Object.entries(value.styles) : null;
+    if (!entries || entries.length > 32 || !entries.every(([key, style]) => shortText(key, 40) && shortText(style, 200))) return null;
+    element.styles = Object.fromEntries(entries);
+  }
+  if (value.children != null) {
+    if (!Array.isArray(value.children) || value.children.length > 11 || !value.children.every((line) => shortText(line, 300))) return null;
+    element.children = value.children;
+  }
+  return element;
+}
+
+function candidateNumber(data, candidate) {
   const directions = data.candidates.filter((item) => !item.baseline);
+  return candidate.baseline ? "baseline" : String(directions.indexOf(candidate) + 1).padStart(2, "0");
+}
+
+const COMMENT_KINDS = new Set(["keep", "change"]);
+
+// id null sends comments without picking a direction.
+function choiceRecord(data, body) {
+  const candidate = body.id === null ? null : data.candidates.find((item) => item.id === body.id);
+  if (candidate === undefined) return null;
+  const comments = [];
+  for (const comment of body.comments ?? []) {
+    const target = data.candidates.find((item) => item.id === comment?.id);
+    const element = elementRef(comment?.element);
+    const kind = comment.kind ?? "change";
+    if (!target || !element || !COMMENT_KINDS.has(kind) || !shortText(comment.note, MAX_COMMENT) || !comment.note.trim()) return null;
+    comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, kind, note: comment.note, element });
+  }
   return {
     round: data.round ?? "",
-    number: candidate.baseline ? "baseline" : String(directions.indexOf(candidate) + 1).padStart(2, "0"),
-    id: candidate.id,
-    name: candidate.name,
-    baseline: Boolean(candidate.baseline),
+    number: candidate ? candidateNumber(data, candidate) : null,
+    id: candidate ? candidate.id : null,
+    name: candidate ? candidate.name : null,
+    baseline: Boolean(candidate?.baseline),
     notes: body.notes ?? "",
+    comments,
     viewport: body.viewport ?? "",
     fingerprint: data.fingerprint ?? "",
     at: new Date().toISOString(),
@@ -116,11 +164,12 @@ function receiveChoice(request, choice, send) {
     } catch {
       return json(400, { error: "json" });
     }
-    if (!body || typeof body !== "object" || typeof body.id !== "string") return json(400, { error: "id" });
+    if (!body || typeof body !== "object" || (typeof body.id !== "string" && body.id !== null)) return json(400, { error: "id" });
     if (body.notes != null && (typeof body.notes !== "string" || body.notes.length > MAX_NOTES)) return json(400, { error: "notes" });
     if (body.viewport != null && typeof body.viewport !== "string") return json(400, { error: "viewport" });
+    if (body.comments != null && (!Array.isArray(body.comments) || body.comments.length > MAX_COMMENTS)) return json(400, { error: "comments" });
     const record = choiceRecord(choice.data, body);
-    if (!record) return json(400, { error: "id" });
+    if (!record) return json(400, { error: body.comments?.length ? "comments" : "id" });
     // With once (--wait), later picks are refused so choice.json keeps what was printed.
     if (choice.closed) return json(409, { error: "closed" });
     if (choice.once) choice.closed = true;
@@ -130,7 +179,8 @@ function receiveChoice(request, choice, send) {
       choice.closed = false;
       return json(500, { error: error.message });
     }
-    json(200, { ok: true });
+    // waiting tells the page whether an agent receives this now (--wait) or only choice.json keeps it.
+    json(200, { ok: true, waiting: Boolean(choice.once) });
     choice.onChoice?.(record);
   });
 }

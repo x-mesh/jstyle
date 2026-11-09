@@ -91,8 +91,10 @@ Use jstyle to make three drafts of the first screen of the order dashboard. Show
 
 The agent first describes each direction in text. If you want to see the screens, it makes one HTML first screen for each draft and puts them on one comparison page. If you do not give a number, it makes three drafts.
 
-The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
-In the single view, write what works and what to change in the notes field, then press **Select** on the draft that you prefer. The page sends the draft and your notes to the agent, and the agent continues with the selected draft. You do not paste anything into the chat.
+The comparison page starts with the drafts side by side on a gray board. To zoom, use Shift+wheel or a trackpad pinch. To move, drag empty space. To fit all drafts again, press F. Click a draft to open it large, and use the strip at the bottom to move to another draft. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
+Press **Select** on the draft that you prefer. The page sends the draft and your notes to the agent, and the agent continues with the selected draft. You do not paste anything into the chat.
+
+To comment on one element, turn on **Comment** at the top (shortcut C), then click the element on the board or in an open draft. In the box next to the element, choose Keep or Change and write your note. You can comment on more than one draft. The review panel on the right lists the comments by draft and holds the overall notes. Press **Send** there. You can hide the panel. You can send comments without selecting a draft. To paste the result into the agent chat, press **Copy**. This also works in a page that you open as a file. You cannot comment inside a page from a running development server or inside an image.
 
 If you open the page as a file, **Select** copies a sentence such as `Round 01: Go with 02 Name`. Paste this sentence to the agent.
 

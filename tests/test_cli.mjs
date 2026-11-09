@@ -157,16 +157,33 @@ test("an explorer page posts the pick back only with its token and a JSON body",
   assert.equal((await post(auth, "{")).status, 400);
   assert.equal((await post(auth, JSON.stringify({ id: "missing" }))).status, 400);
   assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", notes: "x".repeat(4001) }))).status, 400);
-  assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", notes: "x".repeat(70 * 1024) }))).status, 413);
+  assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", notes: "x".repeat(300 * 1024) }))).status, 413);
+  const element = { label: "th.col", path: "body > table > thead > tr > th:nth-of-type(2)", size: "120x32", text: "Owner", parent: { label: "tr", path: "body > table > thead > tr" }, styles: { "font-size": "12px" }, children: [] };
+  for (const comments of [{}, [{ id: "missing", note: "x", element }], [{ id: "candidate-1", note: " ", element }], [{ id: "candidate-1", note: "x", element: { label: "th" } }],
+    [{ id: "candidate-1", note: "x", element: { ...element, styles: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, "v"])) } }],
+    [{ id: "candidate-1", note: "x", kind: "love", element }],
+    Array.from({ length: 51 }, () => ({ id: "candidate-1", note: "x", element }))]) {
+    assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", comments }))).status, 400, JSON.stringify(comments).slice(0, 80));
+  }
   assert.equal(fs.existsSync(path.join(folder, CHOICE_FILE)), false);
   assert.equal(picks.length, 0);
-  const ok = await post(auth, JSON.stringify({ id: "candidate-2", notes: "Less padding", viewport: "mobile" }));
+  const ok = await post(auth, JSON.stringify({ id: "candidate-2", notes: "Less padding", viewport: "mobile", comments: [{ id: "candidate-1", note: "Header too dense", element: { ...element, extra: "dropped" } }] }));
   assert.equal(ok.status, 200);
+  // Without --wait nobody receives the pick right away, so the page must not say it was sent.
+  assert.equal(JSON.parse(ok.body).waiting, false);
   const saved = JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8"));
   assert.deepEqual({ ...saved, at: undefined, fingerprint: undefined },
-    { round: "01", number: "02", id: "candidate-2", name: "Direction b", baseline: false, notes: "Less padding", viewport: "mobile", at: undefined, fingerprint: undefined });
+    { round: "01", number: "02", id: "candidate-2", name: "Direction b", baseline: false, notes: "Less padding", viewport: "mobile", at: undefined, fingerprint: undefined,
+      comments: [{ id: "candidate-1", number: "01", name: "Direction a", kind: "change", note: "Header too dense", element }] });
   assert.match(saved.fingerprint, /^[0-9a-f]{24}$/);
   assert.deepEqual(picks, [saved]);
+  // Comments can go without a picked direction.
+  const only = await post(auth, JSON.stringify({ id: null, comments: [{ id: "candidate-2", kind: "keep", note: "Keep the list", element }] }));
+  assert.equal(only.status, 200);
+  const commentsOnly = JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8"));
+  assert.equal(commentsOnly.id, null);
+  assert.equal(commentsOnly.number, null);
+  assert.deepEqual(commentsOnly.comments.map((comment) => [comment.number, comment.kind]), [["02", "keep"]]);
   assert.equal((await fetch(port, "GET", "/style-explorer.html")).status, 200);
 });
 
@@ -202,6 +219,7 @@ test("explore --wait prints the first pick as the last stdout line and stops", a
   const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
   const response = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-1", notes: "Keep the header" }) });
   assert.equal(response.status, 200);
+  assert.equal(JSON.parse(response.body).waiting, true);
   // A second pick before the server stops must not replace what --wait printed.
   const late = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-2" }) });
   assert.equal(late.status, 409);

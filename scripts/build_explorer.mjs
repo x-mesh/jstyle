@@ -181,10 +181,17 @@ const STORAGE_SHIM = "<script>(()=>{const mem=()=>{const m=new Map();return{get 
   + "for(const n of['localStorage','sessionStorage']){try{window[n].length}catch{"
   + "Object.defineProperty(window,n,{value:mem(),configurable:true})}}})();</script>";
 
+// The element picker runs in every HTML preview. A static preview allows only
+// this script by its hash, so the candidate's own scripts stay blocked.
+// HTML parsing turns CRLF into LF before the browser hashes a script, so a
+// CRLF checkout (Windows autocrlf) would otherwise block the picker.
+export const PICK_SCRIPT = readText(joinPath(joinPath(SKILL_ROOT, "assets"), "explorer-pick.js")).replace(/\r\n?/g, "\n").trim();
+export const PICK_HASH = "sha256-" + createHash("sha256").update(PICK_SCRIPT, "utf8").digest("base64");
+
 function previewCsp(interactive) {
   // Interactive prototypes may run their own inline scripts, still with no network or external files.
   // 'unsafe-eval' lets declarative libraries such as Alpine.js evaluate their attribute expressions.
-  return interactive ? PREVIEW_CSP.replace("script-src 'none'", "script-src 'unsafe-inline' 'unsafe-eval'") : PREVIEW_CSP;
+  return PREVIEW_CSP.replace("script-src 'none'", interactive ? "script-src 'unsafe-inline' 'unsafe-eval'" : `script-src '${PICK_HASH}'`);
 }
 
 const EMBEDDABLE = {
@@ -681,7 +688,7 @@ export function prepareHtml(source, interactive = false, used = null) {
   const [index, startTag] = parser.headPosition;
   const headEnd = index + startTag.length;
   const meta = `<meta http-equiv="Content-Security-Policy" content="${previewCsp(interactive)}">`;
-  return content.slice(0, headEnd) + meta + (interactive ? STORAGE_SHIM : "") + content.slice(headEnd);
+  return content.slice(0, headEnd) + meta + (interactive ? STORAGE_SHIM : "") + `<script>${PICK_SCRIPT}</script>` + content.slice(headEnd);
 }
 
 function prepareImage(source, used = null) {

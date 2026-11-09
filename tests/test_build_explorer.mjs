@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { MARKER, PREVIEW_CSP, PathSet, TEMPLATE, build, limits, prepareHtml, readAsset } from "../scripts/build_explorer.mjs";
+import { MARKER, PICK_HASH, PICK_SCRIPT, PREVIEW_CSP, PathSet, TEMPLATE, build, limits, prepareHtml, readAsset } from "../scripts/build_explorer.mjs";
 import { findChrome } from "../scripts/chrome.mjs";
 import { HTMLParser } from "../scripts/lib/html-parser.mjs";
 import { PyError, PyFloat, isValueError, jsonDumps } from "../scripts/lib/pycompat.mjs";
@@ -115,12 +115,12 @@ class Fixture {
     return readText(this.output);
   }
 
-  runBrowserProbe(resultId = "i18n-result", profile = "chrome-probe", url = asUri(this.output)) {
+  runBrowserProbe(resultId = "i18n-result", profile = "chrome-probe", url = asUri(this.output), windowSize = "") {
     let runner = String.raw`
 import {spawn} from 'node:child_process';
 const chrome=spawn(process.argv[1],['--headless=new','--remote-debugging-pipe',
  '--no-first-run','--no-default-browser-check','--disable-extensions',
- '--force-prefers-reduced-motion',${"`"}--user-data-dir=${"${process.argv[2]}"}${"`"},'about:blank'],
+ '--force-prefers-reduced-motion',${"`"}--user-data-dir=${"${process.argv[2]}"}${"`"},...(process.argv[4]?[${"`"}--window-size=${"${process.argv[4]}"}${"`"}]:[]),'about:blank'],
  {stdio:['ignore','ignore','ignore','pipe','pipe']});
 let seq=0,buffer='';const pending=new Map();
 chrome.on('error',error=>{console.error(error);process.exitCode=1;});
@@ -145,9 +145,16 @@ try{
  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]},sessionId);
  await send('Page.navigate',{url:process.argv[3]},sessionId);
  let result;
- for(let i=0;i<100;i++){
+ for(let i=0;i<200;i++){
   const response=await send('Runtime.evaluate',{expression:"document.querySelector('#i18n-result')?.textContent",returnByValue:true},sessionId);
   result=response.result.value;if(result)break;
+  // A probe that needs a real pointer click (for example inside a sandboxed frame) sets window.__probeClick=[x,y].
+  const click=await send('Runtime.evaluate',{expression:"(()=>{const at=window.__probeClick;window.__probeClick=null;return at})()",returnByValue:true},sessionId);
+  const at=click.result.value;
+  if(at){
+   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:at[0],y:at[1]},sessionId);
+   for(const type of ['mousePressed','mouseReleased'])await send('Input.dispatchMouseEvent',{type,x:at[0],y:at[1],button:'left',clickCount:1},sessionId);
+  }
   await new Promise(resolve=>setTimeout(resolve,50));
  }
  if(!result)throw Error('The page did not complete its interface/copy probe');
@@ -156,7 +163,7 @@ try{
 finally{clearTimeout(deadline);chrome.kill();}
 `;
     runner = runner.replaceAll("#i18n-result", "#" + resultId);
-    return run([process.execPath, "--input-type=module", "-e", runner, CHROME, path.join(this.folder, profile), url],
+    return run([process.execPath, "--input-type=module", "-e", runner, CHROME, path.join(this.folder, profile), url, windowSize],
       { timeout: SLOW ? 45000 : 25000 });
   }
 }
@@ -531,8 +538,11 @@ test("a served page sends the pick and notes instead of copying", { skip: CHROME
 (async()=>{
  const copied=[];
  Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>copied.push(text)},configurable:true});
+ const tools=[document.documentElement.dataset.tools||'dark'];
+ document.querySelector('#theme-toggle').click();tools.push(document.documentElement.dataset.tools||'dark',localStorage.getItem('jstyle:tools'));
+ document.querySelector('#theme-toggle').click();tools.push(document.documentElement.dataset.tools||'dark',localStorage.getItem('jstyle:tools'));
  document.querySelector('[data-layout=loupe]').click();
- const box=document.querySelector('#info-body .notes textarea');
+ const box=document.querySelector('#review .notes textarea');
  box.value='헤더 여백 줄이기';box.dispatchEvent(new Event('input'));
  document.querySelector('#info-body [data-pick]').click();
  const label=()=>document.querySelector('#toast b').textContent;
@@ -542,7 +552,7 @@ test("a served page sends the pick and notes instead of copying", { skip: CHROME
  document.querySelector('#info-body [data-pick]').click();
  for(let i=0;i<100&&label()===sent;i++)await new Promise(r=>setTimeout(r,50));
  const result=document.createElement('pre');result.id='send-result';
- result.textContent=JSON.stringify({toast:sent,after:label(),button:document.querySelector('#info-body [data-pick]').firstChild.textContent,copied,stored:localStorage.getItem(${"`"}jstyle:${"${DATA.fingerprint}"}${"`"})});
+ result.textContent=JSON.stringify({tools,toast:sent,after:label(),button:document.querySelector('#info-body [data-pick]').firstChild.textContent,copied,stored:localStorage.getItem(${"`"}jstyle:${"${DATA.fingerprint}"}${"`"})});
  document.body.append(result);
 })();
 </script>`;
@@ -567,13 +577,215 @@ test("a served page sends the pick and notes instead of copying", { skip: CHROME
   const table = i18nTable().ko;
   assert.equal(observed.toast, table.sent);
   assert.equal(observed.button, table.selectedSent);
+  assert.deepEqual(observed.tools, ["dark", "light", "light", "dark", "dark"]);
   assert.equal(observed.after, table.sendFailed);
-  assert.deepEqual(observed.copied, ["01회: 01 첫 번째 안 안을 고릅니다\n헤더 여백 줄이기"]);
+  assert.deepEqual(observed.copied, ["jstyle 비교 결과 · 프로젝트 · 01회\n고른 안: 01 첫 번째 안\n전체 의견: 헤더 여백 줄이기"]);
   assert.doesNotMatch(observed.stored ?? "", /헤더 여백/);
   assert.equal(await exit, 0);
   const picked = JSON.parse(stdout.trim().split("\n").at(-1));
   assert.equal(picked.id, "a");
   assert.equal(picked.notes, "헤더 여백 줄이기");
+});
+
+test("comment mode collects element comments across candidates and sends them without a pick", { skip: CHROME_SKIP("element comment checks") }, async (t) => {
+  const f = new Fixture(t);
+  // The candidate's own script would report itself to the explorer if it ran.
+  writeText(f.source, '<!doctype html><html><head><style>body{margin:0}table{position:absolute;left:0;top:0;border-collapse:collapse}th{width:200px;height:40px;padding:0}</style></head>'
+    + '<body><main><table><thead><tr><th>Owner</th><th>Status</th></tr></thead></table></main><script>parent.postMessage({bad:1},"*")</script></body></html>');
+  f.data.lang = "ko";
+  f.data.candidates[0].nativeViewport = "1280x900";
+  f.data.candidates.push({ ...f.data.candidates[0], id: "b", name: "두 번째 안" });
+  f.save();
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const bad=[];addEventListener('message',e=>{if(e.data&&e.data.bad)bad.push(1);});
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ const wait=async test=>{for(let i=0;i<120&&!test();i++)await sleep(50);return test();};
+ await wait(()=>document.querySelectorAll('#grid .stage.ready').length===2);
+ document.querySelector('#comment-mode').click();
+ const hint=!document.querySelector('#comment-hint').hidden;
+ await sleep(300);
+ const titles=[];
+ for(const [id,x,kind,note] of [['a',300,null,'상태 열 머리글이 너무 촘촘함'],['b',100,'keep','담당자 열은 이대로']]){
+  // The probe window is small: bring the top of each card just under the sticky bar.
+  const frame=document.querySelector('#grid .stage[data-id="'+id+'"] iframe');scrollBy(0,frame.getBoundingClientRect().top-document.querySelector('#bar').offsetHeight-40);await sleep(150);
+  const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;
+  window.__probeClick=[rect.left+x*scale,rect.top+20*scale];
+  const bubble=document.querySelector('#bubble');
+  await wait(()=>!bubble.hidden);
+  titles.push(bubble.querySelector('h3').textContent);
+  if(kind)bubble.querySelector('[data-kind="'+kind+'"]').click();
+  const box=bubble.querySelector('textarea');box.value=note;box.dispatchEvent(new Event('input'));
+  bubble.querySelector('.row button:last-child').click();
+  await wait(()=>bubble.hidden);
+ }
+ const summary=document.querySelector('#panel-sum').textContent;
+ const items=[...document.querySelectorAll('#review .rv-group li')].map(li=>li.querySelector('.n').textContent+' '+li.querySelector('.k').textContent+' '+li.querySelector('.what').textContent);
+ document.querySelector('#panel-foot .pick').click();
+ const toast=()=>document.querySelector('#toast b').textContent;
+ await wait(toast);
+ const result=document.createElement('pre');result.id='pick-result';
+ result.textContent=JSON.stringify({hint,titles,summary,items,toast:toast(),bad:bad.length});
+ document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "serve", f.output, "--wait", "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (data) => { stdout += data; });
+  const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  const url = await new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = / at (http:\/\/\S+\?t=[0-9a-f]+)/.exec(stderr);
+      if (match) resolve(match[1]);
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const probed = f.runBrowserProbe("pick-result", "chrome-pick", url);
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  const ko = i18nTable().ko;
+  assert.equal(observed.hint, true);
+  assert.deepEqual(observed.titles, ["1 · 01 첫 번째 안 th", "2 · 02 두 번째 안 th"]);
+  assert.match(observed.summary, /^2의견$/);
+  assert.deepEqual(observed.items, [`1 ${ko.kindChange} th상태 열 머리글이 너무 촘촘함`, `2 ${ko.kindKeep} th담당자 열은 이대로`]);
+  assert.equal(observed.toast, ko.sent);
+  assert.equal(observed.bad, 0);
+  assert.equal(await exit, 0);
+  const picked = JSON.parse(stdout.trim().split("\n").at(-1));
+  assert.equal(picked.id, null);
+  assert.deepEqual(picked.comments.map((comment) => [comment.id, comment.number, comment.kind, comment.note, comment.element.path, comment.element.text]), [
+    ["a", "01", "change", "상태 열 머리글이 너무 촘촘함", "body > main > table > thead > tr > th:nth-of-type(2)", "Status"],
+    ["b", "02", "keep", "담당자 열은 이대로", "body > main > table > thead > tr > th:nth-of-type(1)", "Owner"],
+  ]);
+  assert.equal(picked.comments[0].element.size, "200x40");
+});
+
+test("the board zooms with shift+wheel around the pointer and by keys", { skip: CHROME_SKIP("board zoom checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.data.candidates[0].nativeViewport = "1280x900";
+  f.data.candidates.push({ ...f.data.candidates[0], id: "b", name: "Second" });
+  f.save();
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ for(let i=0;i<60&&document.querySelectorAll('#grid .stage.ready').length<2;i++)await sleep(50);
+ await sleep(200);
+ const v=document.querySelector('#compare-view'),pct=()=>parseInt(document.querySelector('#zoom-now').textContent,10),card=()=>document.querySelector('.card[data-id="b"]').getBoundingClientRect();
+ const fit=pct(),r0=card(),x=r0.left+r0.width*.25,y=r0.top+r0.height*.5,fx=(x-r0.left)/r0.width;
+ v.dispatchEvent(new WheelEvent('wheel',{deltaY:-240,shiftKey:true,clientX:x,clientY:y,bubbles:true,cancelable:true}));
+ await sleep(100);
+ const r1=card(),zoomed=pct(),drift=Math.abs(r1.left+r1.width*fx-x);
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'f',bubbles:true}));await sleep(50);const refit=pct();
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'+',bubbles:true}));await sleep(50);const plus=pct();
+ const result=document.createElement('pre');result.id='zoom-result';result.textContent=JSON.stringify({fit,zoomed,drift,refit,plus,width:r1.width/r0.width});document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  // Below 760px the board is a plain column without wheel zoom, so this needs a wide window.
+  const probed = f.runBrowserProbe("zoom-result", "chrome-zoom", asUri(f.output), "1400,900");
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  assert.ok(observed.zoomed > observed.fit, JSON.stringify(observed));
+  assert.ok(Math.abs(observed.width - observed.zoomed / observed.fit) < 0.05, JSON.stringify(observed));
+  assert.ok(observed.drift < 8, `the point under the pointer moved ${observed.drift}px`);
+  assert.equal(observed.refit, observed.fit);
+  assert.ok(observed.plus > observed.fit);
+});
+
+test("a board opened from the single view fits its room and keeps captions inside cards", { skip: CHROME_SKIP("board fit checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.data.candidates[0].nativeViewport = "1280x900";
+  // Four wide drafts in a 1000px window push the fit below the readable floor, as in the reported bug.
+  for (const id of ["b", "c", "d"]) f.data.candidates.push({ ...f.data.candidates[0], id, name: `Direction ${id} with a long name` });
+  f.save();
+  f.build(true);
+  let page = f.page();
+  const key = "jstyle:" + payload(page).fingerprint;
+  const seed = "<script>localStorage.setItem(" + JSON.stringify(key) + "," + JSON.stringify(JSON.stringify({ layout: "loupe", viewport: "desktop", current: "a", chosen: null })) + ");</script>";
+  page = page.replace("<script>\nconst DATA", () => seed + "<script>\nconst DATA");
+  const probe = String.raw`<script>
+(async()=>{
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ await sleep(400);
+ document.querySelector('[data-layout=compare]').click();
+ await sleep(600);
+ const zoom=parseInt(document.querySelector('#zoom-now').textContent,10);
+ const spill=[...document.querySelectorAll('.card')].map(a=>{const c=a.getBoundingClientRect(),cap=a.querySelector('.cap');return Math.max(0,...[...cap.children].filter(n=>n.offsetParent).map(n=>n.getBoundingClientRect().right-c.right));});
+ const names=[...document.querySelectorAll('.cap .name')].map(n=>n.getBoundingClientRect().width);
+ const result=document.createElement('pre');result.id='fit-result';result.textContent=JSON.stringify({zoom,spill,names});document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, page.replaceAll("</body></html>", () => probe + "</body></html>"));
+  const probed = f.runBrowserProbe("fit-result", "chrome-fit", asUri(f.output), "1000,800");
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  assert.ok(observed.zoom >= 20, `fit zoom ${observed.zoom}% is below the readable floor`);
+  assert.ok(observed.spill.every((px) => px <= 1), `caption spills ${JSON.stringify(observed.spill)}`);
+  assert.ok(observed.names.every((width) => width > 20), `names collapsed ${JSON.stringify(observed.names)}`);
+});
+
+test("a page opened as a file still takes comments and copies a message for the agent", { skip: CHROME_SKIP("file-mode comment checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, '<!doctype html><html><head><style>body{margin:0}table{position:absolute;left:0;top:0;border-collapse:collapse}th{width:200px;height:40px;padding:0}</style></head>'
+    + '<body><main><table><thead><tr><th>Owner</th><th>Status</th></tr></thead></table></main></body></html>');
+  f.data.lang = "ko";
+  f.data.candidates[0].nativeViewport = "1280x900";
+  f.save();
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const copied=[];
+ Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>copied.push(text)},configurable:true});
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ const wait=async test=>{for(let i=0;i<120&&!test();i++)await sleep(50);return test();};
+ await wait(()=>document.querySelector('#grid .stage.ready'));await sleep(200);
+ const hint=document.querySelector('#comment-hint'),idle=!hint.hidden&&hint.hasAttribute('data-idle'),button=!document.querySelector('#comment-mode').hidden;
+ hint.querySelector('.go').click();await sleep(300);
+ const active=!hint.hidden&&!hint.hasAttribute('data-idle');
+ const frame=document.querySelector('#grid .stage iframe');scrollBy(0,frame.getBoundingClientRect().top-document.querySelector('#bar').offsetHeight-40);await sleep(150);
+ const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;window.__probeClick=[rect.left+300*scale,rect.top+20*scale];
+ const bubble=document.querySelector('#bubble');await wait(()=>!bubble.hidden);
+ const box=bubble.querySelector('textarea');box.value='상태 열이 너무 좁음';box.dispatchEvent(new Event('input'));bubble.querySelector('.row button:last-child').click();
+ await wait(()=>bubble.hidden);
+ const afterComment=hint.hidden||!hint.hasAttribute('data-idle');
+ document.querySelector('#panel-foot .copy-msg').click();await sleep(100);
+ const send=!!document.querySelector('#panel-foot .pick:not(.copy-msg)');
+ const result=document.createElement('pre');result.id='file-result';result.textContent=JSON.stringify({idle,button,active,afterComment,send,copied,stored:localStorage.getItem('jstyle:hint-closed')});document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const probed = f.runBrowserProbe("file-result", "chrome-file");
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  assert.deepEqual({ idle: observed.idle, button: observed.button, active: observed.active, afterComment: observed.afterComment, send: observed.send },
+    { idle: true, button: true, active: true, afterComment: true, send: false });
+  assert.deepEqual(observed.copied, ["jstyle 비교 결과 · 프로젝트 · 01회\n고른 안 없음\n\n요소 의견\n1. [고침] 01 첫 번째 안 — th\n   위치: body > main > table > thead > tr > th:nth-of-type(2) · \"Status\"\n   의견: 상태 열이 너무 좁음"]);
+});
+
+test("the discovery hint closes and stays closed", { skip: CHROME_SKIP("hint checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ await new Promise(r=>setTimeout(r,300));
+ const hint=document.querySelector('#comment-hint'),before=!hint.hidden;
+ hint.querySelector('.x').click();
+ const result=document.createElement('pre');result.id='hint-result';result.textContent=JSON.stringify({before,after:!hint.hidden,stored:localStorage.getItem('jstyle:hint-closed')});document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const probed = f.runBrowserProbe("hint-result", "chrome-hint");
+  assert.equal(probed.status, 0, probed.stderr);
+  assert.deepEqual(JSON.parse(probed.stdout), { before: true, after: false, stored: "1" });
 });
 
 test("portable single file and HTML payload", (t) => {
@@ -584,7 +796,7 @@ test("portable single file and HTML payload", (t) => {
   assert.ok(page.includes("같은 내용"));
   assert.ok(!page.includes(f.folder));
   assert.ok(!page.includes(MARKER));
-  assert.ok(page.includes("script-src 'none'"));
+  assert.ok(page.includes(`script-src '${PICK_HASH}'`));
 });
 
 test("metadata cannot close script", (t) => {
@@ -604,7 +816,7 @@ test("CSP is inserted in the actual head, not a comment", (t) => {
         <html><head data-note="a > b"></head><body>content</body></html>`);
   const observed = startTags(prepareHtml(f.source));
   const meta = observed.filter(([tag]) => tag === "meta").map(([, attrs]) => attrs);
-  assert.deepEqual(meta, [{ "http-equiv": "Content-Security-Policy", content: PREVIEW_CSP }]);
+  assert.deepEqual(meta, [{ "http-equiv": "Content-Security-Policy", content: PREVIEW_CSP.replace("script-src 'none'", `script-src '${PICK_HASH}'`) }]);
   assert.deepEqual(observed.map(([tag]) => tag).slice(0, 3), ["html", "head", "meta"]);
 });
 
@@ -879,6 +1091,21 @@ test("shell secondary text meets body contrast", async (t) => {
       });
     }
   }
+  // jstyle's own tools redefine the tokens on a dark ground.
+  const toolRule = template.match(/:is\(\.bar,\.panel,\.film,\.dock,\.bubble\)\{([^}]*)\}/)[1];
+  const tool = Object.fromEntries(Array.from(toolRule.matchAll(/--(surface|raised|well|faint|soft|text|accent):(#[0-9a-f]{6})/g), (match) => [match[1], match[2]]));
+  for (const text of ["faint", "soft", "text"]) {
+    for (const ground of ["surface", "raised", "well"]) {
+      await t.test(`tool text=${text} ground=${ground}`, () => {
+        const [high, low] = [luminance(tool[text]), luminance(tool[ground])].sort((a, b) => b - a);
+        assert.ok((high + 0.05) / (low + 0.05) >= 4.5, `${tool[text]} on ${tool[ground]}`);
+      });
+    }
+  }
+  await t.test("white on the tool accent", () => {
+    const [high, low] = [1, luminance(tool.accent)];
+    assert.ok((high + 0.05) / (low + 0.05) >= 4.5, tool.accent);
+  });
 });
 
 test("resource examples in text, comments and scripts stay unchanged", (t) => {
@@ -1141,8 +1368,13 @@ test("shell connections allow only this round's candidate origins", (t) => {
 
 test("interactive HTML runs inline scripts only when asked", (t) => {
   const f = new Fixture(t);
-  assert.ok(prepareHtml(f.source).includes("script-src 'none'"));
+  // A static preview runs only the element picker, allowed by its hash.
+  const still = prepareHtml(f.source);
+  assert.ok(still.includes(`script-src '${PICK_HASH}'`));
+  assert.ok(!still.includes("'unsafe-inline' 'unsafe-eval'"));
+  assert.equal(still.split(`<script>${PICK_SCRIPT}</script>`).length, 2);
   const csp = prepareHtml(f.source, true);
+  assert.ok(!csp.includes(PICK_HASH), "a hash would turn off 'unsafe-inline' for the prototype's own scripts");
   assert.ok(csp.includes("script-src 'unsafe-inline'"));
   assert.ok(csp.includes("localStorage"));
   assert.ok(!prepareHtml(f.source).includes("localStorage"));

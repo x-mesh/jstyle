@@ -19,6 +19,7 @@ export const CHOICE_FILE = "choice.json";
 export const HUB_PATH = "/__jstyle/hub.json";
 export const ALIVE_PATH = "/__jstyle/alive";
 export const PROJECTS_PATH = "/__jstyle/projects";
+export const WAITERS_PATH = "/__jstyle/waiters";
 const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
 const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
@@ -220,8 +221,9 @@ function receiveChoice(request, choice, send) {
       choice.closed = false;
       return json(500, { error: error.message });
     }
-    // waiting tells the page whether an agent receives this now (--wait) or only choice.json keeps it.
-    json(200, { ok: true, waiting: Boolean(choice.once) });
+    // waiting counts the agents that receive this now (--wait or hub waiters); 0 means only choice.json keeps it.
+    const delivered = choice.hub ? deliverPick(choice, record, file) : 0;
+    json(200, { ok: true, waiting: (choice.once ? 1 : 0) + delivered });
     choice.onChoice?.(record, file);
   }
 }
@@ -419,6 +421,8 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
     if (url.pathname === ALIVE_PATH) return send(204, { "X-Jstyle-Pid": String(process.pid) });
     if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
     if (choice?.hub && request.method === "POST" && url.pathname === PROJECTS_PATH) return receiveProject(request, choice, json);
+    if (choice?.hub && request.method === "POST" && url.pathname === WAITERS_PATH) return receiveWaiter(request, choice, json);
+    if (choice?.hub && url.pathname.startsWith(`${WAITERS_PATH}/`)) return waiterRequest(request, response, choice, json, url);
     if (choice?.hub && (request.method === "GET" || request.method === "HEAD")) {
       if (url.pathname === HUB_PATH) {
         let body;
@@ -519,8 +523,9 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 
 // A hub serves one or more project folders, each under /<slug>/, and takes
 // picks for every explorer in them; the page in each post says which.
-export function hubChoice(onChoice, { once = false } = {}) {
-  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0 };
+// waiterTtl is how long a waiter may go without polling before it counts as gone.
+export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL } = {}) {
+  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
 export function addProject(hub, root) {
@@ -613,13 +618,148 @@ function hubJson(hub, page) {
     return {
       projects: projectList(hub).map(({ slug, root, project, location }) => {
         const entries = hubList(root);
-        return { slug, base: `/${encodeURIComponent(slug)}/`, project, location, pages: new Set(entries.map((e) => e.group)).size, rounds: entries.length, open: entries.filter((e) => !e.choice || e.choice.stale).length, latest: entries[0]?.mtime ?? null };
+        const waiters = [...hub.waiters.values()].filter((w) => w.project === slug && !w.pending).length;
+        return { slug, base: `/${encodeURIComponent(slug)}/`, project, location, waiters, pages: new Set(entries.map((e) => e.group)).size, rounds: entries.length, open: entries.filter((e) => !e.choice || e.choice.stale).length, latest: entries[0]?.mtime ?? null };
       }),
     };
   }
   const at = projectAt(hub, page);
   if (!at) return null;
   return { slug: at.slug, base: `/${encodeURIComponent(at.slug)}/`, root: path.basename(at.root), ...hubProject(at.root), others: hub.projects.size - 1, entries: hubList(at.root) };
+}
+
+// Agents wait on a hub through long polls: POST registers a waiter for a page
+// (or a whole project with page null), GET /<id>?wait=N holds up to N seconds
+// for a pick, DELETE leaves. A pick goes to every waiter on its page, or, when
+// there is none, to every waiter on its project. A poll is never held longer
+// than MAX_POLL so a gone agent is noticed by time and idle proxies never cut it.
+const WAITER_TTL = 60 * 1000;
+const MAX_POLL = 25;
+const SWEEP_EVERY = 2000;
+const ENDED_KEPT = 200;
+
+function receiveWaiter(request, hub, json) {
+  if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
+  if (!String(request.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(415, { error: "content-type" });
+  readJson(request, 16 * 1024, (body, problem) => {
+    try {
+      if (!body) return json(problem === "size" ? 413 : 400, { error: problem });
+      const root = typeof body.project === "string" ? hub.projects.get(body.project) : null;
+      if (!root) return json(400, { error: "project" });
+      if (body.pid != null && !(Number.isInteger(body.pid) && body.pid > 0)) return json(400, { error: "pid" });
+      let page = null;
+      if (body.page != null) {
+        if (typeof body.page !== "string" || body.page.startsWith("/") || body.page.length > 2000) return json(400, { error: "page" });
+        const html = localPath(root, body.page);
+        if (!insideRoot(root, html) || !readExplorerData(html)) return json(400, { error: "page" });
+        page = path.relative(root, html).split(path.sep).join("/");
+      }
+      const waiter = { id: randomBytes(12).toString("hex"), project: body.project, page, pid: body.pid ?? null, pending: null, held: null, last: Date.now() };
+      hub.waiters.set(waiter.id, waiter);
+      startSweep(hub);
+      const where = page ? page.split("/").map(encodeURIComponent).join("/") : "";
+      json(200, { id: waiter.id, project: waiter.project, page, url: `http://${request.headers.host}/${encodeURIComponent(waiter.project)}/${where}?t=${hub.token}` });
+    } catch (error) {
+      try {
+        json(500, { error: String(error?.message ?? error) });
+      } catch {
+        // The reply already went out; the error must still not end the server.
+      }
+    }
+  });
+}
+
+function waiterRequest(request, response, hub, json, url) {
+  if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
+  let id;
+  try {
+    id = decodeURIComponent(url.pathname.slice(WAITERS_PATH.length + 1));
+  } catch {
+    return json(404, { error: "waiter" });
+  }
+  const waiter = hub.waiters.get(id);
+  if (!waiter) return json(410, { reason: hub.ended.get(id) ?? "gone" });
+  if (request.method === "DELETE") {
+    dropWaiter(hub, waiter, "deleted");
+    return json(200, { ok: true });
+  }
+  if (request.method !== "GET") return json(405, { error: "method" });
+  waiter.last = Date.now();
+  if (waiter.pending) {
+    endWaiter(hub, waiter, "done");
+    return json(200, waiter.pending);
+  }
+  const seconds = Math.min(MAX_POLL, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+  if (!seconds) return send204();
+  // A newer poll replaces one still held, which answers empty.
+  waiter.held?.answer(204);
+  const timer = setTimeout(() => held.answer(204), seconds * 1000);
+  const held = {
+    answer(status, value) {
+      if (waiter.held !== held) return;
+      waiter.held = null;
+      waiter.last = Date.now();
+      clearTimeout(timer);
+      if (status === 204) send204();
+      else json(status, value);
+    },
+  };
+  waiter.held = held;
+  response.on("close", () => {
+    if (waiter.held !== held) return;
+    waiter.held = null;
+    waiter.last = Date.now();
+    clearTimeout(timer);
+  });
+  function send204() {
+    response.writeHead(204, { "Cache-Control": "no-store" });
+    response.end();
+  }
+}
+
+// Returns how many waiters receive the pick.
+function deliverPick(hub, record, file) {
+  if (!record.project) return 0;
+  const open = [...hub.waiters.values()].filter((w) => w.project === record.project && !w.pending);
+  const onPage = open.filter((w) => w.page === record.page);
+  const takers = onPage.length ? onPage : open.filter((w) => w.page === null);
+  const value = { record, project: record.project, page: record.page, file };
+  for (const waiter of takers) {
+    waiter.pending = value;
+    if (waiter.held) {
+      endWaiter(hub, waiter, "done");
+      waiter.held.answer(200, value);
+    }
+  }
+  return takers.length;
+}
+
+function endWaiter(hub, waiter, reason) {
+  hub.waiters.delete(waiter.id);
+  hub.ended.set(waiter.id, reason);
+  if (hub.ended.size > ENDED_KEPT) hub.ended.delete(hub.ended.keys().next().value);
+  if (!hub.waiters.size && hub.sweep) {
+    clearInterval(hub.sweep);
+    hub.sweep = null;
+  }
+}
+
+function dropWaiter(hub, waiter, reason) {
+  endWaiter(hub, waiter, reason);
+  waiter.held?.answer(410, { reason });
+}
+
+// A waiter whose agent ended, or that stopped polling, would otherwise take picks nobody reads.
+function startSweep(hub) {
+  if (hub.sweep) return;
+  hub.sweep = setInterval(() => {
+    const now = Date.now();
+    for (const waiter of [...hub.waiters.values()]) {
+      if (waiter.pid && !isAlive(waiter.pid)) dropWaiter(hub, waiter, "process");
+      else if (!waiter.held && now - waiter.last > hub.waiterTtl) dropWaiter(hub, waiter, "expired");
+    }
+  }, SWEEP_EVERY);
+  hub.sweep.unref();
 }
 
 // Registering hands this server a folder to serve, so it takes the token and
@@ -660,6 +800,7 @@ function receiveProject(request, hub, json) {
           hub.onProjects?.();
           return json(500, { error: "save" });
         }
+        for (const waiter of [...hub.waiters.values()]) if (waiter.project === body.remove) dropWaiter(hub, waiter, "project");
         return json(200, { ok: true, removed: body.remove });
       }
       const real = servableFolder(body.root);

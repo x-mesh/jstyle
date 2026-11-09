@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CHOICE_FILE, CHOICE_PATH, createServer, explorerChoice, hubProject } from "../scripts/serve.mjs";
+import { CHOICE_FILE, CHOICE_PATH, addProject, createServer, explorerChoice, hubChoice, hubProject } from "../scripts/serve.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Servers started by these tests record themselves; keep that out of the real ~/.jstyle.
@@ -180,7 +180,7 @@ test("an explorer page posts the pick back only with its token and a JSON body",
   const ok = await post(auth, JSON.stringify({ id: "candidate-2", notes: "Less padding", viewport: "mobile", comments: [{ id: "candidate-1", note: "Header too dense", element: { ...element, extra: "dropped" } }] }));
   assert.equal(ok.status, 200);
   // Without --wait nobody receives the pick right away, so the page must not say it was sent.
-  assert.equal(JSON.parse(ok.body).waiting, false);
+  assert.equal(JSON.parse(ok.body).waiting, 0);
   const saved = JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8"));
   assert.deepEqual({ ...saved, at: undefined, fingerprint: undefined },
     { round: "01", number: "02", id: "candidate-2", name: "Direction b", baseline: false, notes: "Less padding", viewport: "mobile", at: undefined, fingerprint: undefined,
@@ -229,7 +229,7 @@ test("explore --wait prints the first pick as the last stdout line and stops", a
   const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
   const response = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-1", notes: "Keep the header" }) });
   assert.equal(response.status, 200);
-  assert.equal(JSON.parse(response.body).waiting, true);
+  assert.equal(JSON.parse(response.body).waiting, 1);
   // A second pick before the server stops must not replace what --wait printed.
   const late = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-2" }) });
   assert.equal(late.status, 409);
@@ -288,7 +288,7 @@ test("hub serves every explorer under a folder and takes picks for each page", a
   assert.equal((await post({ page: "/admin/explore/01/style-explorer.html", id: "candidate-1" })).status, 400);
   const ok = await post({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-2", notes: "Keep it" });
   assert.equal(ok.status, 200);
-  assert.equal(JSON.parse(ok.body).waiting, true);
+  assert.equal(JSON.parse(ok.body).waiting, 1);
   assert.equal(await exit, 0);
   const picked = JSON.parse(stdout.trim().split("\n").at(-1));
   assert.equal(picked.page, "admin/explore/01/style-explorer.html");
@@ -307,7 +307,7 @@ test("hub lists the saved status and refuses a missing folder", async (t) => {
   const slug = path.basename(root);
   const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/settings/explore/01/style-explorer.html`, id: null, notes: "Tighter rows" }) });
   assert.equal(sent.status, 200);
-  assert.equal(JSON.parse(sent.body).waiting, false);
+  assert.equal(JSON.parse(sent.body).waiting, 0);
   const hub = JSON.parse((await fetch(port, "GET", `/__jstyle/hub.json?page=/${slug}/`)).body);
   const settings = hub.entries.find((e) => e.group === "settings");
   assert.deepEqual({ ...settings.choice, at: undefined }, { id: null, number: null, name: null, comments: 0, notes: true, at: undefined, stale: false });
@@ -500,11 +500,12 @@ test("a second hub run joins the running hub, and stop lets go of one project", 
   const served = jstyle(["serve", path.join(second, "settings", "explore", "01", "style-explorer.html"), "--no-open", "--port", String(port)], { timeout: 10000 });
   assert.equal(served.status, 0, served.stderr);
   assert.match(served.stderr, new RegExp(`/${path.basename(second)}/settings/explore/01/style-explorer\\.html\\?t=${token}`));
-  // --wait still needs its own server, so it moves off the hub's port.
+  // --wait joins the running hub as a waiter instead of a server on another port.
   const waiter = spawn(process.execPath, [CLI, "hub", second, "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
   t.after(() => waiter.kill("SIGKILL"));
-  const moved = await waitForUrl(waiter);
-  assert.notEqual(moved.port, port);
+  const joinedAs = await waitForUrl(waiter);
+  assert.equal(joinedAs.port, port);
+  assert.equal(joinedAs.token, token);
   // A killed child that is not reaped yet still looks alive, and its record would make the name match two servers.
   await new Promise((resolve) => {
     waiter.on("exit", resolve);
@@ -936,4 +937,198 @@ test("a long folder name with a supplementary-plane letter at the cut makes a wh
   assert.equal(reply.status, 200, reply.body);
   const { slug } = JSON.parse(reply.body);
   assert.equal(slug.isWellFormed(), true);
+});
+
+async function hubInProcess(t, roots, options = {}) {
+  const picks = [];
+  const hub = hubChoice((record, file) => picks.push({ record, file }), options);
+  const slugs = roots.map((root) => addProject(hub, root));
+  const server = createServer({ root: roots[0], page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const { port } = server.address();
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const register = (body, extra = {}) => fetch(port, "POST", "/__jstyle/waiters", { headers: { ...headers, ...extra }, body: JSON.stringify(body) });
+  const poll = (id, wait = 0) => fetch(port, "GET", `/__jstyle/waiters/${id}?wait=${wait}`, { headers });
+  const pick = (page, id = "candidate-1") => fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page, id }) });
+  return { port, hub, slugs, headers, register, poll, pick, picks };
+}
+
+test("hub waiters: a page's waiters get its pick before project waiters, and all of them get it", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const { slugs: [slug], register, poll, pick } = await hubInProcess(t, [root]);
+  const admin = "admin/explore/01/style-explorer.html";
+  const settings = "settings/explore/01/style-explorer.html";
+  const join = async (page) => JSON.parse((await register({ project: slug, page, pid: null })).body);
+  const first = await join(admin);
+  assert.equal(first.project, slug);
+  assert.equal(first.page, admin);
+  assert.match(first.url, new RegExp(`/${slug}/admin/explore/01/style-explorer\\.html\\?t=[0-9a-f]+$`));
+  const second = await join(admin);
+  const whole = await join(null);
+  assert.equal(JSON.parse((await pick(`/${slug}/${admin}`, "candidate-2")).body).waiting, 2);
+  for (const waiter of [first, second]) {
+    const got = await poll(waiter.id);
+    assert.equal(got.status, 200);
+    const body = JSON.parse(got.body);
+    assert.equal(body.page, admin);
+    assert.equal(body.project, slug);
+    assert.equal(body.record.number, "02");
+    assert.equal(fs.realpathSync(body.file), fs.realpathSync(path.join(root, "admin", "explore", "01", CHOICE_FILE)));
+  }
+  assert.equal((await poll(whole.id)).status, 204);
+  // No waiter on settings: the project waiter takes it.
+  assert.equal(JSON.parse((await pick(`/${slug}/${settings}`)).body).waiting, 1);
+  assert.equal(JSON.parse((await poll(whole.id)).body).page, settings);
+  // Everyone received and left; the next pick is only saved.
+  assert.equal(JSON.parse((await pick(`/${slug}/${settings}`)).body).waiting, 0);
+  assert.equal((await poll(first.id)).status, 410);
+});
+
+test("hub waiters: a poll that is waiting gets the pick at once, and registration is checked", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const { slugs: [slug], register, poll, pick, port } = await hubInProcess(t, [root]);
+  const page = "admin/explore/01/style-explorer.html";
+  assert.equal((await register({ project: slug, page }, { "X-Jstyle-Token": "wrong" })).status, 403);
+  assert.equal((await register({ project: "nope", page })).status, 400);
+  assert.equal((await register({ project: slug, page: "admin/explore/01/a.html" })).status, 400);
+  assert.equal((await register({ project: slug, page: "../../etc/passwd" })).status, 400);
+  assert.equal((await register({ project: slug, page, pid: "x" })).status, 400);
+  assert.equal((await register({ project: slug, page }, { "Sec-Fetch-Site": "cross-site" })).status, 403);
+  assert.equal((await fetch(port, "GET", "/__jstyle/waiters/unknown?wait=0", { headers: { "X-Jstyle-Token": "wrong" } })).status, 403);
+  const { id } = JSON.parse((await register({ project: slug, page })).body);
+  const started = Date.now();
+  const waiting = poll(id, 20);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(JSON.parse((await pick(`/${slug}/${page}`)).body).waiting, 1);
+  const got = await waiting;
+  assert.equal(got.status, 200);
+  assert.ok(Date.now() - started < 5000, "the held poll should answer when the pick arrives");
+  // A poll with nothing to give answers 204 after its wait.
+  const { id: next } = JSON.parse((await register({ project: slug, page: null })).body);
+  assert.equal((await poll(next, 1)).status, 204);
+});
+
+test("hub waiters go away on DELETE, when their process ends, or after the poll gap", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const { slugs: [slug], register, poll, pick, port, headers } = await hubInProcess(t, [root], { waiterTtl: 400 });
+  const page = "admin/explore/01/style-explorer.html";
+  const join = async (pid = null) => JSON.parse((await register({ project: slug, page, pid })).body).id;
+  const removed = await join();
+  assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${removed}`, { headers })).status, 200);
+  const gone = await poll(removed);
+  assert.equal(gone.status, 410);
+  const short = spawn(process.execPath, ["-e", "setTimeout(() => {}, 100)"]);
+  const shortExit = new Promise((resolve) => short.on("exit", resolve));
+  const orphan = await join(short.pid);
+  const idle = await join();
+  await shortExit;
+  // The sweep runs every 2 seconds.
+  await new Promise((resolve) => setTimeout(resolve, 2600));
+  const ended = await poll(orphan);
+  assert.equal(ended.status, 410);
+  assert.equal(JSON.parse(ended.body).reason, "process");
+  const expired = await poll(idle);
+  assert.equal(expired.status, 410);
+  assert.equal(JSON.parse(expired.body).reason, "expired");
+  assert.equal(JSON.parse((await pick(`/${slug}/${page}`)).body).waiting, 0);
+});
+
+// Reads the address line and the waiter id together: both can arrive in one chunk.
+function waitForWaiter(child) {
+  let stderr = "";
+  return new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const url = /Serving .* at http:\/\/127\.0\.0\.1:(\d+)\/\S*\?t=([0-9a-f]+)/.exec(stderr);
+      const id = /대기자 ([0-9a-f]{16,})/.exec(stderr);
+      if (url && id) resolve({ port: Number(url[1]), token: url[2], id: id[1] });
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+}
+
+test("--wait joins a running hub as a waiter and prints the pick made in the shared tab", { timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  const { token } = await waitForUrl(hub);
+  const slug = path.basename(root);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const run = (args) => {
+    const child = spawn(process.execPath, [CLI, ...args, "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+    t.after(() => child.kill("SIGKILL"));
+    let stdout = "";
+    child.stdout.on("data", (data) => { stdout += data; });
+    const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+    return { child, exit, stdout: () => stdout };
+  };
+  const waiters = async () => JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body).projects.find((p) => p.slug === slug).waiters;
+  const page = run(["serve", path.join(root, "admin", "explore", "01", "style-explorer.html")]);
+  const seen = await waitForWaiter(page.child);
+  assert.equal(seen.port, port);
+  assert.equal(seen.token, token);
+  assert.equal(JSON.parse(jstyle(["ps", "--json"]).stdout).length, 1, "the waiter must not start a server");
+  assert.equal(await waiters(), 1);
+  // A page that is not a comparison page is refused before the hub takes its folder.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-plain-"));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(other, "plain.html"), "<main>plain</main>");
+  const refused = jstyle(["serve", path.join(other, "plain.html"), "--wait", "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.notEqual(refused.status, 0);
+  assert.equal(refused.stdout, "");
+  assert.deepEqual(JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body).projects.map((p) => p.slug), [slug]);
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-2" }) });
+  assert.equal(JSON.parse(sent.body).waiting, 1);
+  assert.equal(await page.exit, 0);
+  const picked = JSON.parse(page.stdout().trim().split("\n").at(-1));
+  assert.equal(picked.id, "candidate-2");
+  assert.equal(picked.page, "admin/explore/01/style-explorer.html");
+  assert.equal(picked.project, slug);
+  assert.equal(fs.realpathSync(picked.file), fs.realpathSync(path.join(root, "admin", "explore", "01", CHOICE_FILE)));
+  // hub --wait waits on the whole project.
+  const whole = run(["hub", root]);
+  await waitForWaiter(whole.child);
+  await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/settings/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(await whole.exit, 0);
+  assert.equal(JSON.parse(whole.stdout().trim().split("\n").at(-1)).page, "settings/explore/01/style-explorer.html");
+  assert.equal(await waiters(), 0);
+});
+
+test("a hub waiter exits 1 with empty stdout when it is removed or the hub goes away, and leaves on SIGTERM", { skip: process.platform === "win32" && "signals end the process without handlers on Windows", timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  const { token } = await waitForUrl(hub);
+  const slug = path.basename(root);
+  const run = () => {
+    const child = spawn(process.execPath, [CLI, "hub", root, "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+    t.after(() => child.kill("SIGKILL"));
+    let stdout = "";
+    child.stdout.on("data", (data) => { stdout += data; });
+    const exit = new Promise((resolve) => child.on("exit", (code, signal) => resolve(code ?? signal)));
+    return { child, exit, stdout: () => stdout };
+  };
+  const waiters = async () => JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body).projects.find((p) => p.slug === slug).waiters;
+  const removed = run();
+  const { id } = await waitForWaiter(removed.child);
+  assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${id}`, { headers: { "X-Jstyle-Token": token } })).status, 200);
+  assert.equal(await removed.exit, 1);
+  assert.equal(removed.stdout(), "");
+  const left = run();
+  await waitForWaiter(left.child);
+  assert.equal(await waiters(), 1);
+  left.child.kill("SIGTERM");
+  assert.equal(await left.exit, 143);
+  assert.equal(await waiters(), 0);
+  const orphaned = run();
+  await waitForWaiter(orphaned.child);
+  hub.kill("SIGTERM");
+  assert.equal(await orphaned.exit, 1);
+  assert.equal(orphaned.stdout(), "");
 });

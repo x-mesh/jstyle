@@ -494,9 +494,10 @@ async function waitOnHub(hub, { folder = null, file = null, open }) {
   const registered = await postJson(hub, "/__jstyle/waiters", { project: joined.body.slug, page, pid: LAUNCHED_BY });
   if (registered.status !== 200) return notTaken("에서 기다릴 수 없습니다", registered);
   const { id, url } = registered.body;
+  // Leaving tells the hub not to hand a later pick to this ended run; a hub that is gone has nothing to forget.
+  const forget = () => requestJson(hub, "DELETE", `/__jstyle/waiters/${id}`, null, 2000);
   const leave = (code) => {
-    // Leaving tells the hub not to hand a later pick to this ended run.
-    requestJson(hub, "DELETE", `/__jstyle/waiters/${id}`, null, 2000).finally(() => process.exit(code));
+    forget().finally(() => process.exit(code));
   };
   process.once("SIGINT", () => leave(130));
   process.once("SIGTERM", () => leave(143));
@@ -526,9 +527,11 @@ async function waitOnHub(hub, { folder = null, file = null, open }) {
         continue;
       }
       process.stderr.write(`${red("✗")} 허브(${hub.port})에 연결할 수 없어 기다리기를 끝냅니다\n`);
+      await forget();
       return 1;
     }
     process.stderr.write(`${red("✗")} 허브(${hub.port})가 이 대기자를 정리했습니다(${reply.body?.reason ?? reply.status})\n`);
+    if (reply.status !== 410) await forget();
     return 1;
   }
 }

@@ -1009,7 +1009,9 @@ test("hub waiters: a poll that is waiting gets the pick at once, and registratio
   assert.ok(Date.now() - started < 5000, "the held poll should answer when the pick arrives");
   // A poll with nothing to give answers 204 after its wait.
   const { id: next } = JSON.parse((await register({ project: slug, page: null })).body);
+  const before = Date.now();
   assert.equal((await poll(next, 1)).status, 204);
+  assert.ok(Date.now() - before >= 900, "a poll with nothing to give is held for its wait");
 });
 
 test("hub waiters go away on DELETE, when their process ends, or after the poll gap", { timeout: 30000 }, async (t) => {
@@ -1021,6 +1023,7 @@ test("hub waiters go away on DELETE, when their process ends, or after the poll 
   assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${removed}`, { headers })).status, 200);
   const gone = await poll(removed);
   assert.equal(gone.status, 410);
+  assert.equal(JSON.parse(gone.body).reason, "deleted");
   const short = spawn(process.execPath, ["-e", "setTimeout(() => {}, 100)"]);
   const shortExit = new Promise((resolve) => short.on("exit", resolve));
   const orphan = await join(short.pid);
@@ -1185,4 +1188,45 @@ test("hub waiters on a project that leaves to keep the list at 50 get 410", { ti
   const answer = await held;
   assert.equal(answer.status, 410);
   assert.equal(JSON.parse(answer.body).reason, "evicted");
+});
+
+test("a --wait that loses its hub connection removes its waiter on the way out", { timeout: 30000 }, async (t) => {
+  const root = buildExplorer(t);
+  const token = "f".repeat(32);
+  const deleted = [];
+  // A hub that registers and deletes but drops every poll, so the run ends on connection errors while the hub still answers.
+  const fake = httpServer((request, response) => {
+    const reply = (status, value) => {
+      response.writeHead(status, { "Content-Type": "application/json", "X-Jstyle-Pid": String(process.pid) });
+      response.end(JSON.stringify(value));
+    };
+    if (request.url === "/__jstyle/alive") return reply(204, {});
+    if (request.method === "POST" && request.url === "/__jstyle/projects") return reply(200, { ok: true, slug: "fake", base: "/fake/" });
+    if (request.method === "POST" && request.url === "/__jstyle/waiters") return reply(200, { id: "a".repeat(24), project: "fake", page: "style-explorer.html", url: `http://127.0.0.1:${fake.address().port}/fake/style-explorer.html?t=${token}` });
+    if (request.method === "DELETE") {
+      deleted.push(request.url);
+      return reply(200, { ok: true });
+    }
+    request.socket.destroy();
+  });
+  await new Promise((resolve) => fake.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    fake.closeAllConnections();
+    fake.close();
+  });
+  const { port } = fake.address();
+  const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+  const dir = path.join(process.env.JSTYLE_HOME, "servers");
+  fs.mkdirSync(dir, { recursive: true });
+  const recordFile = path.join(dir, `${process.pid}.json`);
+  t.after(() => fs.rmSync(recordFile, { force: true }));
+  fs.writeFileSync(recordFile, JSON.stringify({ pid: process.pid, port, host: "127.0.0.1", kind: "hub", wait: false, token, projects: [{ slug: "fake", root }], version, project: "fake", root, url: `http://127.0.0.1:${port}/`, started: new Date().toISOString(), lastActivity: new Date().toISOString() }));
+  const run = spawn(process.execPath, [CLI, "serve", path.join(root, "style-explorer.html"), "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => run.kill("SIGKILL"));
+  let stdout = "";
+  run.stdout.on("data", (data) => { stdout += data; });
+  const code = await new Promise((resolve) => run.on("exit", resolve));
+  assert.equal(code, 1);
+  assert.equal(stdout, "");
+  assert.deepEqual(deleted, [`/__jstyle/waiters/${"a".repeat(24)}`]);
 });

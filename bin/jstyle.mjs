@@ -167,6 +167,10 @@ const idleFor = (idle, pinged) => idle ?? (pinged ? DEFAULT_IDLE : 0);
 
 async function serveExplorer({ root, page, host, port, open, wait, idle, kind = "serve" }) {
   const { serve, explorerChoice } = await import("../scripts/serve.mjs");
+  if (!wait) {
+    const shared = await sharedHub({ host, port, within: path.join(root, page) });
+    if (shared) return announceHubPage(shared, path.join(root, page), open);
+  } else port = await freePortFor(port);
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = explorerChoice(root, page, picked, { once: wait });
@@ -247,15 +251,22 @@ async function serveCommand(argv, fixedPage = null) {
 const HUB_HELP = `usage: jstyle hub [folder] [--host HOST] [--port PORT] [--no-open] [--wait] [--idle MIN]
 
 folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄웁니다.
-첫 화면은 페이지별 회차 목록이고, 각 비교 화면 위쪽 막대에서 다른 페이지로 옮겨 갈 수 있습니다.
+프로젝트는 /<프로젝트>/ 아래에 놓이고, 그 첫 화면은 페이지별 회차 목록입니다.
+각 비교 화면 위쪽 막대에서 다른 페이지로 옮겨 갈 수 있습니다.
 어느 비교 화면에서 고르거나 보내도 그 폴더의 choice.json에 저장됩니다.
---wait는 첫 선택을 기다렸다가 고른 안을 page 경로와 함께 JSON 한 줄로 쓰고 끝납니다.
+
+같은 포트에 허브가 이미 떠 있으면 새 서버를 띄우지 않고 그 허브에 이 폴더를 붙인 뒤
+{hub, project, url} JSON 한 줄을 쓰고 끝납니다. 허브의 / 주소는 붙은 프로젝트를 모두 보여 줍니다.
+jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
+
+--wait는 첫 선택을 기다렸다가 고른 안을 project, page와 함께 JSON 한 줄로 쓰고 끝납니다.
+--wait는 자기 서버를 띄우며, 포트를 jstyle 서버가 쓰고 있으면 빈 포트를 씁니다.
 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
 `;
 
 // Serves every explorer under a folder from one server, with a hub page at /.
 async function hubCommand(argv) {
-  const { parseServeArgs, serve, hubChoice } = await import("../scripts/serve.mjs");
+  const { parseServeArgs, serve, hubChoice, addProject, projectList } = await import("../scripts/serve.mjs");
   let options;
   try {
     options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
@@ -268,12 +279,29 @@ async function hubCommand(argv) {
   }
   const root = path.resolve(options.page ?? ".jstyle");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
+  if (!options.wait) {
+    const shared = await sharedHub({ host: options.host, port: options.port });
+    if (shared) return joinHub(shared, root, options.open);
+  } else options.port = await freePortFor(options.port);
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
-  const choice = hubChoice(root, (record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  const slug = addProject(choice, root);
+  // The record names the first remaining project, so ps and stop never point at a project the hub let go of.
+  const hubExtra = (record) => {
+    const projects = projectList(choice);
+    const [first] = projects;
+    const extra = { token: choice.token, projects: projects.map(({ slug, root }) => ({ slug, root })) };
+    if (!record || record.projects?.[0]?.slug === first.slug) return extra;
+    const url = new URL(record.url);
+    url.pathname = `/${encodeURIComponent(first.slug)}/`;
+    return { ...extra, project: first.project, root: first.root, url: url.href };
+  };
+  const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
+  choice.onProjects = () => registry.refresh?.();
   let server;
   try {
-    server = await serve({ root, page: "", host: options.host, port: options.port, open: options.open, choice, registry: { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY } });
+    server = await serve({ root, page: `${encodeURIComponent(slug)}/`, host: options.host, port: options.port, open: options.open, choice, registry });
   } catch (error) {
     return fail(error.message, 1);
   }
@@ -286,6 +314,96 @@ async function hubCommand(argv) {
   await new Promise((resolve) => setTimeout(resolve, 200));
   server.closeAllConnections();
   server.close();
+  return 0;
+}
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+// A hub that runs on this port for this user, without --wait, takes more projects instead of a second server.
+async function sharedHub({ host, port, within = null }) {
+  if (!LOOPBACK_HOSTS.has(host) || !port) return null;
+  const { listRecords } = await import("../scripts/lib/registry.mjs");
+  const hub = listRecords().find((r) => joinable(r) && r.port === port);
+  if (!hub) return null;
+  if (within && !hub.projects.some((p) => isInside(p.root, within))) return null;
+  if (hub.version !== VERSION) {
+    process.stderr.write(`${yellow("!")} ${port}에 jstyle ${hub.version || "?"} 허브가 떠 있어 쓰지 않습니다. jstyle stop ${port} 뒤 다시 실행하세요\n`);
+    return null;
+  }
+  return (await answersAs(hub)) ? hub : null;
+}
+
+// Joining and leaving talk to the hub on 127.0.0.1, so only a hub listening on loopback can be shared.
+function joinable(record) {
+  return record.kind === "hub" && !record.wait && Boolean(record.token) && Array.isArray(record.projects) && LOOPBACK_HOSTS.has(record.host);
+}
+
+function isInside(root, file) {
+  let real;
+  try {
+    real = fs.realpathSync(file);
+  } catch {
+    return false;
+  }
+  const rel = path.relative(root, real);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+// --wait needs its own server until the shared hub can hand a pick to a waiting agent;
+// when a jstyle server holds the port, it takes any free one.
+async function freePortFor(port) {
+  if (!port) return port;
+  const { listRecords } = await import("../scripts/lib/registry.mjs");
+  return listRecords().some((r) => r.port === port) ? 0 : port;
+}
+
+function postJson(record, pathname, body) {
+  return new Promise((resolve) => {
+    const data = JSON.stringify(body);
+    const request = http.request({ host: "127.0.0.1", port: record.port, path: pathname, method: "POST", timeout: 3000, headers: { "Content-Type": "application/json", "X-Jstyle-Token": record.token, "Content-Length": Buffer.byteLength(data) } }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        let parsed = null;
+        try {
+          parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch {
+          // Reported by status.
+        }
+        resolve({ status: response.statusCode, body: parsed });
+      });
+    });
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => resolve({ status: 0, body: null }));
+    request.end(data);
+  });
+}
+
+function hubUrl(hub, pathname) {
+  return `http://127.0.0.1:${hub.port}${pathname}?t=${hub.token}`;
+}
+
+function openUrl(url) {
+  const [command, args] = { darwin: ["open", [url]], win32: ["cmd", ["/c", "start", "", url]] }[process.platform] ?? ["xdg-open", [url]];
+  spawnSync(command, args, { stdio: "ignore", timeout: 5000 });
+}
+
+async function joinHub(hub, root, open) {
+  const reply = await postJson(hub, "/__jstyle/projects", { root });
+  if (reply.status !== 200) return fail(`떠 있는 허브(${hub.port})에 폴더를 붙이지 못했습니다(${reply.body?.error ?? reply.status}): ${root}`, 1);
+  const url = hubUrl(hub, reply.body.base);
+  process.stdout.write(JSON.stringify({ hub: hub.port, project: reply.body.slug, url }) + "\n");
+  process.stderr.write(`${green("✓")} 떠 있는 허브(${hub.port})에 프로젝트 ${reply.body.slug} 추가\n  ${url}\n`);
+  if (open) openUrl(url);
+  return 0;
+}
+
+function announceHubPage(hub, file, open) {
+  const project = hub.projects.find((p) => isInside(p.root, file));
+  const rel = path.relative(project.root, fs.realpathSync(file)).split(path.sep).map(encodeURIComponent).join("/");
+  const url = hubUrl(hub, `/${encodeURIComponent(project.slug)}/${rel}`);
+  process.stderr.write(`${green("✓")} 떠 있는 허브(${hub.port})에서 엽니다\n  ${url}\n`);
+  if (open) openUrl(url);
   return 0;
 }
 
@@ -317,10 +435,12 @@ async function psCommand(argv) {
   }
   for (const r of records) {
     const idle = r.idle > 0 ? `${r.idle}분 유휴 시 종료` : r.wait ? "선택을 받으면 종료" : "직접 끌 때까지";
-    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.kind ?? "?").padEnd(8)}${r.project ?? ""}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
+    const name = Array.isArray(r.projects) ? r.projects.map((p) => p.slug).join(", ") : r.project ?? "";
+    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.kind ?? "?").padEnd(8)}${name}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
     const home = process.env.HOME || "";
-    const where = home && r.root?.startsWith(home + path.sep) ? "~" + r.root.slice(home.length) : r.root;
-    process.stdout.write(`      ${r.url}\n      ${dim(where ?? "")}\n`);
+    const short = (dir) => (home && dir?.startsWith(home + path.sep) ? "~" + dir.slice(home.length) : dir ?? "");
+    const where = Array.isArray(r.projects) ? r.projects.map((p) => short(p.root)) : [short(r.root)];
+    process.stdout.write(`      ${r.url}\n${where.map((dir) => `      ${dim(dir)}\n`).join("")}`);
   }
   return 0;
 }
@@ -353,12 +473,25 @@ async function stopCommand(argv) {
   }
   const { listRecords, removeRecord, isAlive } = await import("../scripts/lib/registry.mjs");
   const byPort = target === "all" || /^\d+$/.test(target);
-  const records = listRecords().filter((r) => target === "all" || String(r.port) === target || (!byPort && r.project === target));
+  const holds = (r) => (Array.isArray(r.projects) ? r.projects.some((p) => p.slug === target) : r.project === target);
+  const records = listRecords().filter((r) => target === "all" || String(r.port) === target || (!byPort && holds(r)));
   if (!records.length) return fail(`끌 jstyle 서버가 없습니다: ${target}. jstyle ps로 확인하세요`, 1);
   // Folders in different places can share a name; a name that matches several servers ends none of them.
   if (!byPort && records.length > 1) return fail(`${target} 이름의 서버가 ${records.length}개입니다(포트 ${records.map((r) => r.port).join(", ")}). jstyle stop <포트>로 하나씩 끄세요`, 1);
   let stopped = 0;
   for (const r of records) {
+    // A hub that serves other projects too only lets go of this one.
+    if (target !== "all" && String(r.port) !== target && joinable(r) && r.projects.length > 1 && (await answersAs(r))) {
+      const reply = await postJson(r, "/__jstyle/projects", { remove: target });
+      if (reply.status === 200) {
+        stopped += 1;
+        process.stderr.write(`${green("✓")} ${r.port} 허브에서 프로젝트 ${target} 제외\n`);
+      } else {
+        // The other projects keep the hub; a failed removal never ends it.
+        process.stderr.write(`${yellow("!")} ${r.port} 허브에서 프로젝트 ${target}를 빼지 못했습니다(${reply.body?.error ?? reply.status}). 허브를 끄려면 jstyle stop ${r.port}\n`);
+      }
+      continue;
+    }
     if (!(await answersAs(r))) {
       // A server that is busy or paused keeps its record, so ps can still show it.
       if (isAlive(r.pid)) {

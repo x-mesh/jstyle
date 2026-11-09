@@ -814,15 +814,15 @@ function t(key, values={}) {
  if(REVIEW){const b=$('#comment-mode');b.append(...commentLabel(),el('span','count'));b.hidden=false;b.addEventListener('click',()=>setCommenting(!commenting));}
  $('#panel-fold').addEventListener('click',()=>{folded=!folded;renderPanel();});
  // Served by `jstyle hub`, the bar lists the other pages and rounds; elsewhere the request fails and nothing shows.
- if(TOKEN)fetch('/__jstyle/hub.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(hub=>{
+ if(TOKEN)fetch(`/__jstyle/hub.json?page=${encodeURIComponent(location.pathname)}`,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(hub=>{
   if(!hub?.entries?.length)return;
-  const box=$('#pages'),menu=el('div','pages-menu'),q=`?t=${encodeURIComponent(TOKEN)}`,here=decodeURIComponent(location.pathname).replace(/^\//,'');
+  const base=hub.base||'/',box=$('#pages'),menu=el('div','pages-menu'),q=`?t=${encodeURIComponent(TOKEN)}`,here=decodeURIComponent(location.pathname).slice(decodeURIComponent(base).length);
   const me=hub.entries.find(e=>e.path===here),open=el('button',null,me?[me.group==='.'?hub.project||hub.root:me.group,me.round?t('pageRound',{round:me.round}):''].filter(Boolean).join(' · '):t('pagesMenu'));open.setAttribute('aria-label',t('pagesMenu'));
   open.type='button';open.setAttribute('aria-expanded','false');menu.hidden=true;
-  const all=el('a','all',t('allPages'));all.href='/'+q;menu.append(all);
+  const all=el('a','all',t('allPages'));all.href=base+q;menu.append(all);
   const groups=new Map();for(const e of hub.entries){if(!groups.has(e.group))groups.set(e.group,[]);groups.get(e.group).push(e);}
   for(const [name,list] of groups){menu.append(el('h5',null,name==='.'?hub.project||hub.root:name));
-   for(const e of list.sort((a,b)=>String(b.round).localeCompare(String(a.round),undefined,{numeric:true}))){const a=el('a',null,e.round?t('pageRound',{round:e.round}):e.path);a.href='/'+e.path.split('/').map(encodeURIComponent).join('/')+q;if(e.path===here)a.setAttribute('aria-current','page');if(e.project)a.append(el('small',null,e.project));menu.append(a);}}
+   for(const e of list.sort((a,b)=>String(b.round).localeCompare(String(a.round),undefined,{numeric:true}))){const a=el('a',null,e.round?t('pageRound',{round:e.round}):e.path);a.href=base+e.path.split('/').map(encodeURIComponent).join('/')+q;if(e.path===here)a.setAttribute('aria-current','page');if(e.project)a.append(el('small',null,e.project));menu.append(a);}}
   const toggle=on=>{menu.hidden=!on;open.setAttribute('aria-expanded',String(on));};
   open.addEventListener('click',()=>toggle(menu.hidden));document.addEventListener('click',e=>{if(!box.contains(e.target))toggle(false);});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){e.stopImmediatePropagation();toggle(false);}},true);
   box.replaceChildren(open,menu);box.hidden=false;syncBars();

@@ -1132,3 +1132,37 @@ test("a hub waiter exits 1 with empty stdout when it is removed or the hub goes 
   assert.equal(await orphaned.exit, 1);
   assert.equal(orphaned.stdout(), "");
 });
+
+test("hub waiters: a hub takes at most 200 waiters", { timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  const { slugs: [slug], register } = await hubInProcess(t, [root]);
+  for (let i = 0; i < 200; i += 1) assert.equal((await register({ project: slug, page: null })).status, 200, `waiter ${i}`);
+  const over = await register({ project: slug, page: null });
+  assert.equal(over.status, 429);
+  assert.equal(JSON.parse(over.body).error, "waiters");
+});
+
+test("--wait starts its own server when the running hub refuses the page's folder", { timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  // The explorer's folder is HOME here, which a hub never serves.
+  const home = buildExplorer(t);
+  const env = { ...process.env, NO_COLOR: "1", HOME: home, USERPROFILE: home };
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env });
+  t.after(() => hub.kill("SIGKILL"));
+  await waitForUrl(hub);
+  const waiter = spawn(process.execPath, [CLI, "serve", path.join(home, "style-explorer.html"), "--wait", "--no-open", "--port", String(port)], { env });
+  t.after(() => waiter.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  waiter.stdout.on("data", (data) => { stdout += data; });
+  waiter.stderr.on("data", (data) => { stderr += data; });
+  const exit = new Promise((resolve) => waiter.on("exit", (code) => resolve(code)));
+  const own = await waitForUrl(waiter);
+  assert.notEqual(own.port, port);
+  assert.match(stderr, /허브/);
+  const sent = await fetch(own.port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": own.token }, body: JSON.stringify({ id: "candidate-1" }) });
+  assert.equal(sent.status, 200);
+  assert.equal(await exit, 0);
+  assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)).id, "candidate-1");
+});

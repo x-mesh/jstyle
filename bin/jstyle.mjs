@@ -174,7 +174,8 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
   } else {
     if (!explorerChoice(root, page, null)) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
     const shared = await sharedHub({ host, port });
-    if (shared) return waitOnHub(shared, { file: path.join(root, page.split("#")[0]), open });
+    const joined = shared ? await waitOnHub(shared, { file: path.join(root, page.split("#")[0]), open }) : null;
+    if (joined !== null) return joined;
     port = await freePortFor(port);
   }
   let picked;
@@ -290,7 +291,9 @@ async function hubCommand(argv) {
   const root = path.resolve(options.page ?? ".jstyle");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
   const shared = await sharedHub({ host: options.host, port: options.port });
-  if (shared) return options.wait ? waitOnHub(shared, { folder: root, open: options.open }) : joinHub(shared, root, options.open);
+  if (shared && !options.wait) return joinHub(shared, root, options.open);
+  const joined = shared ? await waitOnHub(shared, { folder: root, open: options.open }) : null;
+  if (joined !== null) return joined;
   if (options.wait) options.port = await freePortFor(options.port);
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
@@ -478,13 +481,18 @@ function hubFolderFor(hub, file) {
 // --wait on a running hub: join the project, register a waiter and long-poll
 // until a pick arrives from any tab of the hub. stdout and exit codes match a
 // --wait server: the pick as one JSON line and 0, or empty stdout and 1.
+// Returns null when the hub does not take this wait, so the caller starts its own server.
 async function waitOnHub(hub, { folder = null, file = null, open }) {
   const projectRoot = file ? hubFolderFor(hub, file) : folder;
+  const notTaken = (what, reply) => {
+    process.stderr.write(`${yellow("!")} 떠 있는 허브(${hub.port})${what}(${reply.body?.error ?? (reply.status || "연결 실패")}). 이 명령의 서버로 띄워 기다립니다\n`);
+    return null;
+  };
   const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot });
-  if (joined.status !== 200) return fail(`떠 있는 허브(${hub.port})에 폴더를 붙이지 못했습니다(${joined.body?.error ?? joined.status}): ${projectRoot}`, 1);
+  if (joined.status !== 200) return notTaken(`에 ${projectRoot}를 붙이지 못했습니다`, joined);
   const page = file ? path.relative(fs.realpathSync(projectRoot), fs.realpathSync(file)).split(path.sep).join("/") : null;
   const registered = await postJson(hub, "/__jstyle/waiters", { project: joined.body.slug, page, pid: LAUNCHED_BY });
-  if (registered.status !== 200) return fail(`떠 있는 허브(${hub.port})에서 기다릴 수 없습니다(${registered.body?.error ?? registered.status}): ${file ?? projectRoot}`, 1);
+  if (registered.status !== 200) return notTaken("에서 기다릴 수 없습니다", registered);
   const { id, url } = registered.body;
   const leave = (code) => {
     // Leaving tells the hub not to hand a later pick to this ended run.

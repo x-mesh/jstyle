@@ -637,6 +637,8 @@ const WAITER_TTL = 60 * 1000;
 const MAX_POLL = 25;
 const SWEEP_EVERY = 2000;
 const ENDED_KEPT = 200;
+// Waiters cost memory and a sweep each; real use is a few per agent session.
+const MAX_WAITERS = 200;
 
 function receiveWaiter(request, hub, json) {
   if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
@@ -646,6 +648,7 @@ function receiveWaiter(request, hub, json) {
       if (!body) return json(problem === "size" ? 413 : 400, { error: problem });
       const root = typeof body.project === "string" ? hub.projects.get(body.project) : null;
       if (!root) return json(400, { error: "project" });
+      if (hub.waiters.size >= MAX_WAITERS) return json(429, { error: "waiters" });
       if (body.pid != null && !(Number.isInteger(body.pid) && body.pid > 0)) return json(400, { error: "pid" });
       let page = null;
       if (body.page != null) {

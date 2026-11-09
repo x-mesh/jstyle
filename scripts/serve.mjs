@@ -573,7 +573,10 @@ export function joinProject(hub, root, { keep = true } = {}) {
   // The saved list stays small: past the limit the project used longest ago goes.
   const evicted = [];
   while (hub.projects.size > MAX_PROJECTS) {
-    const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
+    // Borrowed folders go first, so showing plain files never pushes a kept project out of the saved list.
+    const others = [...hub.times].filter(([name]) => name !== slug);
+    const pool = others.some(([name]) => hub.transient.has(name)) ? others.filter(([name]) => hub.transient.has(name)) : others;
+    const [oldest] = pool.sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
     hub.projects.delete(oldest);
     hub.times.delete(oldest);
     hub.transient.delete(oldest);

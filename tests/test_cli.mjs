@@ -1817,3 +1817,24 @@ test("a borrowed folder stays borrowed when a join, a keep or a removal cannot b
   hub.onProjects = null;
   assert.deepEqual(savedProjects(hub).map((p) => p.slug), [path.basename(kept)]);
 });
+
+test("past 50 projects a borrowed folder goes before any kept project", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-limit-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const folder = (name) => {
+    const dir = path.join(parent, name);
+    fs.mkdirSync(dir);
+    return dir;
+  };
+  const hub = hubChoice(() => {}, { daemon: true });
+  for (let i = 0; i < 49; i += 1) joinProject(hub, folder(`kept${i}`));
+  const { slug: borrowed } = joinProject(hub, folder("borrowed"), { keep: false });
+  // The borrowed folder is the one used last, so the use order alone would drop a kept project.
+  hub.times.get(borrowed).lastUsed = new Date(Date.now() + 60000).toISOString();
+  const { evicted, saved } = joinProject(hub, folder("kept49"));
+  assert.equal(saved, true);
+  assert.deepEqual(evicted, [borrowed]);
+  assert.equal(savedProjects(hub).length, 50);
+  assert.equal(hub.transient.size, 0);
+});

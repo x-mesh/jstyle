@@ -801,6 +801,25 @@ test("a pick for a page the hub refuses does not count as using its project", as
   assert.equal(hub.times.get(slug).lastUsed, "2000-01-01T00:00:00.000Z");
 });
 
+test("a pick counts as using its project and saves the list", async (t) => {
+  const { addProject, hubChoice, savedProjects } = await import("../scripts/serve.mjs");
+  const root = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slug = addProject(hub, root);
+  hub.times.get(slug).lastUsed = "2000-01-01T00:00:00.000Z";
+  let saves = 0;
+  hub.onUsed = () => { saves += 1; };
+  const server = createServer({ root, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const before = Date.now();
+  const picked = await fetch(server.address().port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(picked.status, 200);
+  assert.ok(Date.parse(savedProjects(hub)[0].lastUsed) >= before);
+  assert.equal(saves, 1);
+});
+
 test("a saved slug longer than any folder name makes is not restored", async (t) => {
   const { hubChoice, restoreProjects } = await import("../scripts/serve.mjs");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-slug-"));
@@ -1676,9 +1695,9 @@ test("kit, library and any served file open on the daemon under their own addres
   assert.equal(library.status, 0, library.stderr);
   assert.match(library.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/__skill/assets/extended/index\\.html\\?t=[0-9a-f]+#cards`));
   assert.equal((await fetch(port, "GET", new URL(/http:\/\/\S+/.exec(library.stderr)[0]).pathname)).status, 200);
-  // The skill folder keeps the hub's rules: no dot files, and it is not a project.
+  // Only what kit and library pages link to is served from the skill folder.
   assert.equal((await fetch(port, "GET", "/__skill/.gitignore")).status, 404);
-  assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 200);
+  assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 404);
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-plain-"));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   fs.writeFileSync(path.join(folder, "plain.html"), "<main>plain</main>");
@@ -1845,6 +1864,46 @@ test("a borrowed folder never pushes a kept project out: 50 kept projects stay w
   assert.deepEqual(evicted, []);
   assert.ok(hub.projects.has(slug));
   assert.equal(savedProjects(hub).length, 50);
+});
+
+test("a daemon serves from the skill folder only the files kit and library pages link to", async (t) => {
+  const { SKILL_SLUG } = await import("../scripts/serve.mjs");
+  const hub = hubChoice(() => {}, { daemon: true });
+  const server = createServer({ root: os.tmpdir(), page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const status = async (rest) => (await fetch(server.address().port, "GET", `/${SKILL_SLUG}${rest}`)).status;
+  for (const shown of ["/assets/kit/index.html", "/assets/extended/index.html", "/references/extended/components.md", "/README.local.md"]) {
+    assert.equal(await status(shown), 200, shown);
+  }
+  for (const hidden of ["", "/", "/package.json", "/SKILL.md", "/bin/jstyle.mjs", "/scripts/serve.mjs", "/tests/test_cli.mjs", "/assets%2f..%2fpackage.json", "/assets/%2e%2e/bin/jstyle.mjs"]) {
+    assert.equal(await status(hidden), 404, hidden);
+  }
+});
+
+test("keeping a borrowed folder in a hub with 50 kept projects drops the oldest kept one, or nothing when that cannot be saved", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const folder = limitFolders(t);
+  const hub = hubChoice(() => {}, { daemon: true });
+  for (let i = 0; i < 50; i += 1) joinProject(hub, folder(`kept${i}`));
+  hub.times.get("kept7").lastUsed = new Date(0).toISOString();
+  const borrowed = folder("borrowed");
+  const { slug } = joinProject(hub, borrowed, { keep: false });
+  hub.times.get(slug).lastUsed = new Date(1).toISOString();
+  hub.onProjects = () => false;
+  assert.equal(joinProject(hub, borrowed).saved, false);
+  assert.ok(hub.projects.has("kept7"), "an undone keep left the oldest kept project out");
+  assert.ok(hub.transient.has(slug));
+  assert.equal(hub.times.get(slug).lastUsed, new Date(1).toISOString(), "an undone keep changed lastUsed");
+  hub.onProjects = null;
+  const before = Date.now();
+  const kept = joinProject(hub, borrowed);
+  assert.deepEqual(kept, { slug, evicted: ["kept7"], saved: true });
+  // Keeping it is a use, so the next kept join does not drop it first.
+  assert.ok(Date.parse(hub.times.get(slug).lastUsed) >= before);
+  assert.equal(hub.transient.has(slug), false);
+  assert.equal(savedProjects(hub).length, 50);
+  assert.ok(savedProjects(hub).some((p) => p.slug === slug));
 });
 
 test("borrowed folders have their own limit of 50, and the oldest borrowed one goes", async (t) => {

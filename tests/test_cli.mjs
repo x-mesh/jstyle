@@ -641,7 +641,7 @@ test("removing the project a hub started with points its record at a remaining p
   assert.equal((await fetch(port, "GET", new URL(record.url).pathname)).status, 200);
 });
 
-const hubStore = (port, label = "loopback") => path.join(process.env.JSTYLE_HOME, "hubs", `${label}-${port}.json`);
+const hubStore = (port, label = "127.0.0.1") => path.join(process.env.JSTYLE_HOME, "hubs", `${label}-${port}.json`);
 
 function rawRequest(port, text) {
   return new Promise((resolve) => {
@@ -760,4 +760,106 @@ test("restoring saved projects skips bad slugs, unservable folders and repeats, 
   fs.writeFileSync(broken, "{not json");
   assert.throws(() => readHubStore(broken), /broken\.json/);
   assert.deepEqual(readHubStore(path.join(parent, "none.json")), []);
+});
+
+test("each address keeps its own project list file", async () => {
+  const { hubStoreFile } = await import("../scripts/lib/hubstore.mjs");
+  const name = (host) => path.basename(hubStoreFile(host, 8765));
+  assert.deepEqual(["127.0.0.1", "::1", "localhost", "0.0.0.0", "::", "192.168.1.9"].map(name), ["127.0.0.1-8765.json", "ip6-loopback-8765.json", "localhost-8765.json", "any-8765.json", "any-8765.json", "192.168.1.9-8765.json"]);
+});
+
+test("a hub that cannot take its port leaves a broken project list where it is", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  // Another program holds the port, so this run fails with EADDRINUSE and must not touch the list.
+  const holder = httpServer();
+  await new Promise((resolve) => holder.listen(0, "127.0.0.1", resolve));
+  t.after(() => holder.close());
+  const { port } = holder.address();
+  fs.mkdirSync(path.dirname(hubStore(port)), { recursive: true });
+  fs.writeFileSync(hubStore(port), "{not json");
+  const run = jstyle(["hub", root, "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(fs.readFileSync(hubStore(port), "utf8"), "{not json");
+  assert.equal(fs.existsSync(`${hubStore(port)}.broken`), false);
+});
+
+test("a pick for a page the hub refuses does not count as using its project", async (t) => {
+  const { addProject, hubChoice } = await import("../scripts/serve.mjs");
+  const root = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slug = addProject(hub, root);
+  hub.times.get(slug).lastUsed = "2000-01-01T00:00:00.000Z";
+  const server = createServer({ root, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const refused = await fetch(server.address().port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/a.html`, id: "candidate-1" }) });
+  assert.equal(refused.status, 400);
+  assert.equal(hub.times.get(slug).lastUsed, "2000-01-01T00:00:00.000Z");
+});
+
+test("a saved slug longer than any folder name makes is not restored", async (t) => {
+  const { hubChoice, restoreProjects } = await import("../scripts/serve.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-slug-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.deepEqual(restoreProjects(hubChoice(() => {}), [{ slug: "s".repeat(5000), root: fs.realpathSync(dir) }]).restored, []);
+});
+
+test("joining a full hub names the project that had to go, on both sides", { timeout: 120000 }, async (t) => {
+  const { MAX_PROJECTS } = await import("../scripts/lib/hubstore.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-full-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const folder = (name) => {
+    const dir = path.join(parent, name);
+    fs.mkdirSync(dir);
+    return dir;
+  };
+  const hub = spawn(process.execPath, [CLI, "hub", folder("p00"), "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  let hubErr = "";
+  hub.stderr.on("data", (data) => { hubErr += data; });
+  const { port, token } = await waitForUrl(hub);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  for (let n = 1; n < MAX_PROJECTS; n += 1) {
+    const reply = await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folder(`p${String(n).padStart(2, "0")}`) }) });
+    assert.equal(reply.status, 200);
+  }
+  const full = await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folder("extra") }) });
+  assert.deepEqual(JSON.parse(full.body).evicted, ["p00"]);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.match(hubErr, /p00/);
+  // The CLI that joins tells its user too.
+  const joined = jstyle(["hub", folder("late"), "--no-open", "--port", String(port)]);
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.deepEqual(JSON.parse(joined.stdout).evicted, ["p01"]);
+  assert.match(joined.stderr, /p01/);
+});
+
+async function hasIpv6Loopback() {
+  const probe = httpServer();
+  return new Promise((resolve) => {
+    probe.once("error", () => resolve(false));
+    probe.listen(0, "::1", () => probe.close(() => resolve(true)));
+  });
+}
+
+test("a second hub run joins a hub on ::1 through ::1", { timeout: 30000 }, async (t) => {
+  if (!(await hasIpv6Loopback())) return t.skip("no IPv6 loopback");
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--host", "::1", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  await new Promise((resolve, reject) => {
+    let stderr = "";
+    hub.stderr.on("data", (data) => {
+      stderr += data;
+      if (/Serving .* at http:\/\/\[::1\]:\d+\//.test(stderr)) resolve();
+    });
+    hub.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const joined = jstyle(["hub", second, "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.match(JSON.parse(joined.stdout).url, new RegExp(`^http://\\[::1\\]:${port}/`));
+  assert.equal((await fetch(port, "GET", `/${path.basename(second)}/`, { host: "::1" })).status, 200);
 });

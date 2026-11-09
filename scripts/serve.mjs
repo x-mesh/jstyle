@@ -197,11 +197,11 @@ function receiveChoice(request, choice, send) {
       if (typeof body.page !== "string" || !body.page.startsWith("/") || body.page.length > 2000) return json(400, { error: "page" });
       const at = projectAt(choice, body.page);
       if (!at) return json(400, { error: "page" });
-      usedProject(choice, at.slug);
       const html = localPath(at.root, at.rest);
       if (!insideRoot(at.root, html)) return json(400, { error: "page" });
       data = readExplorerData(html);
       if (!data) return json(400, { error: "page" });
+      usedProject(choice, at.slug);
       file = path.join(path.dirname(html), CHOICE_FILE);
       page = path.relative(at.root, html).split(path.sep).join("/");
       project = at.slug;
@@ -502,7 +502,9 @@ function withQuery(target, search) {
 }
 
 export function pageUrls({ host, port, page, search = "" }) {
-  const local = withQuery(`http://${WILDCARD.has(host) ? "127.0.0.1" : host}:${port}/${page}`, search);
+  const name = WILDCARD.has(host) ? "127.0.0.1" : host;
+  // An IPv6 literal such as ::1 needs brackets in a URL.
+  const local = withQuery(`http://${name.includes(":") ? `[${name}]` : name}:${port}/${page}`, search);
   return { local, other: WILDCARD.has(host) ? withQuery(`http://${hostname()}:${port}/${page}`, search) : null };
 }
 
@@ -518,13 +520,18 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // A hub serves one or more project folders, each under /<slug>/, and takes
 // picks for every explorer in them; the page in each post says which.
 export function hubChoice(onChoice, { once = false } = {}) {
-  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, usedAt: 0 };
+  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0 };
 }
 
 export function addProject(hub, root) {
+  return joinProject(hub, root).slug;
+}
+
+// evicted lists the projects that left to keep the list at MAX_PROJECTS.
+export function joinProject(hub, root) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) if (known === real) return slug;
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "") || "project";
+  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [] };
+  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "").slice(0, MAX_SLUG - 10) || "project";
   if (base.startsWith("__")) base = `p${base}`;
   let slug = base;
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
@@ -532,17 +539,21 @@ export function addProject(hub, root) {
   const now = new Date().toISOString();
   hub.times.set(slug, { added: now, lastUsed: now });
   // The saved list stays small: past the limit the project used longest ago goes.
+  const evicted = [];
   while (hub.projects.size > MAX_PROJECTS) {
     const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
     hub.projects.delete(oldest);
     hub.times.delete(oldest);
+    evicted.push(oldest);
   }
+  if (evicted.length) hub.onEvicted?.(evicted);
   hub.onProjects?.();
-  return slug;
+  return { slug, evicted };
 }
 
 // The shape addProject makes; a saved slug outside it was not written by this code.
-const SLUG = /^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u;
+const MAX_SLUG = 255;
+const SLUG = new RegExp(`^[\\p{L}\\p{N}_][\\p{L}\\p{N}._-]{0,${MAX_SLUG - 1}}$`, "u");
 
 // Puts back projects a hub saved, under the slugs they had. A folder that is
 // gone or may no longer be served is left out and reported.
@@ -641,8 +652,8 @@ function receiveProject(request, hub, json) {
       }
       const real = servableFolder(body.root);
       if (!real) return json(400, { error: "root" });
-      const slug = addProject(hub, real);
-      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/` });
+      const { slug, evicted } = joinProject(hub, real);
+      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/`, ...(evicted.length ? { evicted } : {}) });
     } catch (error) {
       try {
         json(500, { error: String(error?.message ?? error) });

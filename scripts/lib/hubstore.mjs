@@ -8,11 +8,11 @@ import { jstyleHome } from "./registry.mjs";
 
 const SCHEMA = 1;
 export const MAX_PROJECTS = 50;
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
 
+// 127.0.0.1 and ::1 can each hold the same port, so they get separate files.
 export function hubStoreFile(host, port) {
-  const label = LOOPBACK.has(host) ? "loopback" : WILDCARD.has(host) ? "any" : String(host).replace(/[^A-Za-z0-9.-]/g, "_");
+  const label = host === "::1" ? "ip6-loopback" : WILDCARD.has(host) ? "any" : String(host).replace(/[^A-Za-z0-9.-]/g, "_");
   return path.join(jstyleHome(), "hubs", `${label}-${port}.json`);
 }
 

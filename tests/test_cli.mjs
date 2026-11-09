@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CHOICE_FILE, CHOICE_PATH, createServer, explorerChoice } from "../scripts/serve.mjs";
+import { CHOICE_FILE, CHOICE_PATH, createServer, explorerChoice, hubProject } from "../scripts/serve.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CLI = path.join(ROOT, "bin", "jstyle.mjs");
@@ -238,4 +238,101 @@ test("explore --wait prints the first pick as the last stdout line and stops", a
   assert.equal(picked.notes, "Keep the header");
   assert.equal(fs.realpathSync.native(picked.file), fs.realpathSync.native(path.join(folder, CHOICE_FILE)));
   assert.equal(JSON.parse(lines[0]).candidates, 2);
+});
+
+function buildPages(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-hub-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const page of ["admin", "settings"]) {
+    const folder = path.join(root, page, "explore", "01");
+    fs.mkdirSync(folder, { recursive: true });
+    for (const name of ["a", "b"]) fs.writeFileSync(path.join(folder, `${name}.html`), `<title>${page} ${name}</title><main>${name}</main>`);
+    const run = jstyle(["explore", folder], { timeout: 30000 });
+    assert.equal(run.status, 0, run.stderr);
+  }
+  return root;
+}
+
+test("hub serves every explorer under a folder and takes picks for each page", async (t) => {
+  const root = buildPages(t);
+  const child = spawn(process.execPath, [CLI, "hub", root, "--wait", "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stdout = "";
+  child.stdout.on("data", (data) => { stdout += data; });
+  const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  const { port, token } = await waitForUrl(child);
+  const page = await fetch(port, "GET", "/");
+  assert.equal(page.status, 200);
+  assert.match(page.body, /__jstyle\/hub\.json/);
+  const hub = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  assert.equal(hub.project, path.basename(root));
+  assert.deepEqual(hub.entries.map((e) => [e.group, e.round, e.path, e.candidates.length, e.choice]).sort(), [
+    ["admin", "01", "admin/explore/01/style-explorer.html", 2, null],
+    ["settings", "01", "settings/explore/01/style-explorer.html", 2, null],
+  ]);
+  assert.equal((await fetch(port, "GET", "/settings/explore/01/style-explorer.html")).status, 200);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const post = (body) => fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify(body) });
+  assert.equal((await post({ id: "candidate-1" })).status, 400);
+  assert.equal((await post({ page: "/../../etc/passwd", id: "candidate-1" })).status, 400);
+  assert.equal((await post({ page: "/admin/explore/01/a.html", id: "candidate-1" })).status, 400);
+  const ok = await post({ page: "/admin/explore/01/style-explorer.html", id: "candidate-2", notes: "Keep it" });
+  assert.equal(ok.status, 200);
+  assert.equal(JSON.parse(ok.body).waiting, true);
+  assert.equal(await exit, 0);
+  const picked = JSON.parse(stdout.trim().split("\n").at(-1));
+  assert.equal(picked.page, "admin/explore/01/style-explorer.html");
+  assert.equal(picked.number, "02");
+  assert.equal(fs.realpathSync.native(picked.file), fs.realpathSync.native(path.join(root, "admin", "explore", "01", CHOICE_FILE)));
+  assert.equal(fs.existsSync(path.join(root, "settings", "explore", "01", CHOICE_FILE)), false);
+});
+
+test("hub lists the saved status and refuses a missing folder", async (t) => {
+  const root = buildPages(t);
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port, token } = await waitForUrl(child);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: "/settings/explore/01/style-explorer.html", id: null, notes: "Tighter rows" }) });
+  assert.equal(sent.status, 200);
+  assert.equal(JSON.parse(sent.body).waiting, false);
+  const hub = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  const settings = hub.entries.find((e) => e.group === "settings");
+  assert.deepEqual({ ...settings.choice, at: undefined }, { id: null, number: null, name: null, comments: 0, notes: true, at: undefined, stale: false });
+  assert.equal(jstyle(["hub", path.join(root, "missing"), "--no-open"]).status, 2);
+});
+
+test("hub names the project that holds .jstyle", () => {
+  assert.equal(hubProject(path.join(path.sep, "work", "noti-mesh", ".jstyle")).project, "noti-mesh");
+  assert.equal(hubProject(path.join(path.sep, "work", "drafts")).project, "drafts");
+  const home = os.homedir();
+  assert.deepEqual(hubProject(path.join(home, "work", "noti-mesh", ".jstyle")), { project: "noti-mesh", location: path.join("~", "work", "noti-mesh") });
+});
+
+test("hub survives a broken explorer and refuses a page reached through a link outside the folder", async (t) => {
+  const root = buildPages(t);
+  // A built-looking file with a broken candidate list used to throw inside the hub.json handler and end the server.
+  fs.writeFileSync(path.join(root, "broken.html"), '<script>\nconst DATA = {"candidates":[null]};\n</script>');
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-outside-"));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  fs.copyFileSync(path.join(root, "admin", "explore", "01", "style-explorer.html"), path.join(outside, "style-explorer.html"));
+  let linked = true;
+  try {
+    fs.symlinkSync(outside, path.join(root, "link"), "dir");
+  } catch {
+    linked = false; // Windows without symlink rights.
+  }
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port, token } = await waitForUrl(child);
+  const listed = await fetch(port, "GET", "/__jstyle/hub.json");
+  assert.equal(listed.status, 200);
+  assert.deepEqual(JSON.parse(listed.body).entries.map((e) => e.group).sort(), ["admin", "settings"]);
+  assert.equal((await fetch(port, "GET", "/__jstyle/hub.json")).status, 200);
+  if (linked) {
+    const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+    const escaped = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: "/link/style-explorer.html", id: "candidate-1" }) });
+    assert.equal(escaped.status, 400);
+    assert.equal(fs.existsSync(path.join(outside, CHOICE_FILE)), false);
+  }
 });

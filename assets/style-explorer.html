@@ -15,12 +15,15 @@
 :root:not([data-tools=light]) .bar{border-bottom-color:#00000059}:root:not([data-tools=light]) .bar .seg button[aria-pressed=true]{color:#fff}:root:not([data-tools=light]) .bar .pro-badge{color:#cfe3d3}:root:not([data-tools=light]) .bar .brand img{border-radius:7px;box-shadow:0 0 0 1px #ffffff40}
 :root:not([data-tools=light]) .panel .big-sw i{box-shadow:inset 0 0 0 1px #ffffff2e}:root:not([data-tools=light]) :is(.panel,.bar,.film) .strip-mini{box-shadow:0 0 0 1px #ffffff2e}
 :root:not([data-tools=light]) .panel .pick[data-on]:hover{background:#4a8159}:root:not([data-tools=light]) .rv-group .k[data-kind=keep]{background:#2e4a36;color:#bfe3c8}
-.bar{position:sticky;top:0;z-index:10;min-height:68px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--line-2);view-transition-name:bar}
+.bar{position:sticky;top:0;z-index:32;min-height:68px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--line-2);view-transition-name:bar}
 .bar-l{display:flex;align-items:center;gap:12px;min-width:0}
 .brand{display:flex;align-items:center;gap:10px;flex:none;color:var(--ink);text-decoration:none}.brand img{width:30px;height:30px;display:block;transition:transform .5s var(--snap)}.brand:hover img{transform:rotate(-10deg) scale(1.06)}.brand:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:6px}
 .wm{font-family:var(--brand);font-size:36px;line-height:1;font-weight:400;letter-spacing:-.025em;white-space:nowrap}.pro-badge{align-self:center;margin-left:-2px;padding:4px 6px;border-radius:3px;background:var(--chip);color:var(--accent);font-family:var(--sans);font-size:10px;font-weight:600;line-height:1;letter-spacing:.08em}
 .sep{width:1px;height:18px;background:var(--line-2);flex:none}.proj{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar-c{display:flex;gap:8px;flex-wrap:wrap;min-width:0}
+.pages{position:relative}.pages>button{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:13px;color:var(--soft);box-shadow:inset 0 0 0 1px var(--line-2)}.pages>button:hover{color:var(--text)}.pages>button::after{content:"";width:6px;height:6px;margin-top:-3px;border-right:1.5px solid;border-bottom:1.5px solid;transform:rotate(45deg)}
+.pages-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:40;min-width:260px;max-width:min(420px,90vw);max-height:60vh;overflow:auto;padding:6px;border-radius:10px;background:var(--raised);box-shadow:0 0 0 1px var(--line-2),0 18px 44px -12px #00000080}
+.pages-menu a{display:flex;align-items:baseline;gap:8px;padding:6px 10px;border-radius:6px;font-size:13px;color:var(--text);text-decoration:none}.pages-menu a:hover{background:var(--well)}.pages-menu a[aria-current=page]{background:var(--chip)}.pages-menu a small{margin-left:auto;font-size:11.5px;color:var(--faint)}.pages-menu h5{margin:8px 10px 2px;font-size:11.5px;font-weight:600;color:var(--faint)}.pages-menu .all{border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;margin-bottom:4px}
 .seg{position:relative;display:flex;padding:2px;border-radius:4px;background:var(--well)}
 .seg button{position:relative;z-index:1;font-size:13px;line-height:1.5;padding:4px 11px;border-radius:3px;color:var(--soft);white-space:nowrap;transition:color .2s}.seg button:hover{color:var(--text)}.seg button[aria-pressed=true]{color:var(--accent)}
 .thumb{position:absolute;left:0;top:0;width:0;border-radius:3px;background:var(--chip);box-shadow:inset 0 0 0 .5px #435a4714;transition:transform var(--snap-d) var(--snap),width var(--snap-d) var(--snap)}
@@ -139,7 +142,7 @@ html[data-vt=reshape]::view-transition-new(*):only-child{animation:vt-in .3s .08
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important;animation-delay:0s!important}.frame:hover{transform:none}}
 </style></head><body>
 <header class="bar" id="bar" hidden>
- <div class="bar-l"><a class="brand" href="#project" data-i18n-title="brandTitle" data-i18n-aria-label="brandLabel"><img src="jstyle-mark.svg" alt=""><span class="wm">jstyle</span><span id="pro-badge" class="pro-badge">PRO</span></a><span class="sep" aria-hidden="true"></span><span class="proj" id="project"></span></div>
+ <div class="bar-l"><a class="brand" href="#project" data-i18n-title="brandTitle" data-i18n-aria-label="brandLabel"><img src="jstyle-mark.svg" alt=""><span class="wm">jstyle</span><span id="pro-badge" class="pro-badge">PRO</span></a><span class="sep" aria-hidden="true"></span><span class="proj" id="project"></span><div class="pages" id="pages" hidden></div></div>
  <div class="bar-c">
   <button type="button" id="comment-mode" class="comment-toggle" aria-pressed="false" hidden></button>
   <button type="button" id="theme-toggle" class="theme-toggle"></button>
@@ -256,6 +259,9 @@ const I18N = {
     "removeComment": "지우기",
     "commentCount": "의견 {n}",
     "comments": "의견",
+    "pagesMenu": "페이지",
+    "allPages": "모든 페이지",
+    "pageRound": "{round}회",
     "dockLabel": "보드 배율",
     "zoomIn": "확대",
     "zoomOut": "축소",
@@ -348,6 +354,9 @@ const I18N = {
     "removeComment": "Remove",
     "commentCount": "{n} comments",
     "comments": "Comments",
+    "pagesMenu": "Pages",
+    "allPages": "All pages",
+    "pageRound": "Round {round}",
     "dockLabel": "Board zoom",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
@@ -733,7 +742,7 @@ function t(key, values={}) {
  // A stopped server (after --wait) or a rejected post falls back to copying, notes included.
  async function send(){
   try{
-   const r=await fetch('/__jstyle/choice',{method:'POST',headers:{'Content-Type':'application/json','X-Jstyle-Token':TOKEN},body:JSON.stringify({id:st.chosen??null,notes,viewport:st.viewport,comments:comments.map(x=>({id:x.id,kind:x.kind,note:x.note,element:x.element}))})});
+   const r=await fetch('/__jstyle/choice',{method:'POST',headers:{'Content-Type':'application/json','X-Jstyle-Token':TOKEN},body:JSON.stringify({page:location.pathname,id:st.chosen??null,notes,viewport:st.viewport,comments:comments.map(x=>({id:x.id,kind:x.kind,note:x.note,element:x.element}))})});
    if(!r.ok)throw new Error(String(r.status));
    const reply=await r.json().catch(()=>({}));
    toast(true,st.chosen?copyText():t('commentCount',{n:comments.length}),reply.waiting?t('sent'):t('savedOnly'));
@@ -804,6 +813,20 @@ function t(key, values={}) {
  $('#bar').hidden=false;
  if(REVIEW){const b=$('#comment-mode');b.append(...commentLabel(),el('span','count'));b.hidden=false;b.addEventListener('click',()=>setCommenting(!commenting));}
  $('#panel-fold').addEventListener('click',()=>{folded=!folded;renderPanel();});
+ // Served by `jstyle hub`, the bar lists the other pages and rounds; elsewhere the request fails and nothing shows.
+ if(TOKEN)fetch('/__jstyle/hub.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(hub=>{
+  if(!hub?.entries?.length)return;
+  const box=$('#pages'),menu=el('div','pages-menu'),q=`?t=${encodeURIComponent(TOKEN)}`,here=decodeURIComponent(location.pathname).replace(/^\//,'');
+  const me=hub.entries.find(e=>e.path===here),open=el('button',null,me?[me.group==='.'?hub.project||hub.root:me.group,me.round?t('pageRound',{round:me.round}):''].filter(Boolean).join(' · '):t('pagesMenu'));open.setAttribute('aria-label',t('pagesMenu'));
+  open.type='button';open.setAttribute('aria-expanded','false');menu.hidden=true;
+  const all=el('a','all',t('allPages'));all.href='/'+q;menu.append(all);
+  const groups=new Map();for(const e of hub.entries){if(!groups.has(e.group))groups.set(e.group,[]);groups.get(e.group).push(e);}
+  for(const [name,list] of groups){menu.append(el('h5',null,name==='.'?hub.project||hub.root:name));
+   for(const e of list.sort((a,b)=>String(b.round).localeCompare(String(a.round),undefined,{numeric:true}))){const a=el('a',null,e.round?t('pageRound',{round:e.round}):e.path);a.href='/'+e.path.split('/').map(encodeURIComponent).join('/')+q;if(e.path===here)a.setAttribute('aria-current','page');if(e.project)a.append(el('small',null,e.project));menu.append(a);}}
+  const toggle=on=>{menu.hidden=!on;open.setAttribute('aria-expanded',String(on));};
+  open.addEventListener('click',()=>toggle(menu.hidden));document.addEventListener('click',e=>{if(!box.contains(e.target))toggle(false);});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){e.stopImmediatePropagation();toggle(false);}},true);
+  box.replaceChildren(open,menu);box.hidden=false;syncBars();
+ }).catch(()=>{});
  if(st.layout==='compare'){$('#grid').classList.add('first');$('.intro').classList.add('first');setTimeout(()=>{$('#grid').classList.remove('first');$('.intro').classList.remove('first');},1400);}
  render();syncBars();
  if(services.size){checkServices();setInterval(()=>{if(!document.hidden)checkServices();},5000);window.addEventListener('focus',checkServices);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkServices();});}

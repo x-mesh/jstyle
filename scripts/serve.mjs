@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Serve a folder with caching disabled and open one page in it.
 import { spawn } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import { hostname } from "node:os";
@@ -9,6 +10,10 @@ import { fileURLToPath } from "node:url";
 
 const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.meta.url), "utf8")).types;
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
+export const CHOICE_PATH = "/__jstyle/choice";
+export const CHOICE_FILE = "choice.json";
+const MAX_CHOICE_BYTES = 64 * 1024;
+const MAX_NOTES = 4000;
 
 function escapeHtml(text) {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -38,7 +43,99 @@ function localPath(root, urlPath) {
   return path.join(root, ...parts);
 }
 
-export function createServer({ root, page }) {
+// The explorer page embeds its manifest as one JSON line after "const DATA = ".
+export function readExplorerData(file) {
+  let html;
+  try {
+    html = fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  const start = html.indexOf("const DATA = ");
+  if (start < 0) return null;
+  const line = html.slice(start + "const DATA = ".length, html.indexOf("\n", start)).trim().replace(/;$/, "");
+  try {
+    const data = JSON.parse(line);
+    return Array.isArray(data?.candidates) && data.candidates.length ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function choiceRecord(data, body) {
+  const index = data.candidates.findIndex((candidate) => candidate.id === body.id);
+  if (index < 0) return null;
+  const candidate = data.candidates[index];
+  const directions = data.candidates.filter((item) => !item.baseline);
+  return {
+    round: data.round ?? "",
+    number: candidate.baseline ? "baseline" : String(directions.indexOf(candidate) + 1).padStart(2, "0"),
+    id: candidate.id,
+    name: candidate.name,
+    baseline: Boolean(candidate.baseline),
+    notes: body.notes ?? "",
+    viewport: body.viewport ?? "",
+    fingerprint: data.fingerprint ?? "",
+    at: new Date().toISOString(),
+  };
+}
+
+function writeAtomic(file, text) {
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  fs.writeFileSync(temp, text);
+  fs.renameSync(temp, file);
+}
+
+function sameToken(given, token) {
+  const a = Buffer.from(String(given ?? ""));
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// choice: { token, data, file, onChoice, once } accepts one POST route for the
+// explorer page. The custom token header forces a CORS preflight that this
+// server never answers, so other sites cannot post to it, and the token keeps
+// other devices out when the server listens on the network.
+function receiveChoice(request, choice, send) {
+  const json = (status, value) => send(status, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify(value) + "\n");
+  if (!sameToken(request.headers["x-jstyle-token"], choice.token)) return json(403, { error: "token" });
+  if (!String(request.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(415, { error: "content-type" });
+  const chunks = [];
+  let size = 0;
+  let tooLarge = false;
+  request.on("data", (chunk) => {
+    size += chunk.length;
+    if (size > MAX_CHOICE_BYTES) tooLarge = true;
+    else chunks.push(chunk);
+  });
+  request.on("end", () => {
+    if (tooLarge) return json(413, { error: "size" });
+    let body;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      return json(400, { error: "json" });
+    }
+    if (!body || typeof body !== "object" || typeof body.id !== "string") return json(400, { error: "id" });
+    if (body.notes != null && (typeof body.notes !== "string" || body.notes.length > MAX_NOTES)) return json(400, { error: "notes" });
+    if (body.viewport != null && typeof body.viewport !== "string") return json(400, { error: "viewport" });
+    const record = choiceRecord(choice.data, body);
+    if (!record) return json(400, { error: "id" });
+    // With once (--wait), later picks are refused so choice.json keeps what was printed.
+    if (choice.closed) return json(409, { error: "closed" });
+    if (choice.once) choice.closed = true;
+    try {
+      writeAtomic(choice.file, JSON.stringify(record, null, 2) + "\n");
+    } catch (error) {
+      choice.closed = false;
+      return json(500, { error: error.message });
+    }
+    json(200, { ok: true });
+    choice.onChoice?.(record);
+  });
+}
+
+export function createServer({ root, page, choice = null }) {
   return http.createServer((request, response) => {
     const send = (status, headers, body = "") => {
       // Without no-store, browsers reuse an old script after an edit, which
@@ -46,11 +143,13 @@ export function createServer({ root, page }) {
       response.writeHead(status, { "Cache-Control": "no-store", ...headers });
       response.end(request.method === "HEAD" ? undefined : body);
     };
-    if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
     const url = new URL(request.url, "http://localhost");
+    if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
+    if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
     // The served folder rarely has an index.html, so a bare host URL opened on
     // another device would show a directory listing instead of the page.
-    if (url.pathname === "/") return send(302, { Location: "/" + page });
+    // The query is kept because it carries the explorer's choice token.
+    if (url.pathname === "/") return send(302, { Location: withQuery("/" + page, url.search) });
     const target = localPath(root, url.pathname);
     let info;
     try {
@@ -85,21 +184,36 @@ function openBrowser(url) {
   child.unref();
 }
 
-export function pageUrls({ host, port, page }) {
-  const local = `http://${WILDCARD.has(host) ? "127.0.0.1" : host}:${port}/${page}`;
-  return { local, other: WILDCARD.has(host) ? `http://${hostname()}:${port}/${page}` : null };
+function withQuery(target, search) {
+  if (!search) return target;
+  const hash = target.indexOf("#");
+  return hash < 0 ? target + search : target.slice(0, hash) + search + target.slice(hash);
+}
+
+export function pageUrls({ host, port, page, search = "" }) {
+  const local = withQuery(`http://${WILDCARD.has(host) ? "127.0.0.1" : host}:${port}/${page}`, search);
+  return { local, other: WILDCARD.has(host) ? withQuery(`http://${hostname()}:${port}/${page}`, search) : null };
+}
+
+// With choices, an explorer page can post the picked direction back; it is
+// written to choice.json next to the page and passed to onChoice.
+export function explorerChoice(root, page, onChoice, { once = false } = {}) {
+  const file = path.join(root, page.split("#")[0]);
+  const data = readExplorerData(file);
+  if (!data) return null;
+  return { token: randomBytes(16).toString("hex"), data, file: path.join(path.dirname(file), CHOICE_FILE), onChoice, once, closed: false };
 }
 
 // Resolves once the server listens; stays running until Ctrl+C.
-export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true, out = process.stderr }) {
-  const server = createServer({ root, page });
+export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true, out = process.stderr, choice = null }) {
+  const server = createServer({ root, page, choice });
   return new Promise((resolve, reject) => {
     server.once("error", (error) => {
       if (error.code === "EADDRINUSE") reject(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다. --port로 다른 포트를 지정하세요`));
       else reject(error);
     });
     server.listen(port, WILDCARD.has(host) ? undefined : host, () => {
-      const { local, other } = pageUrls({ host, port: server.address().port, page });
+      const { local, other } = pageUrls({ host, port: server.address().port, page, search: choice ? `?t=${choice.token}` : "" });
       out.write(`Serving ${root} at ${local} (Ctrl+C to stop)\n`);
       if (other) out.write(`Other devices: ${other}\n`);
       if (open) setTimeout(() => openBrowser(local), 300);
@@ -131,6 +245,7 @@ export function parseServeArgs(argv, defaults) {
     else if (arg === "--host") options.host = value();
     else if (arg === "--port") options.port = Number(value());
     else if (arg === "--no-open") options.open = false;
+    else if (arg === "--wait") options.wait = true;
     else if (arg.startsWith("-")) throw new Error(`알 수 없는 옵션: ${arg}`);
     else if (options.pageGiven) throw new Error(`page는 하나만 받습니다: ${arg}`);
     else Object.assign(options, { page: arg, pageGiven: true });
@@ -152,6 +267,10 @@ async function main() {
   if (options.help) {
     process.stdout.write(HELP);
     return 0;
+  }
+  if (options.wait) {
+    process.stderr.write("serve.mjs: error: --wait는 jstyle serve나 jstyle explore에서 쓰세요\n");
+    return 2;
   }
   const root = path.resolve(options.root);
   if (!fs.statSync(path.join(root, options.page.split("#")[0]), { throwIfNoEntry: false })?.isFile()) {

@@ -64,6 +64,7 @@
 .idx{font-size:48px;line-height:.9;font-weight:200;letter-spacing:-.02em;color:var(--faint)}.info .name{font-size:20px;line-height:1.35;margin-top:-6px}.north{font-size:14px;line-height:1.7;color:var(--text)}
 .big-sw{display:grid;gap:6px}.big-sw div{display:grid;grid-template-columns:32px 1fr;align-items:center;gap:10px;font-family:var(--mono);font-size:12.5px;color:var(--soft)}.big-sw i{height:20px;border-radius:4px;box-shadow:inset 0 0 0 1px #00000017}
 .info .pick{align-self:stretch;padding:8px 14px;font-size:13.5px}
+.notes{display:grid;gap:6px;font-size:12.5px;color:var(--soft)}.notes textarea{width:100%;min-height:84px;padding:8px 10px;border:0;border-radius:8px;background:var(--raised);box-shadow:inset 0 0 0 1px var(--line-2);font-size:13.5px;line-height:1.6;color:var(--text);resize:vertical}.notes textarea::placeholder{color:var(--faint)}.notes textarea:focus-visible{outline-offset:1px}
 .tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.tool{font-size:13px;padding:5px 12px;border-radius:6px;color:var(--soft);box-shadow:inset 0 0 0 1px var(--line-2);transition:color .15s,background .2s}.tool:hover{color:var(--text)}.tool[aria-pressed=true]{background:var(--accent);color:#fff;box-shadow:none}
 .hint{font-size:12px;line-height:1.9;color:var(--faint)}.hint kbd{font-family:var(--mono);font-size:12px;padding:0 5px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--soft)}
 
@@ -166,7 +167,15 @@ const I18N = {
     "copyRound": "{round}회: ",
     "copyChoice": "{round}{number} {name} 안을 고릅니다",
     "copied": "복사했습니다. 에이전트에게 붙여 넣어 주세요.",
-    "copyFailed": "복사하지 못했습니다. 직접 복사해 주세요"
+    "copyFailed": "복사하지 못했습니다. 직접 복사해 주세요",
+    "notesLabel": "의견 (선택)",
+    "notesPlaceholder": "좋은 점, 바꿀 점",
+    "selectedSent": "고름 · 보냄",
+    "sendTitle": "이 안을 골라 의견과 함께 에이전트에게 보냅니다",
+    "resendTitle": "한 번 더 누르면 지금 의견으로 다시 보냅니다",
+    "sent": "에이전트에게 보냈습니다",
+    "sendFailed": "보내지 못해 대신 복사했습니다. 에이전트에게 붙여 넣어 주세요.",
+    "keyboardHintLive": "<kbd>←</kbd> <kbd>→</kbd> 다른 안 보기 · <kbd>P</kbd> 고르고 보내기<br><kbd>Esc</kbd> 나란히 보기로 돌아가기"
 },
   "en": {
     "htmlLang": "en",
@@ -210,7 +219,15 @@ const I18N = {
     "copyRound": "Round {round}: ",
     "copyChoice": "{round}Go with {number} {name}",
     "copied": "Copied. Paste it to your agent.",
-    "copyFailed": "Couldn't copy. Please copy the text manually."
+    "copyFailed": "Couldn't copy. Please copy the text manually.",
+    "notesLabel": "Notes (optional)",
+    "notesPlaceholder": "What works, what to change",
+    "selectedSent": "Selected · sent",
+    "sendTitle": "Select this direction and send it to the agent with your notes",
+    "resendTitle": "Click again to send it again with the current notes",
+    "sent": "Sent to the agent",
+    "sendFailed": "Couldn't send, so the text was copied instead. Paste it to the agent.",
+    "keyboardHintLive": "<kbd>←</kbd> <kbd>→</kbd> Switch direction · <kbd>P</kbd> Select and send<br><kbd>Esc</kbd> Back to compare"
   }
 };
 const IS_PRO = DATA?.edition !== 'open';
@@ -229,6 +246,10 @@ function t(key, values={}) {
  if(!DATA?.candidates?.length){$('#empty').hidden=false;return;}
  const C=DATA.candidates,SIZES={desktop:{w:1280,h:900},mobile:{w:390,h:844}},KEY=`jstyle:${DATA.fingerprint||DATA.project}`;
  const byId=Object.fromEntries(C.map(c=>[c.id,c])),DIRS=C.filter(c=>!c.baseline),no=c=>c.baseline?t('baseline'):String(DIRS.indexOf(c)+1).padStart(2,'0'),vtName=c=>`stage-${C.indexOf(c)}`;
+ // jstyle serve puts a per-run token in the query; with it, a pick is posted back instead of copied.
+ const TOKEN=/^https?:$/.test(location.protocol)?new URLSearchParams(location.search).get('t'):null;
+ // Notes stay in memory only: they are private and are not written to localStorage.
+ let notes='';
  const root=document.documentElement,calm=matchMedia('(prefers-reduced-motion: reduce)'),narrow=()=>matchMedia('(max-width:760px)').matches;
  const ease=n=>getComputedStyle(root).getPropertyValue(`--${n}`).trim()||'ease-out';
  let st={layout:'compare',viewport:'desktop',current:C[0].id,chosen:null},stored=true,zoomActual=false,compareScroll=0,gridKey='',loupeKey='',toastTimer=0;
@@ -348,12 +369,17 @@ function t(key, values={}) {
   const c=byId[st.current],body=$('#info-body');
   const sw=el('div','big-sw');(c.palette||[]).forEach(h=>{const d=el('div');const x=el('i');x.style.background=h;d.append(x,h.toUpperCase());sw.append(d);});
   const tools=el('div','tools');const z=el('button','tool',zoomActual?t('fit'):t('actual'));z.id='zoom';z.type='button';z.setAttribute('aria-pressed',String(zoomActual));z.addEventListener('click',toggleZoom);tools.append(z);
-  const hint=el('p','hint');hint.innerHTML=t('keyboardHint');
+  const hint=el('p','hint');hint.innerHTML=TOKEN?t('keyboardHintLive'):t('keyboardHint');
   const blocks=[el('span','idx',no(c)),el('h2','name',c.name)];
   if(c.concept)blocks.push(el('p','north',c.concept));if(sw.children.length)blocks.push(sw);const spec=specList(c);if(spec)blocks.push(spec);
+  if(TOKEN)blocks.push(notesField());
   blocks.push(pickButton(c),tools,hint);
   body.replaceChildren(...blocks);paintChoice();
   if(dir)animate(body,[{opacity:0,transform:`translateX(${dir*18}px)`},{opacity:1,transform:'none'}],{duration:420,easing:ease('glide')});
+ }
+ function notesField(){
+  const label=el('label','notes');const box=el('textarea');box.value=notes;box.placeholder=t('notesPlaceholder');box.maxLength=4000;
+  box.addEventListener('input',()=>{notes=box.value;});label.append(el('span',null,t('notesLabel')),box);return label;
  }
  function toggleZoom(){
   morph(()=>{zoomActual=!zoomActual;const sl=$('.slide.is-current');sl.dataset.zoom=zoomActual?'actual':'fit';fitAll();sl.scrollTo(0,0);const z=$('#zoom');z.textContent=zoomActual?t('fit'):t('actual');z.setAttribute('aria-pressed',String(zoomActual));},'reshape');
@@ -394,21 +420,29 @@ function t(key, values={}) {
   if(fresh){
    animate($(`.card[data-id="${CSS.escape(id)}"] .pick-mark`),[{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1)'}],{duration:500,easing:ease('pop')});
   }
-  copy();
+  if(TOKEN)send();else copy();
  }
  function paintChoice(){
   $$('.card').forEach(a=>a.classList.toggle('is-chosen',a.dataset.id===st.chosen));
-  $$('[data-pick]').forEach(b=>{const on=b.dataset.pick===st.chosen,short=!!b.closest('.cap');b.replaceChildren(document.createTextNode(on?(short?t('selected'):t('selectedCopy')):(short?t('select'):t('selectDirection'))));if(!short)b.append(el('kbd',null,'P'));b.toggleAttribute('data-on',on);b.title=on?t('recopyTitle'):t('selectTitle');});
+  $$('[data-pick]').forEach(b=>{const on=b.dataset.pick===st.chosen,short=!!b.closest('.cap');b.replaceChildren(document.createTextNode(on?(short?t('selected'):TOKEN?t('selectedSent'):t('selectedCopy')):(short?t('select'):t('selectDirection'))));if(!short)b.append(el('kbd',null,'P'));b.toggleAttribute('data-on',on);b.title=on?(TOKEN?t('resendTitle'):t('recopyTitle')):(TOKEN?t('sendTitle'):t('selectTitle'));});
   $$('#film button').forEach(b=>b.querySelector('.ft').classList.toggle('chosen',b.dataset.id===st.chosen));
  }
  function copyText(){const c=byId[st.chosen];let text=t('copyChoice',{round:DATA.round?t('copyRound',{round:DATA.round}):'',number:no(c),name:c.name});return text;}
- async function copy(t=copyText()){
+ async function copy(t=copyText(),label){
   let ok=false;
   try{await navigator.clipboard.writeText(t);ok=true;}catch{const a=el('textarea');a.value=t;a.setAttribute('readonly','');a.style.cssText='position:fixed;opacity:0';document.body.append(a);a.select();try{ok=document.execCommand('copy');}catch{}a.remove();}
-  toast(ok,t);
+  toast(ok,t,ok?label:null);
  }
- function toast(ok,text){
-  const n=$('#toast');n.toggleAttribute('data-fail',!ok);n.querySelector('b').textContent=ok?t('copied'):t('copyFailed');n.querySelector('code').textContent=ok?text.replace(/\n/g,' · '):text;
+ // A stopped server (after --wait) or a rejected post falls back to copying, notes included.
+ async function send(){
+  try{
+   const r=await fetch('/__jstyle/choice',{method:'POST',headers:{'Content-Type':'application/json','X-Jstyle-Token':TOKEN},body:JSON.stringify({id:st.chosen,notes,viewport:st.viewport})});
+   if(!r.ok)throw new Error(String(r.status));
+   toast(true,copyText(),t('sent'));
+  }catch{await copy(copyText()+(notes.trim()?'\n'+notes.trim():''),t('sendFailed'));}
+ }
+ function toast(ok,text,label){
+  const n=$('#toast');n.toggleAttribute('data-fail',!ok);n.querySelector('b').textContent=label||(ok?t('copied'):t('copyFailed'));n.querySelector('code').textContent=ok?text.replace(/\n/g,' · '):text;
   n.classList.remove('show');n.offsetWidth;n.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>n.classList.remove('show'),ok?2400:8000);
  }

@@ -47,12 +47,16 @@ usage   jstyle <command> [options]
 각 명령의 옵션: jstyle <command> --help
 `;
 
-const EXPLORE_HELP = `usage: jstyle explore <inputs...> [--output FILE] [--force] [--serve|--no-serve] [--no-open] [--host HOST] [--port PORT]
+const EXPLORE_HELP = `usage: jstyle explore <inputs...> [--output FILE] [--force] [--serve|--no-serve] [--wait] [--no-open] [--host HOST] [--port PORT]
 
 디자인 시안 폴더, HTML 파일 또는 manifest.json으로 비교 화면을 만듭니다.
 터미널에서 실행하면 만든 뒤 로컬 서버로 띄워 엽니다. 파이프나 에이전트처럼
 터미널이 아닌 곳에서는 만들기만 합니다. --serve와 --no-serve로 바꿀 수 있습니다.
 결과 JSON 한 줄은 stdout, 안내는 stderr로 나옵니다.
+
+띄운 비교 화면에서 안을 고르면 의견과 함께 비교 화면 옆 choice.json에 저장됩니다.
+--wait는 띄운 뒤 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 stdout에 쓰고 끝납니다.
+에이전트는 이 명령을 백그라운드로 실행하고, 끝나면 그 결과로 작업을 이어 갑니다.
 
 manifest 필드와 생성 옵션: jstyle explore --help-build
 `;
@@ -82,6 +86,7 @@ function splitExploreArgs(argv) {
       return argv[++index];
     };
     if (arg === "--serve") view.serve = true;
+    else if (arg === "--wait") view.wait = true;
     else if (arg === "--no-serve") view.serve = false;
     else if (arg === "--no-open") view.open = false;
     else if (arg === "--host") view.host = value();
@@ -91,6 +96,8 @@ function splitExploreArgs(argv) {
     else build.push(arg);
   }
   if (!Number.isInteger(view.port) || view.port < 0 || view.port > 65535) throw new Error("--port는 0~65535 사이의 정수여야 합니다");
+  if (view.wait && view.serve === false) throw new Error("--wait는 --no-serve와 함께 쓸 수 없습니다");
+  if (view.wait) view.serve = true;
   return [build, view];
 }
 
@@ -114,25 +121,48 @@ async function explore(argv) {
   process.stderr.write(`${green("✓")} 비교 화면 ${built.candidates}개 안 ${dim(`(${built.bytes} bytes)`)}\n  ${built.output}\n`);
   const shouldServe = view.serve ?? Boolean(process.stdout.isTTY && process.stdin.isTTY);
   if (!shouldServe) {
-    hint("next", `jstyle serve ${JSON.stringify(built.output)}`);
+    hint("next", `jstyle serve ${JSON.stringify(built.output)} --wait`);
     return 0;
   }
-  const { serve } = await import("../scripts/serve.mjs");
+  return serveExplorer({ root: path.dirname(built.output), page: path.basename(built.output), host: view.host, port: view.port, open: view.open, wait: Boolean(view.wait) });
+}
+
+// Serves a page; an explorer page also accepts the picked direction. With wait,
+// the first pick is printed as one JSON line and the server stops.
+async function serveExplorer({ root, page, host, port, open, wait }) {
+  const { serve, explorerChoice } = await import("../scripts/serve.mjs");
+  let picked;
+  const pick = new Promise((resolve) => { picked = resolve; });
+  const choice = explorerChoice(root, page, picked, { once: wait });
+  if (wait && !choice) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
+  let server;
   try {
-    await serve({ root: path.dirname(built.output), page: path.basename(built.output), host: view.host, port: view.port, open: view.open });
+    server = await serve({ root, page, host, port, open, choice });
   } catch (error) {
     return fail(error.message, 1);
   }
-  return null;
+  if (!wait) return null;
+  process.stderr.write(`${dim("wait:")} 비교 화면에서 안을 고르면 끝납니다\n`);
+  const record = await pick;
+  process.stdout.write(JSON.stringify({ ...record, file: choice.file }) + "\n");
+  const label = record.baseline ? "기존 화면" : record.number;
+  process.stderr.write(`${green("✓")} 고른 안: ${label} ${record.name}\n  ${choice.file}\n`);
+  // Let the 200 response reach the page before the sockets are closed.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  server.closeAllConnections();
+  server.close();
+  return 0;
 }
 
-const SERVE_HELP = `usage: jstyle serve <file|folder> [--root DIR] [--host HOST] [--port PORT] [--no-open]
+const SERVE_HELP = `usage: jstyle serve <file|folder> [--root DIR] [--host HOST] [--port PORT] [--no-open] [--wait]
        jstyle kit [--host HOST] [--port PORT] [--no-open]
        jstyle library [section] [--host HOST] [--port PORT] [--no-open]
 
 serve는 파일이 있는 폴더를 띄우고 그 파일을 엽니다. --root를 주면 그 폴더 기준의 page를 엽니다.
 library의 section은 effects, cards, landing, product-ui 같은 구역 이름입니다.
 주소만 입력해도 이 페이지로 이동하므로 다른 기기에서도 http://<host>:<port>/ 로 열 수 있습니다.
+jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice.json에 저장됩니다.
+--wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
 `;
 
 // fixedPage is set for kit and library, which always serve the jstyle folder.
@@ -151,6 +181,7 @@ async function serveCommand(argv, fixedPage = null) {
   let root;
   let page;
   if (fixedPage) {
+    if (options.wait) return fail("--wait는 jstyle explore로 만든 비교 화면에만 쓸 수 있습니다");
     root = ROOT;
     page = fixedPage + (options.pageGiven ? "#" + options.page.replace(/^#/, "") : "");
   } else if (options.root) {
@@ -166,6 +197,7 @@ async function serveCommand(argv, fixedPage = null) {
   if (page && !fs.statSync(path.join(root, page.split("#")[0]), { throwIfNoEntry: false })?.isFile()) {
     return fail(`${page.split("#")[0]}가 ${root}에 없습니다`);
   }
+  if (!fixedPage) return serveExplorer({ root, page, host: options.host, port: options.port, open: options.open, wait: Boolean(options.wait) });
   try {
     await serve({ root, page, host: options.host, port: options.port, open: options.open });
   } catch (error) {

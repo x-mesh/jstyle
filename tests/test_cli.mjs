@@ -1432,6 +1432,42 @@ test("--wait serves on its own free port when something else holds the daemon po
   assert.deepEqual(daemonRecords(env), []);
 });
 
+function servedPort(t, args, env) {
+  const child = spawn(process.execPath, [CLI, ...args], { env });
+  t.after(() => child.kill("SIGKILL"));
+  let stderr = "";
+  return new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = /Serving .* at http:\/\/127\.0\.0\.1:(\d+)\//.exec(stderr);
+      if (match) resolve(Number(match[1]));
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+}
+
+test("kit and library leave the daemon port free, and hub moves off a port another jstyle server holds", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  for (const command of ["kit", "library"]) assert.notEqual(await servedPort(t, [command, "--no-open"], env), port, `${command} takes the daemon port`);
+  const root = buildPages(t);
+  const started = jstyle(["hub", root, "--no-open"], { env, timeout: 15000 });
+  assert.equal(started.status, 0, started.stderr);
+  assert.equal(JSON.parse(started.stdout.trim()).hub, port);
+  assert.equal(jstyle(["stop", String(port)], { env }).status, 0);
+  // A kit run without the daemon holds the port until it is stopped; a hub then takes a free port instead of failing.
+  assert.equal(await servedPort(t, ["kit", "--no-open"], daemonEnv(port, { JSTYLE_NO_DAEMON: "1" })), port);
+  assert.notEqual(await servedPort(t, ["hub", buildPages(t), "--no-open"], env), port);
+  assert.deepEqual(daemonRecords(env), []);
+});
+
+test("jstyle daemon refuses --root", () => {
+  const refused = jstyle(["daemon", "--root", os.tmpdir()], { env: daemonEnv(1) });
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /daemon은 폴더/);
+});
+
 test("a daemon stays up while a waiter is registered and idles out after it leaves", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
   const port = await freePort();
   const env = daemonEnv(port);

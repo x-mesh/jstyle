@@ -177,7 +177,7 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
   const file = path.join(root, page.split("#")[0]);
   if (explorerChoice(root, page, null)) {
     // A comparison page goes to the hub on the port, starting the daemon when there is none.
-    const { hub, fellBack } = await hubFor({ host, port });
+    const { hub, fellBack } = await hubFor({ host, port, idle });
     const done = hub ? await (wait ? waitOnHub(hub, { file, open }) : openOnHub(hub, file, open)) : null;
     if (done !== null) return done;
     port = await freePortFor(port, fellBack);
@@ -220,7 +220,8 @@ jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice
 --wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
 같은 포트에 jstyle hub가 떠 있으면 --wait는 서버를 띄우지 않고 그 허브에서 이 비교 화면을 기다립니다.
 기본 주소(127.0.0.1:8765)에서 비교 화면을 띄우면 데몬(jstyle daemon)에 그 폴더를 붙이고 주소를 알린 뒤 끝나며,
-떠 있는 데몬이 없으면 분리 실행합니다. kit, library와 비교 화면이 아닌 파일은 데몬을 쓰지 않고 그 포트가 차 있으면 빈 포트를 씁니다.
+떠 있는 데몬이 없으면 분리 실행하고, 이때 --idle은 적용되지 않습니다. kit과 library는 데몬 포트를 비워 두고 빈 포트를 씁니다.
+비교 화면이 아닌 파일은 데몬을 쓰지 않고 그 포트가 차 있으면 빈 포트를 씁니다.
 비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
 열린 화면 신호를 보내지 않는 kit, library와 다른 파일은 기본으로 직접 끌 때까지 둡니다.
 `;
@@ -258,8 +259,8 @@ async function serveCommand(argv, fixedPage = null) {
     return fail(`${page.split("#")[0]}가 ${root}에 없습니다`);
   }
   if (!fixedPage) return serveExplorer({ root, page, host: options.host, port: options.port, open: options.open, wait: Boolean(options.wait), idle: options.idle });
-  // The daemon usually holds the default port; kit and library then take a free one.
-  options.port = await freePortFor(options.port);
+  // The daemon port stays free for the daemon even when it is not running yet; kit and library take a free one.
+  options.port = await freePortFor(options.port, daemonWanted(options.host, options.port));
   try {
     await serve({ root, page, host: options.host, port: options.port, open: options.open, registry: { kind: fixedPage.startsWith("assets/kit") ? "kit" : "library", project: "jstyle", idle: idleFor(options.idle, false) } });
   } catch (error) {
@@ -274,6 +275,7 @@ folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄
 기본 주소(127.0.0.1:8765)에서는 데몬(jstyle daemon)에 이 폴더를 붙이고 {hub, project, url}을 쓴 뒤 바로 끝납니다.
 떠 있는 데몬이 없으면 분리 실행하고, 5초 안에 준비되지 않으면 이 명령이 빈 포트에 자기 허브를 띄웁니다.
 JSTYLE_NO_DAEMON=1, 다른 --port, loopback이 아닌 --host에서는 이 명령이 자기 허브를 띄웁니다.
+데몬이나 떠 있는 허브에 붙으면 --idle은 적용되지 않습니다.
 프로젝트는 /<프로젝트>/ 아래에 놓이고, 그 첫 화면은 페이지별 회차 목록입니다.
 각 비교 화면 위쪽 막대에서 다른 페이지로 옮겨 갈 수 있습니다.
 어느 비교 화면에서 고르거나 보내도 그 폴더의 choice.json에 저장됩니다.
@@ -305,7 +307,7 @@ async function hubCommand(argv) {
   }
   const root = path.resolve(options.page ?? ".jstyle");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
-  const { hub: shared, fellBack } = await hubFor({ host: options.host, port: options.port });
+  const { hub: shared, fellBack } = await hubFor({ host: options.host, port: options.port, idle: options.idle });
   if (shared && !options.wait) return joinHub(shared, root, options.open);
   const joined = shared ? await waitOnHub(shared, { folder: root, open: options.open }) : null;
   if (joined !== null) return joined;
@@ -418,7 +420,7 @@ async function daemonCommand(argv) {
     process.stdout.write(DAEMON_HELP);
     return 0;
   }
-  if (options.pageGiven || options.wait || options.host !== "127.0.0.1") return fail("daemon은 폴더, --wait, --host를 받지 않습니다. 127.0.0.1에서만 띄웁니다");
+  if (options.pageGiven || options.root || options.wait || options.host !== "127.0.0.1") return fail("daemon은 폴더, --wait, --host를 받지 않습니다. 127.0.0.1에서만 띄웁니다");
   fs.mkdirSync(daemonFolder(), { recursive: true, mode: 0o700 });
   return runHub(null, { ...options, open: false }, { daemon: true });
 }
@@ -475,13 +477,22 @@ function daemonWanted(host, port) {
 
 // The hub to use on this port: a running one, or a daemon started now.
 // fellBack means the daemon could not start, so the caller serves on a free port.
-async function hubFor({ host, port }) {
+async function hubFor({ host, port, idle }) {
+  const found = await runningOrNewHub({ host, port });
+  if (found.hub && idle !== undefined) process.stderr.write(`${dim(`--idle은 떠 있는 허브(${port})에는 적용되지 않습니다. 그 허브의 설정을 따릅니다`)}\n`);
+  return found;
+}
+
+async function runningOrNewHub({ host, port }) {
   const shared = await sharedHub({ host, port });
   if (shared) return { hub: shared, fellBack: false };
   if (!daemonWanted(host, port)) return { hub: null, fellBack: false };
   const { listRecords } = await import("../scripts/lib/registry.mjs");
-  // Another jstyle server (another version, a --wait server) keeps the port; the caller handles it as before.
-  if (listRecords().some((r) => r.port === port)) return { hub: null, fellBack: false };
+  // Another jstyle server (another version, a --wait server, a kit run without the daemon) keeps the port.
+  if (listRecords().some((r) => r.port === port)) {
+    process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: 다른 jstyle 서버가 ${port} 포트를 쓰고 있습니다. 이 명령의 서버를 빈 포트로 띄웁니다\n`);
+    return { hub: null, fellBack: true };
+  }
   const started = await startDaemon(port);
   if (started.hub) return { hub: started.hub, fellBack: false };
   process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: ${started.reason}. 이 명령의 서버로 띄웁니다\n`);
@@ -519,6 +530,8 @@ async function startDaemon(port) {
     if (exitedAt && Date.now() - exitedAt > 1000) return { reason: `데몬이 준비되기 전에 끝났습니다(${log})` };
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  // A daemon that opens the port after this run has moved on would sit beside this run's own server.
+  if (!exitedAt) child.kill();
   return { reason: `${DAEMON_READY_MS / 1000}초 안에 준비되지 않았습니다(${log})` };
 }
 

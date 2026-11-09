@@ -79,6 +79,7 @@ const EXPLORE_HELP = `usage: jstyle explore <inputs...> [--output FILE] [--force
 
 띄운 비교 화면에서 안을 고르면 의견과 함께 비교 화면 옆 choice.json에 저장됩니다.
 --wait는 띄운 뒤 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 stdout에 쓰고 끝납니다.
+같은 포트에 jstyle hub가 떠 있으면 서버를 띄우지 않고 그 허브에서 기다립니다.
 에이전트는 이 명령을 백그라운드로 실행하고, 끝나면 그 결과로 작업을 이어 갑니다.
 
 띄운 서버는 열린 화면도 요청도 없이 30분이 지나면 닫힙니다(--idle 분, 0은 닫지 않음).
@@ -170,11 +171,16 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
   if (!wait) {
     const shared = await sharedHub({ host, port, within: path.join(root, page) });
     if (shared) return announceHubPage(shared, path.join(root, page), open);
-  } else port = await freePortFor(port);
+  } else {
+    if (!explorerChoice(root, page, null)) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
+    const shared = await sharedHub({ host, port });
+    const joined = shared ? await waitOnHub(shared, { file: path.join(root, page.split("#")[0]), open }) : null;
+    if (joined !== null) return joined;
+    port = await freePortFor(port);
+  }
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = explorerChoice(root, page, picked, { once: wait });
-  if (wait && !choice) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
   let server;
   try {
     server = await serve({ root, page, host, port, open, choice, registry: { kind, wait, idle: idleFor(idle, !wait && Boolean(choice)), parent: LAUNCHED_BY } });
@@ -203,6 +209,7 @@ library의 section은 effects, cards, landing, product-ui 같은 구역 이름�
 주소만 입력해도 이 페이지로 이동하므로 다른 기기에서도 http://<host>:<port>/ 로 열 수 있습니다.
 jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice.json에 저장됩니다.
 --wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
+같은 포트에 jstyle hub가 떠 있으면 --wait는 서버를 띄우지 않고 그 허브에서 이 비교 화면을 기다립니다.
 비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
 열린 화면 신호를 보내지 않는 kit, library와 다른 파일은 기본으로 직접 끌 때까지 둡니다.
 `;
@@ -262,7 +269,8 @@ jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
 사라진 폴더는 시작할 때 목록에서 뺍니다. --wait와 --port 0 허브는 저장하지 않습니다.
 
 --wait는 첫 선택을 기다렸다가 고른 안을 project, page와 함께 JSON 한 줄로 쓰고 끝납니다.
---wait는 자기 서버를 띄우며, 포트를 jstyle 서버가 쓰고 있으면 빈 포트를 씁니다.
+--wait는 같은 포트에 허브가 떠 있으면 그 허브에서 기다리고, 허브의 어느 탭에서 골라도 받습니다.
+허브가 없으면 자기 서버를 띄우며, 포트를 다른 jstyle 서버가 쓰고 있으면 빈 포트를 씁니다.
 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
 `;
 
@@ -282,10 +290,11 @@ async function hubCommand(argv) {
   }
   const root = path.resolve(options.page ?? ".jstyle");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
-  if (!options.wait) {
-    const shared = await sharedHub({ host: options.host, port: options.port });
-    if (shared) return joinHub(shared, root, options.open);
-  } else options.port = await freePortFor(options.port);
+  const shared = await sharedHub({ host: options.host, port: options.port });
+  if (shared && !options.wait) return joinHub(shared, root, options.open);
+  const joined = shared ? await waitOnHub(shared, { folder: root, open: options.open }) : null;
+  if (joined !== null) return joined;
+  if (options.wait) options.port = await freePortFor(options.port);
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
@@ -397,8 +406,8 @@ function isInside(root, file) {
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
-// --wait needs its own server until the shared hub can hand a pick to a waiting agent;
-// when a jstyle server holds the port, it takes any free one.
+// Without a hub to wait on, --wait starts its own server; when a jstyle server
+// that takes no waiters holds the port, it takes any free one.
 async function freePortFor(port) {
   if (!port) return port;
   const { listRecords } = await import("../scripts/lib/registry.mjs");
@@ -411,9 +420,14 @@ function reachHost(record) {
 }
 
 function postJson(record, pathname, body) {
+  return requestJson(record, "POST", pathname, body);
+}
+
+function requestJson(record, method, pathname, body = null, timeout = 3000) {
   return new Promise((resolve) => {
-    const data = JSON.stringify(body);
-    const request = http.request({ host: reachHost(record), port: record.port, path: pathname, method: "POST", timeout: 3000, headers: { "Content-Type": "application/json", "X-Jstyle-Token": record.token, "Content-Length": Buffer.byteLength(data) } }, (response) => {
+    const data = body === null ? "" : JSON.stringify(body);
+    const headers = { "X-Jstyle-Token": record.token, ...(body === null ? {} : { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) }) };
+    const request = http.request({ host: reachHost(record), port: record.port, path: pathname, method, timeout, headers }, (response) => {
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => {
@@ -452,6 +466,74 @@ async function joinHub(hub, root, open) {
   if (evicted.length) process.stderr.write(`${yellow("!")} 허브의 프로젝트가 상한을 넘어 가장 오래 쓰지 않은 ${evicted.join(", ")}를 뺐습니다\n`);
   if (open) openUrl(url);
   return 0;
+}
+
+// The hub folder a page belongs to: a project the hub already serves, else
+// the .jstyle folder above the page, else the page's own folder.
+function hubFolderFor(hub, file) {
+  const known = hub.projects.find((p) => isInside(p.root, file));
+  if (known) return known.root;
+  const parts = fs.realpathSync(file).split(path.sep);
+  const at = parts.lastIndexOf(".jstyle");
+  return at > 0 ? parts.slice(0, at + 1).join(path.sep) : path.dirname(fs.realpathSync(file));
+}
+
+// --wait on a running hub: join the project, register a waiter and long-poll
+// until a pick arrives from any tab of the hub. stdout and exit codes match a
+// --wait server: the pick as one JSON line and 0, or empty stdout and 1.
+// Returns null when the hub does not take this wait, so the caller starts its own server.
+async function waitOnHub(hub, { folder = null, file = null, open }) {
+  const projectRoot = file ? hubFolderFor(hub, file) : folder;
+  const notTaken = (what, reply) => {
+    process.stderr.write(`${yellow("!")} 떠 있는 허브(${hub.port})${what}(${reply.body?.error ?? (reply.status || "연결 실패")}). 이 명령의 서버로 띄워 기다립니다\n`);
+    return null;
+  };
+  const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot });
+  if (joined.status !== 200) return notTaken(`에 ${projectRoot}를 붙이지 못했습니다`, joined);
+  const page = file ? path.relative(fs.realpathSync(projectRoot), fs.realpathSync(file)).split(path.sep).join("/") : null;
+  const registered = await postJson(hub, "/__jstyle/waiters", { project: joined.body.slug, page, pid: LAUNCHED_BY });
+  if (registered.status !== 200) return notTaken("에서 기다릴 수 없습니다", registered);
+  const { id, url } = registered.body;
+  // Leaving tells the hub not to hand a later pick to this ended run; a hub that is gone has nothing to forget.
+  const forget = () => requestJson(hub, "DELETE", `/__jstyle/waiters/${id}`, null, 2000);
+  const leave = (code) => {
+    forget().finally(() => process.exit(code));
+  };
+  process.once("SIGINT", () => leave(130));
+  process.once("SIGTERM", () => leave(143));
+  process.once("SIGHUP", () => leave(129));
+  process.stderr.write(`Serving ${projectRoot} at ${url} (떠 있는 허브 ${hub.port})\n`);
+  process.stderr.write(`${dim("wait:")} ${file ? "비교 화면에서" : "어느 비교 화면에서든"} 고르거나 보내면 끝납니다 (대기자 ${id})\n`);
+  if (open) openUrl(url);
+  let failures = 0;
+  for (;;) {
+    const reply = await requestJson(hub, "GET", `/__jstyle/waiters/${id}?wait=25`, null, 35000);
+    if (reply.status === 204) {
+      failures = 0;
+      continue;
+    }
+    if (reply.status === 200 && reply.body?.record) {
+      const { record, file: saved } = reply.body;
+      process.stdout.write(JSON.stringify({ ...record, file: saved }) + "\n");
+      const label = record.id === null ? `고른 안 없이 의견 ${record.comments.length}개` : `고른 안: ${record.baseline ? "기존 화면" : record.number} ${record.name}`;
+      process.stderr.write(`${green("✓")} ${record.page} · ${label}\n  ${saved}\n`);
+      return 0;
+    }
+    if (reply.status === 0) {
+      // One failed poll can be a reset connection; a second means the hub is gone.
+      failures += 1;
+      if (failures < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      process.stderr.write(`${red("✗")} 허브(${hub.port})에 연결할 수 없어 기다리기를 끝냅니다\n`);
+      await forget();
+      return 1;
+    }
+    process.stderr.write(`${red("✗")} 허브(${hub.port})가 이 대기자를 정리했습니다(${reply.body?.reason ?? reply.status})\n`);
+    if (reply.status !== 410) await forget();
+    return 1;
+  }
 }
 
 function announceHubPage(hub, file, open) {

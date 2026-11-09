@@ -184,9 +184,17 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
     port = await freePortFor(port, fellBack);
   } else {
     if (wait) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
-    const shared = await sharedHub({ host, port, within: file });
-    if (shared) return announceHubPage(shared, file, open);
-    port = await freePortFor(port);
+    // A file goes to the daemon with its folder as a project. A bare folder stays here: on a hub its address is the project page, not a listing.
+    if (page && daemonWanted(host, port)) {
+      const { hub, fellBack } = await hubFor({ host, port, idle });
+      const done = hub ? await openOnHub(hub, file, open, root) : null;
+      if (done !== null) return done;
+      port = await freePortFor(port, fellBack);
+    } else {
+      const shared = await sharedHub({ host, port, within: file });
+      if (shared) return announceHubPage(shared, file, open);
+      port = await freePortFor(port);
+    }
   }
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
@@ -221,10 +229,12 @@ jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice
 --wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
 같은 포트에 jstyle hub가 떠 있으면 --wait는 서버를 띄우지 않고 그 허브에서 이 비교 화면을 기다립니다.
 기본 주소(127.0.0.1:8765)에서 비교 화면을 띄우면 데몬(jstyle daemon)에 그 폴더를 붙이고 주소를 알린 뒤 끝나며,
-떠 있는 데몬이 없으면 분리 실행하고, 이때 --idle은 적용되지 않습니다. kit과 library는 데몬 포트를 비워 두고 빈 포트를 씁니다.
-비교 화면이 아닌 파일은 데몬을 쓰지 않고 그 포트가 차 있으면 빈 포트를 씁니다.
-비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
-열린 화면 신호를 보내지 않는 kit, library와 다른 파일은 기본으로 직접 끌 때까지 둡니다.
+떠 있는 데몬이 없으면 분리 실행하고, 이때 --idle은 적용되지 않습니다.
+비교 화면이 아닌 파일도 기본 주소에서는 그 폴더를 데몬에 붙이고 /<프로젝트>/<파일> 주소를 알린 뒤 끝납니다.
+kit과 library는 기본 주소에서 데몬의 /__skill/ 아래로 열고 끝납니다. 파일 없이 폴더만 주면 이 명령이 띄웁니다.
+JSTYLE_NO_DAEMON=1, 다른 --port, loopback이 아닌 --host에서는 이 명령이 서버를 띄우고, 데몬 포트가 차 있으면 빈 포트를 씁니다.
+이 명령이 띄운 비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
+이 명령이 띄운 kit, library와 다른 파일은 열린 화면 신호를 보내지 않으므로 기본으로 직접 끌 때까지 둡니다.
 `;
 
 // fixedPage is set for kit and library, which always serve the jstyle folder.
@@ -260,6 +270,18 @@ async function serveCommand(argv, fixedPage = null) {
     return fail(`${page.split("#")[0]}가 ${root}에 없습니다`);
   }
   if (!fixedPage) return serveExplorer({ root, page, host: options.host, port: options.port, open: options.open, wait: Boolean(options.wait), idle: options.idle });
+  if (daemonWanted(options.host, options.port)) {
+    // kit and library open from the daemon's own copy of the skill folder.
+    const { SKILL_SLUG } = await import("../scripts/serve.mjs");
+    const { hub } = await hubFor({ host: options.host, port: options.port, idle: options.idle });
+    if (hub?.daemon) {
+      const [file, hash] = page.split("#");
+      const url = hubUrl(hub, `/${SKILL_SLUG}/${file.split("/").map(encodeURIComponent).join("/")}`) + (hash ? `#${hash}` : "");
+      process.stderr.write(`${green("✓")} 떠 있는 데몬(${hub.port})에서 엽니다\n  ${url}\n`);
+      if (options.open) openUrl(url);
+      return 0;
+    }
+  }
   // The daemon port stays free for the daemon even when it is not running yet; kit and library take a free one.
   options.port = await freePortFor(options.port, daemonWanted(options.host, options.port));
   try {
@@ -650,8 +672,7 @@ async function startDaemon(port, extraEnv = {}) {
 }
 
 // A comparison page on a hub: join its folder like jstyle hub does, then print the page's address.
-async function openOnHub(hub, file, open) {
-  const projectRoot = hubFolderFor(hub, file);
+async function openOnHub(hub, file, open, projectRoot = hubFolderFor(hub, file)) {
   const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot });
   if (joined.status !== 200) {
     process.stderr.write(`${yellow("!")} 떠 있는 허브(${hub.port})에 ${projectRoot}를 붙이지 못했습니다(${joined.body?.error ?? (joined.status || "연결 실패")}). 이 명령의 서버로 띄웁니다\n`);

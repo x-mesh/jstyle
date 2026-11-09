@@ -8,7 +8,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CHOICE_FILE, CHOICE_PATH, addProject, createServer, explorerChoice, hubChoice, hubProject } from "../scripts/serve.mjs";
+import { API, CHOICE_FILE, CHOICE_PATH, addProject, createServer, explorerChoice, hubChoice, hubProject } from "../scripts/serve.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Servers started by these tests record themselves; keep that out of the real ~/.jstyle.
@@ -1474,11 +1474,10 @@ function servedPort(t, args, env) {
   });
 }
 
-test("kit and library leave the daemon port free, and hub moves off a port another jstyle server holds", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a hub moves off the daemon port when a kit run without the daemon holds it", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
-  for (const command of ["kit", "library"]) assert.notEqual(await servedPort(t, [command, "--no-open"], env), port, `${command} takes the daemon port`);
   const root = buildPages(t);
   const started = jstyle(["hub", root, "--no-open"], { env, timeout: 15000 });
   assert.equal(started.status, 0, started.stderr);
@@ -1544,7 +1543,7 @@ test("a daemon of another version with no waiter hands over to a new daemon with
   assert.equal(more.length, 0);
   assert.notEqual(daemon.pid, old.child.pid);
   assert.notEqual(daemon.version, "0.0.1");
-  assert.equal(daemon.api, 1);
+  assert.equal(daemon.api, API);
   assert.deepEqual(daemon.projects.map((p) => p.slug).sort(), [slug, path.basename(second)].sort());
   // Tabs opened on the old daemon keep its token, so their picks still save.
   assert.equal(daemon.token, old.token);
@@ -1661,4 +1660,37 @@ test("a hub from before the daemon with an agent waiting on it is used, not take
   assert.match(run.stderr, /대기자 1개/);
   assert.equal(hub.exitCode, null, "a hub with a waiting agent was stopped");
   assert.deepEqual(daemonRecords(env), []);
+});
+
+test("kit, library and any served file open on the daemon under their own addresses", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const kit = jstyle(["kit", "--no-open"], { env, timeout: 15000 });
+  assert.equal(kit.status, 0, kit.stderr);
+  const kitUrl = new URL(/http:\/\/\S+/.exec(kit.stderr)[0]);
+  assert.equal(Number(kitUrl.port), port);
+  assert.equal(kitUrl.pathname, "/__skill/assets/kit/index.html");
+  assert.equal((await fetch(port, "GET", kitUrl.pathname)).status, 200);
+  const library = jstyle(["library", "cards", "--no-open"], { env, timeout: 15000 });
+  assert.equal(library.status, 0, library.stderr);
+  assert.match(library.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/__skill/assets/extended/index\\.html\\?t=[0-9a-f]+#cards`));
+  // The skill folder keeps the hub's rules: no dot files, and it is not a project.
+  assert.equal((await fetch(port, "GET", "/__skill/.gitignore")).status, 404);
+  assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 200);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-plain-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(folder, "plain.html"), "<main>plain</main>");
+  const served = jstyle(["serve", path.join(folder, "plain.html"), "--no-open"], { env, timeout: 15000 });
+  assert.equal(served.status, 0, served.stderr);
+  const slug = path.basename(folder);
+  assert.match(served.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/${slug}/plain\\.html\\?t=`));
+  assert.equal((await fetch(port, "GET", `/${slug}/plain.html`)).status, 200);
+  const [daemon, ...others] = daemonRecords(env);
+  assert.equal(others.length, 0);
+  assert.deepEqual(daemon.projects.map((p) => p.slug), [slug]);
+  const listed = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  assert.deepEqual(listed.projects.map((p) => p.slug), [slug]);
+  // Without the daemon, kit serves from the command as before.
+  assert.equal(await servedPort(t, ["kit", "--no-open"], daemonEnv(port, { JSTYLE_NO_DAEMON: "1", JSTYLE_DAEMON_PORT: String(await freePort()) })) > 0, true);
 });

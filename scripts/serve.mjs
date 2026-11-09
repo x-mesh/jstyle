@@ -26,7 +26,10 @@ const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
 let hubHtml = null;
 const hubPage = () => (hubHtml ??= fs.readFileSync(HUB_PAGE));
 // The HTTP shape between the CLI and a hub; raised only when it changes, so a CLI can still use a hub of another version.
-export const API = Number(process.env.JSTYLE_TEST_API) || 1;
+// 2: a daemon serves the skill folder under SKILL_SLUG for kit and library.
+export const API = Number(process.env.JSTYLE_TEST_API) || 2;
+// Reserved for the daemon's own folder: project slugs never start with "__".
+export const SKILL_SLUG = "__skill";
 const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
 const MAX_NOTES = 4000;
@@ -445,11 +448,11 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
         if (only) return send(302, { Location: `/${encodeURIComponent(only)}/${url.search}` });
         return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       }
-      const at = projectAt(choice, url.pathname);
+      const at = projectAt(choice, url.pathname, { builtin: true });
       if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
       usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
-      if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
+      if (at.rest === "/" && !at.builtin) return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       return serveFile(at.root, at.rest, url.pathname, true);
     }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
@@ -534,7 +537,7 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // A daemon hub may end up with no project at all; a hub started for a folder keeps at least one.
 export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL, daemon = false, token = randomBytes(16).toString("hex") } = {}) {
   hubPage();
-  return { token, hub: true, daemon, onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
+  return { token, hub: true, daemon, builtin: daemon ? new Map([[SKILL_SLUG, SKILL_ROOT]]) : new Map(), onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
 export function addProject(hub, root) {
@@ -621,7 +624,8 @@ export function projectList(hub) {
 }
 
 // The first path segment names the project; rest keeps the leading slash ("" for /<slug>).
-function projectAt(hub, pathname) {
+// builtin also finds the daemon's own folders, which only static file requests may reach.
+function projectAt(hub, pathname, { builtin = false } = {}) {
   const slash = pathname.indexOf("/", 1);
   let slug = slash < 0 ? pathname.slice(1) : pathname.slice(1, slash);
   try {
@@ -629,8 +633,9 @@ function projectAt(hub, pathname) {
   } catch {
     return null;
   }
-  const root = hub.projects.get(slug);
-  return root ? { slug, root, rest: slash < 0 ? "" : pathname.slice(slash) } : null;
+  const own = builtin && !hub.projects.has(slug) ? hub.builtin?.get(slug) : null;
+  const root = hub.projects.get(slug) ?? own;
+  return root ? { slug, root, rest: slash < 0 ? "" : pathname.slice(slash), builtin: Boolean(own) } : null;
 }
 
 function hubJson(hub, page) {

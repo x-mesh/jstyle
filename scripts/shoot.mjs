@@ -323,6 +323,11 @@ function expandTarget(value) {
     let manifest;
     try { manifest = JSON.parse(readFileSync(path, "utf8")); }
     catch (error) { fail(`manifest를 읽을 수 없습니다: ${value} (${error.message})`); }
+    // Matrix cells are not shot yet; skipping keeps the other targets of a batch going.
+    if (manifest && Object.hasOwn(manifest, "screens")) {
+      console.error(`shoot: matrix manifest(screens)는 아직 찍지 않아 건너뜁니다: ${value}. 칸의 HTML 파일을 직접 대상으로 주세요`);
+      return [];
+    }
     if (!Array.isArray(manifest.candidates)) fail(`manifest에 candidates 배열이 없습니다: ${value}`);
     const candidates = manifest.candidates.filter((c) => c && (!c.kind || c.kind === "html") && typeof c.source === "string" && /\.html?$/i.test(c.source) && !/^[a-z][a-z\d+.-]*:/i.test(c.source));
     if (!candidates.length) fail(`manifest에서 로컬 HTML 파일을 찾지 못했습니다: ${value}`);

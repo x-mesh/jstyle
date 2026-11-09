@@ -306,7 +306,7 @@ test("default viewports and narrow native canvas fitting", () => {
   const fit = before(after(template, " function fit(s){"), "\n const fitAll=");
   const program = String.raw`
 const SIZES={desktop:{w:1280,h:900},mobile:{w:390,h:844}},st={viewport:'desktop'};
-const byId={a:{}},innerHeight=844,$=()=>({offsetHeight:100});
+const byId={a:{}},viewOf=s=>byId[s.dataset.id],innerHeight=844,$=()=>({offsetHeight:100});
 const narrow=()=>true,getComputedStyle=()=>({paddingLeft:'12',paddingRight:'12',paddingTop:'16',paddingBottom:'16'});
 const m={style:{}},box={clientWidth:390,clientHeight:0,dataset:{zoom:'fit'},classList:{contains:()=>false}};
 const s={isConnected:true,dataset:{id:'a'},parentElement:box,querySelector:()=>m,style:{}};
@@ -1678,4 +1678,177 @@ test("directory and multiple HTML files build without manifest", (t) => {
   build(folder, directoryOutput);
   const directoryCandidates = payload(readText(directoryOutput)).candidates;
   assert.deepEqual(directoryCandidates.map((c) => c.name), ["First option", "second"]);
+});
+
+// A matrix manifest: rows are pages, columns are directions.
+function matrixFixture(t) {
+  const f = new Fixture(t);
+  const page = (title) => `<!doctype html><html><head><title>${title}</title></head><body><main>${title}</main></body></html>`;
+  for (const name of ["base-list", "base-detail", "a-list", "a-detail", "a-settings", "b-list", "b-detail", "b-settings"]) writeText(path.join(f.folder, `${name}.html`), page(name));
+  f.data = {
+    schemaVersion: 1, project: "프로젝트", round: "01", lang: "ko", screens: ["목록", "상세", "설정"],
+    candidates: [
+      { id: "a", name: "단정한 표", screens: { "목록": { source: "a-list.html" }, "상세": { source: "a-detail.html" }, "설정": { source: "a-settings.html" } } },
+      { id: "base", baseline: true, name: "지금 화면", screens: { "상세": { source: "base-detail.html" }, "목록": { source: "base-list.html" } } },
+      { id: "b", name: "카드 중심", nativeViewport: "1280x900",
+        screens: { "목록": { source: "b-list.html", interactive: true }, "상세": { source: "b-detail.html", nativeViewport: "390x844" }, "설정": { source: "b-settings.html" } } },
+    ],
+  };
+  f.save();
+  return f;
+}
+
+test("a matrix manifest builds one column per direction with cells in page order", (t) => {
+  const f = matrixFixture(t);
+  f.build();
+  const data = payload(f.page());
+  assert.deepEqual(data.screens, ["목록", "상세", "설정"]);
+  assert.deepEqual(data.candidates.map((c) => c.id), ["base", "a", "b"]);
+  const base = data.candidates[0];
+  // Empty cells are left out; the order follows the top-level screens, not the candidate's own keys.
+  assert.deepEqual(base.screens.map((s) => [s.screen, s.sourceLabel]), [["목록", "base-list.html"], ["상세", "base-detail.html"]]);
+  const b = data.candidates[2];
+  assert.deepEqual(b.screens.map((s) => [s.screen, s.kind, s.interactive, s.nativeViewport]), [
+    ["목록", "html", true, { width: 1280, height: 900 }],
+    ["상세", "html", false, { width: 390, height: 844 }],
+    ["설정", "html", false, { width: 1280, height: 900 }],
+  ]);
+  for (const c of data.candidates) {
+    const first = c.screens[0];
+    for (const key of ["kind", "content", "sourceLabel", "interactive", "nativeViewport"]) assert.deepEqual(c[key], first[key], `${c.id}.${key}`);
+  }
+  assert.match(b.screens[0].content, /b-list/);
+  assert.ok(!("nativeViewport" in data.candidates[1].screens[0]));
+});
+
+test("a plain manifest gets no screens fields", (t) => {
+  const f = new Fixture(t);
+  f.build();
+  const data = payload(f.page());
+  assert.ok(!("screens" in data));
+  assert.ok(!("screens" in data.candidates[0]));
+});
+
+test("changing one matrix cell changes the fingerprint", (t) => {
+  const f = matrixFixture(t);
+  const first = f.build().fingerprint;
+  writeText(path.join(f.folder, "a-settings.html"), "<!doctype html><html><head></head><body>바뀐 설정</body></html>");
+  assert.notEqual(f.build(true).fingerprint, first);
+});
+
+test("matrix manifests report each problem", async (t) => {
+  const cases = [
+    ["mixing page cells with a candidate source", (d) => { d.candidates[0].source = "a-list.html"; }, /안 a: 맨 위에 screens가 있으면 source, url, kind, interactive는 screens 안의 칸에 씁니다/],
+    ["an unknown page", (d) => { d.candidates[0].screens["도움말"] = { source: "a-list.html" }; }, /안 a: screens의 "도움말"은 맨 위 screens에 없습니다/],
+    ["a direction without cells", (d) => { d.candidates[0].screens = {}; }, /안 a: screens에 칸이 하나 이상 필요합니다/],
+    ["a direction without screens", (d) => { delete d.candidates[0].screens; d.candidates[0].source = "a-list.html"; }, /안 a: 맨 위에 screens가 있으면/],
+    ["repeated page names", (d) => { d.screens = ["목록", "목록"]; }, /manifest\.screens의 페이지 이름 "목록"이 겹칩니다/],
+    ["an empty page list", (d) => { d.screens = []; }, /manifest\.screens는 비어 있지 않은 문자열 배열이어야 합니다/],
+    ["a long page name", (d) => { d.screens = ["가".repeat(41)]; d.candidates.forEach((c) => { c.screens = { ["가".repeat(41)]: { source: "a-list.html" } }; }); }, /페이지 이름은 40자까지입니다/],
+    ["seven pages", (d) => { d.screens = ["1", "2", "3", "4", "5", "6", "7"]; }, /manifest\.screens는 페이지 6개까지입니다\(받은 수: 7\)/],
+    ["twenty-five cells", (d) => {
+      d.screens = ["1", "2", "3", "4", "5"];
+      d.candidates = Array.from({ length: 5 }, (_, i) => ({ id: `d${i}`, screens: Object.fromEntries(d.screens.map((s) => [s, { source: "a-list.html" }])) }));
+    }, /칸은 모두 24개까지입니다\(받은 수: 25\)/],
+  ];
+  for (const [name, change, pattern] of cases) {
+    await t.test(name, (tt) => {
+      const f = matrixFixture(tt);
+      change(f.data);
+      f.save();
+      raises(() => f.build(), isManifestError, pattern);
+    });
+  }
+});
+
+test("a matrix board shows pages as rows, moves by page in the loupe and picks a whole direction", { skip: CHROME_SKIP("matrix board checks") }, async (t) => {
+  const f = matrixFixture(t);
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ const wait=async test=>{for(let i=0;i<160&&!test();i++)await sleep(50);return test();};
+ const key=k=>document.dispatchEvent(new KeyboardEvent('keydown',{key:k,bubbles:true}));
+ await wait(()=>document.querySelectorAll('#grid .stage.ready').length===8);
+ const board={
+  columns:[...document.querySelectorAll('#grid .card')].map(a=>a.dataset.id),
+  rows:[...document.querySelectorAll('#grid .row-head')].map(r=>r.textContent),
+  cells:[...document.querySelectorAll('#grid .card')].map(a=>[...a.querySelectorAll('.slot')].map(s=>s.classList.contains('is-empty')?'-':s.dataset.screen)),
+  empty:document.querySelector('#grid .slot.is-empty .empty-note')?.textContent,
+  heights:[...document.querySelectorAll('#grid .card')].map(a=>Math.round(a.querySelectorAll('.slot')[2].getBoundingClientRect().height)),
+ };
+ // Comment on the detail page of direction a.
+ document.querySelector('#comment-mode').click();await sleep(300);
+ const frame=document.querySelector('#grid .stage[data-id="a"][data-screen="상세"] iframe');
+ frame.scrollIntoView({block:'center',inline:'center'});await sleep(200);
+ const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;
+ window.__probeClick=[rect.left+20*scale,rect.top+12*scale];
+ const bubble=document.querySelector('#bubble');await wait(()=>!bubble.hidden);
+ const title=bubble.querySelector('h3').textContent;
+ const box=bubble.querySelector('textarea');box.value='상세 제목이 작음';box.dispatchEvent(new Event('input'));
+ bubble.querySelector('.row button:last-child').click();await wait(()=>bubble.hidden);
+ document.querySelector('#comment-mode').click();
+ const groups=[...document.querySelectorAll('#review .rv-group')].map(g=>[g.querySelector('h4').textContent,...[...g.querySelectorAll('h5')].map(h=>h.textContent)]);
+ // Open one cell, then walk across directions and down pages.
+ document.querySelector('#grid .stage[data-id="a"][data-screen="목록"] .hit').click();await sleep(300);
+ const at=()=>{const s=document.querySelector('.slide.is-current .stage');return s.dataset.id+'/'+s.dataset.screen;};
+ const walk=[at()];
+ for(const k of ['ArrowRight','ArrowDown','ArrowLeft','ArrowLeft','ArrowDown','ArrowRight','ArrowDown','ArrowLeft']){key(k);await sleep(120);walk.push(at());}
+ const tabs=[...document.querySelectorAll('#screen-tabs button')].map(b=>b.textContent+(b.disabled?'×':'')+(b.getAttribute('aria-pressed')==='true'?'*':''));
+ const film=[...document.querySelectorAll('#film button[data-id]')].map(b=>b.dataset.id);
+ key('Escape');await sleep(300);
+ const chosenBefore=document.querySelectorAll('#grid .card.is-chosen').length;
+ document.querySelector('#grid .stage[data-id="a"][data-screen="설정"] .hit').click();await sleep(300);
+ key('p');
+ const toast=()=>document.querySelector('#toast b').textContent;await wait(toast);
+ key('Escape');await sleep(300);
+ const chosen=[...document.querySelectorAll('#grid .card.is-chosen')].map(a=>a.dataset.id);
+ const marks=[...document.querySelectorAll('#grid .pick-mark')].filter(m=>getComputedStyle(m).display!=='none').length;
+ const outline=getComputedStyle(document.querySelector('#grid .card.is-chosen')).outlineStyle;
+ const result=document.createElement('pre');result.id='matrix-result';
+ result.textContent=JSON.stringify({board,title,groups,walk,tabs,film,chosenBefore,chosen,marks,outline});
+ document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "serve", f.output, "--wait", "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (data) => { stdout += data; });
+  const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  const url = await new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = / at (http:\/\/\S+\?t=[0-9a-f]+)/.exec(stderr);
+      if (match) resolve(match[1]);
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const probed = f.runBrowserProbe("matrix-result", "chrome-matrix", url, "1440,900");
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  const ko = i18nTable().ko;
+  assert.deepEqual(observed.board.columns, ["base", "a", "b"]);
+  assert.deepEqual(observed.board.rows, ["목록", "상세", "설정"]);
+  assert.deepEqual(observed.board.cells, [["목록", "상세", "-"], ["목록", "상세", "설정"], ["목록", "상세", "설정"]]);
+  assert.equal(observed.board.empty, ko.noScreen);
+  // The empty cell keeps the height of its row.
+  assert.equal(new Set(observed.board.heights).size, 1, JSON.stringify(observed.board.heights));
+  assert.equal(observed.title, "1 · 01 단정한 표 · 상세 main");
+  assert.deepEqual(observed.groups, [["01 단정한 표", "상세"]]);
+  assert.deepEqual(observed.walk, ["a/목록", "b/목록", "b/상세", "a/상세", "base/상세", "base/상세", "a/상세", "a/설정", "a/설정"]);
+  assert.deepEqual(observed.tabs, ["목록", "상세", "설정*"]);
+  assert.deepEqual(observed.film, ["a", "b"]);
+  assert.equal(observed.chosenBefore, 0);
+  assert.deepEqual(observed.chosen, ["a"]);
+  assert.equal(observed.marks, 0);
+  assert.notEqual(observed.outline, "none");
+  assert.equal(await exit, 0);
+  const picked = JSON.parse(stdout.trim().split("\n").at(-1));
+  assert.equal(picked.id, "a");
+  assert.deepEqual(picked.screens, ["목록", "상세", "설정"]);
+  assert.deepEqual(picked.comments.map((c) => [c.id, c.screen, c.note]), [["a", "상세", "상세 제목이 작음"]]);
+  const saved = JSON.parse(readText(path.join(path.dirname(f.output), "choice.json")));
+  assert.equal(saved.comments[0].screen, "상세");
 });

@@ -736,6 +736,10 @@ function palette(value, where) {
 
 const VIEWPORT_TEXT = new RegExp(`^[${S}]*(\\p{Nd}+)[${S}]*[xX×][${S}]*(\\p{Nd}+)[${S}]*$`, "u");
 const MAX_SAFE = 2n ** 53n - 1n;
+// Every cell is a live frame on one board, so a matrix stays small enough to load at once.
+const MAX_SCREENS = 6;
+const MAX_CELLS = 24;
+const MAX_SCREEN_NAME = 40;
 
 function pyInt(digits) {
   if (digits.length > 4300) {
@@ -881,6 +885,83 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
     const where = affected ? `manifest(안 ${affected}): ` : "manifest.";
     viewport = attempt(() => nativeViewport(raw.get("nativeViewport"), where));
   }
+  // A top-level screens list turns the round into a matrix: rows are pages, columns are directions.
+  const matrix = raw.has("screens");
+  let screens = null;
+  if (matrix) {
+    const value = raw.get("screens");
+    if (!isList(value) || !value.length || value.some((name) => !isStr(name) || !pyStrip(name))) {
+      problems.push('manifest.screens는 비어 있지 않은 문자열 배열이어야 합니다. 예: ["목록", "상세"]');
+    } else {
+      const names = value.map(pyStrip);
+      const before = problems.length;
+      const repeated = new Set();
+      for (const [at, name] of names.entries()) {
+        if ([...name].length > MAX_SCREEN_NAME) problems.push(`manifest.screens의 "${name}": 페이지 이름은 ${MAX_SCREEN_NAME}자까지입니다`);
+        if (names.indexOf(name) !== at && !repeated.has(name)) {
+          repeated.add(name);
+          problems.push(`manifest.screens의 페이지 이름 "${name}"이 겹칩니다`);
+        }
+      }
+      if (names.length > MAX_SCREENS) problems.push(`manifest.screens는 페이지 ${MAX_SCREENS}개까지입니다(받은 수: ${names.length})`);
+      if (problems.length === before) screens = names;
+    }
+    data.screens = screens;
+  }
+  let cellCount = 0;
+  // One screen of a direction: the whole candidate in a plain round, one cell in a matrix.
+  // baseline is given only for a whole candidate, whose nativeViewport the caller already read.
+  const checkCell = (spec, where, inherited, baseline) => {
+    const cell = baseline === undefined;
+    const cellViewport = cell && spec.has("nativeViewport") ? attempt(() => nativeViewport(spec.get("nativeViewport"), where)) : inherited;
+    let kind = getOr(spec, "kind", "html");
+    if (!(isStr(kind) && ["html", "image", "url"].includes(kind))) {
+      problems.push(`${where}kind는 "html", "image", "url" 중 하나여야 합니다(받은 값: ${jsonDumps(kind)})`);
+      kind = null;
+    }
+    const interactive = getOr(spec, "interactive", false);
+    if (cell ? !isBool(interactive) : !isBool(baseline) || !isBool(interactive)) {
+      problems.push(cell ? `${where}interactive는 true 또는 false여야 합니다` : `${where}baseline과 interactive는 true 또는 false여야 합니다`);
+    } else if (interactive && kind !== "html" && kind !== null) problems.push(`${where}interactive는 html 안에만 쓸 수 있습니다`);
+    let source = null;
+    let url = null;
+    if (kind === "url") {
+      url = attempt(() => localUrl(textField(spec, "url", { where }), `${where}url `));
+    } else if (kind) {
+      const name = attempt(() => textField(spec, "source", { where }));
+      if (name) {
+        const sourceFile = () => {
+          try {
+            // source is a filesystem path, so literal #, ? and % retain their old meaning.
+            const direct = resolvePath(joinPath(folder, name));
+            if (isFile(direct)) return direct;
+            const target = localFile(name, folder);
+            if (target === null) throw valueError('로컬 파일을 가리켜야 합니다. 예: "source": "./a.html"');
+            return target;
+          } catch (error) {
+            if (!isValueError(error)) throw error;
+            throw valueError(`${where}source: ${error.message}`);
+          }
+        };
+        source = attempt(sourceFile);
+        if (source) inputs.add(source);
+      }
+    }
+    return { kind, interactive, source, url, viewport: cellViewport };
+  };
+  const renderCell = (cell, where) => {
+    const { kind, interactive, source, url } = cell;
+    try {
+      const content = kind === "url" ? url : kind === "html" ? prepareHtml(source, interactive, inputs) : prepareImage(source, inputs);
+      return { ...cell, content, sourceLabel: kind === "url" ? url : nameOf(source) };
+    } catch (error) {
+      if (!isValueError(error)) throw error;
+      let message = error.message;
+      if (source && message.startsWith(`${nameOf(source)}: `)) message = message.slice(nameOf(source).length + 2);
+      problems.push(source ? `${where}${nameOf(source)} ${message}` : `${where}${message}`);
+      return null;
+    }
+  };
   candidates.forEach((candidate, offset) => {
     const index = offset + 1;
     if (!isDict(candidate)) {
@@ -912,37 +993,31 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
     const candidateViewport = candidate.has("nativeViewport")
       ? attempt(() => nativeViewport(candidate.get("nativeViewport"), where))
       : viewport;
-    let kind = getOr(candidate, "kind", "html");
-    if (!(isStr(kind) && ["html", "image", "url"].includes(kind))) {
-      problems.push(`${where}kind는 "html", "image", "url" 중 하나여야 합니다(받은 값: ${jsonDumps(kind)})`);
-      kind = null;
-    }
     const baseline = getOr(candidate, "baseline", false);
-    const interactive = getOr(candidate, "interactive", false);
-    if (!isBool(baseline) || !isBool(interactive)) problems.push(`${where}baseline과 interactive는 true 또는 false여야 합니다`);
-    else if (interactive && kind !== "html" && kind !== null) problems.push(`${where}interactive는 html 안에만 쓸 수 있습니다`);
-    let source = null;
-    let url = null;
-    if (kind === "url") {
-      url = attempt(() => localUrl(textField(candidate, "url", { where }), `${where}url `));
-    } else if (kind) {
-      const name = attempt(() => textField(candidate, "source", { where }));
-      if (name) {
-        const sourceFile = () => {
-          try {
-            // source is a filesystem path, so literal #, ? and % retain their old meaning.
-            const direct = resolvePath(joinPath(folder, name));
-            if (isFile(direct)) return direct;
-            const target = localFile(name, folder);
-            if (target === null) throw valueError('로컬 파일을 가리켜야 합니다. 예: "source": "./a.html"');
-            return target;
-          } catch (error) {
-            if (!isValueError(error)) throw error;
-            throw valueError(`${where}source: ${error.message}`);
-          }
-        };
-        source = attempt(sourceFile);
-        if (source) inputs.add(source);
+    let specs = [];
+    if (!matrix) {
+      specs = [[null, checkCell(candidate, where, candidateViewport, baseline)]];
+    } else {
+      if (!isBool(baseline)) problems.push(`${where}baseline은 true 또는 false여야 합니다`);
+      const mixed = ["source", "url", "kind", "interactive"].filter((name) => candidate.has(name));
+      const cellMap = candidate.has("screens") ? candidate.get("screens") : null;
+      if (mixed.length || cellMap === null) {
+        problems.push(`${where}맨 위에 screens가 있으면 source, url, kind, interactive는 screens 안의 칸에 씁니다. 예: "screens": {"목록": {"source": "a/list.html"}}`);
+      } else if (!isDict(cellMap)) {
+        problems.push(`${where}screens는 페이지 이름을 키로 쓰는 객체여야 합니다. 예: {"목록": {"source": "a/list.html"}}`);
+      } else if (screens) {
+        const given = new Map([...cellMap.entries()].map(([name, cell]) => [isStr(name) ? pyStrip(name) : name, cell]));
+        for (const name of given.keys()) {
+          if (!screens.includes(name)) problems.push(`${where}screens의 "${name}"은 맨 위 screens에 없습니다. 쓸 수 있는 이름: ${screens.join(", ")}`);
+        }
+        const known = screens.filter((name) => given.has(name));
+        cellCount += known.length;
+        if (!known.length) problems.push(`${where}screens에 칸이 하나 이상 필요합니다`);
+        for (const name of known) {
+          const cell = given.get(name);
+          if (!isDict(cell)) problems.push(`${where}${name}: 칸은 객체여야 합니다. 예: {"source": "a/list.html"}`);
+          else specs.push([name, checkCell(cell, `${where}${name}: `, candidateViewport)]);
+        }
       }
     }
     const colors = candidate.has("palette") ? attempt(() => palette(candidate.get("palette"), where)) : null;
@@ -952,33 +1027,33 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
     }
     let candidateName = candidate.has("name") ? attempt(() => textField(candidate, "name", { where })) : null;
     const traits = candidate.has("traits") ? attempt(() => textList(candidate, "traits", { where })) : null;
-    if (problems.length > before) return;
-    let content;
-    try {
-      content = kind === "url" ? url : kind === "html" ? prepareHtml(source, interactive, inputs) : prepareImage(source, inputs);
-    } catch (error) {
-      if (!isValueError(error)) throw error;
-      let message = error.message;
-      if (source && message.startsWith(`${nameOf(source)}: `)) message = message.slice(nameOf(source).length + 2);
-      problems.push(source ? `${where}${nameOf(source)} ${message}` : `${where}${message}`);
-      return;
+    if (problems.length > before || !specs.length) return;
+    const cells = [];
+    for (const [screen, spec] of specs) {
+      const cell = renderCell(spec, screen === null ? where : `${where}${screen}: `);
+      if (!cell) return;
+      cells.push({ screen, ...cell });
     }
-    if (candidateName === null) candidateName = inferredName(kind, source, url, index);
+    const [first] = cells;
+    if (candidateName === null) candidateName = inferredName(first.kind, first.source, first.url, index);
+    const shown = (cell) => ({ kind: cell.kind, content: cell.content, sourceLabel: cell.sourceLabel });
+    const fixed = (cell) => (cell.viewport ? { nativeViewport: cell.viewport } : {});
     output.push({
       id: identifier,
       name: candidateName,
       ...texts,
       ...(colors !== null ? { palette: colors } : {}),
       ...(traits !== null ? { traits } : {}),
-      kind,
-      content,
-      sourceLabel: kind === "url" ? url : nameOf(source),
+      // In a matrix these mirror the first cell, so readers of one screen per direction keep working.
+      ...shown(first),
       baseline,
-      interactive,
-      ...(candidateViewport ? { nativeViewport: candidateViewport } : {}),
+      interactive: first.interactive,
+      ...fixed(first),
+      ...(matrix ? { screens: cells.map((cell) => ({ screen: cell.screen, ...shown(cell), interactive: cell.interactive, ...fixed(cell) })) } : {}),
     });
   });
   if (output.filter((c) => c.baseline).length > 1) problems.push("기존 화면 안(baseline: true)은 하나만 둘 수 있습니다");
+  if (cellCount > MAX_CELLS) problems.push(`manifest: matrix의 칸은 모두 ${MAX_CELLS}개까지입니다(받은 수: ${cellCount}). 안이나 페이지를 줄이세요`);
   if (problems.length) throw new ManifestError(problems);
   // The current version always sits first so every direction is read against it.
   output.sort((a, b) => Number(!a.baseline) - Number(!b.baseline));
@@ -1135,6 +1210,9 @@ concept/typography/palette/traits는 설명을 더하며 비우면 보이지 않
   interactive: 움직이는 단일 HTML. 스크립트는 안에 넣고 외부 통신·파일을 읽지 않습니다.
     저장소는 닫은 뒤 비우며 alert/confirm 대신 페이지 안 대화상자를 씁니다.
   baseline: 기존 화면을 첫 항목으로 보입니다. 한 회차에 최대 하나입니다.
+  screens: 페이지 이름 배열. 있으면 행=페이지, 열=안인 matrix가 됩니다.
+    안마다 screens에 {"페이지": {source 등 칸 필드}}를 두고 안 단위 source/url/kind/interactive는 쓰지 않습니다.
+    빈 칸은 허용하며 페이지 6개, 칸 24개, 이름 40자까지입니다.
 
 source는 manifest 폴더를 기준으로 읽으며 이미지·글꼴·영상·CSS·스크립트는 참조한 파일 기준입니다.
 로컬 절대 경로와 폴더 밖 파일도 안에 넣을 수 있습니다. 네트워크 파일은 받지 않습니다.

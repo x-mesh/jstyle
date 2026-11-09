@@ -1706,11 +1706,17 @@ test("a daemon that steps down after its waiters leaves its token to the next da
   assert.equal(jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 }).status, 0);
   assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${id}`, { headers: old.headers })).status, 200);
   assert.equal(await old.exit, 0);
+  // A daemon on another port must not take the token left for this one.
+  const other = await freePort();
+  t.after(() => killDaemons(other));
+  const otherEnv = daemonEnv(other);
+  assert.equal(jstyle(["hub", buildPages(t), "--no-open"], { env: otherEnv, timeout: 20000 }).status, 0);
+  assert.notEqual(daemonRecords(otherEnv).find((r) => r.port === other).token, old.token, "a daemon on another port took the token");
   assert.equal(jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 }).status, 0);
-  const [daemon] = daemonRecords(env);
+  const daemon = daemonRecords(env).find((r) => r.port === port);
   assert.notEqual(daemon.pid, old.child.pid);
   assert.equal(daemon.token, old.token, "a tab opened on the old daemon would get 403");
-  assert.equal(fs.existsSync(path.join(process.env.JSTYLE_HOME, "daemon", "token")), false, "the handed-over token stays on disk");
+  assert.deepEqual(fs.readdirSync(path.join(process.env.JSTYLE_HOME, "daemon")).filter((name) => name.startsWith("token")), [], "the handed-over token stays on disk");
   const sent = await fetch(port, "POST", CHOICE_PATH, { headers: old.headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
   assert.equal(sent.status, 200, sent.body);
 });

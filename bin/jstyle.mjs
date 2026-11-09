@@ -401,7 +401,7 @@ async function runHub(root, options, { daemon = false, token } = {}) {
     return fail(error.message, 1);
   }
   // The token a stepped-down daemon left is used now; a daemon that lost the port race leaves it for the winner.
-  if (daemon) fs.rmSync(handedTokenFile(), { force: true });
+  if (daemon) fs.rmSync(handedTokenFile(options.port), { force: true });
   if (store) {
     // Only now, holding the port, may this run set aside a list it could not read.
     let broken = null;
@@ -430,7 +430,7 @@ async function runHub(root, options, { daemon = false, token } = {}) {
       save();
       // A daemon that steps down after its waiters has no run to pass the token to; the next daemon reads it here.
       try {
-        const file = handedTokenFile();
+        const file = handedTokenFile(options.port);
         fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
         fs.writeFileSync(`${file}.${process.pid}.tmp`, choice.token, { mode: 0o600 });
         fs.renameSync(`${file}.${process.pid}.tmp`, file);
@@ -470,8 +470,9 @@ jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>와 
 데몬 이전에 127.0.0.1의 이 포트에 띄운 허브는 끄고 같은 토큰과 주소로 넘겨받습니다. 대기자가 있는 허브와 ::1, localhost의 허브는 끄지 않고 그대로 씁니다.
 `;
 
-function handedTokenFile() {
-  return path.join(daemonFolder(), "token");
+// One file per port: a daemon on another port (JSTYLE_DAEMON_PORT) must not take a token left for this one.
+function handedTokenFile(port) {
+  return path.join(daemonFolder(), `token-${port}`);
 }
 
 // Agents waiting on a daemon, from its hub.json; null when it cannot be told.
@@ -511,7 +512,7 @@ async function daemonCommand(argv) {
   delete process.env.JSTYLE_ADOPT_TOKEN;
   if (!adopted) {
     try {
-      adopted = fs.readFileSync(handedTokenFile(), "utf8").trim();
+      adopted = fs.readFileSync(handedTokenFile(options.port), "utf8").trim();
     } catch {
       // No daemon stepped down for this one.
     }

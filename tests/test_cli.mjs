@@ -1311,7 +1311,7 @@ test("hub waiters end with a project that leaves, and stay when the removal cann
 
 // Daemon tests run a detached daemon on a free port. It outlives the CLI that
 // started it, so every test kills it by pid and the file sweeps what is left.
-const DAEMON_SKIP = process.platform === "win32" && "detached daemons and their signals differ on Windows";
+const DAEMON_SKIP = false;
 
 function daemonEnv(port, extra = {}) {
   const env = { ...process.env, NO_COLOR: "1", JSTYLE_DAEMON_PORT: String(port) };

@@ -30,7 +30,8 @@ function waitingProcess() {
 }
 const LAUNCHED_BY = process.argv.includes("--wait") ? waitingProcess() : null;
 const SCRIPTS = path.join(ROOT, "scripts");
-const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+// JSTYLE_TEST_VERSION lets tests stand in an older daemon.
+const VERSION = process.env.JSTYLE_TEST_VERSION || JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
 // One daemon per user serves every project on this loopback port; JSTYLE_DAEMON_PORT moves it (tests use a free port).
 const DAEMON_PORT = Number(process.env.JSTYLE_DAEMON_PORT) || 8765;
@@ -316,12 +317,12 @@ async function hubCommand(argv) {
 }
 
 // Runs a hub in this process: for a folder (jstyle hub), or with no folder as the daemon.
-async function runHub(root, options, { daemon = false } = {}) {
+async function runHub(root, options, { daemon = false, token } = {}) {
   const { serve, hubChoice, addProject, projectList, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
   const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
-  const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait), daemon });
+  const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait), daemon, token });
   choice.onEvicted = (evicted) => process.stderr.write(`${yellow("!")} 프로젝트가 상한을 넘어 가장 오래 쓰지 않은 ${evicted.join(", ")}를 뺐습니다\n`);
   // A hub on a fixed port keeps its projects for the next start there; --wait and a random port are one-off.
   const store = !options.wait && options.port ? hubStoreFile(options.host, options.port) : null;
@@ -387,6 +388,18 @@ async function runHub(root, options, { daemon = false } = {}) {
     saving = true;
     save();
   }
+  // A newer CLI's handoff ends the daemon once it has no waiter; the saved list carries its projects over.
+  if (daemon) {
+    choice.onRetire = () => {
+      save();
+      process.stderr.write("새 버전 jstyle에 자리를 넘기고 데몬을 끝냅니다\n");
+      setTimeout(() => {
+        server.closeAllConnections();
+        server.close();
+        process.exit(0);
+      }, 300);
+    };
+  }
   if (!options.wait) return null;
   process.stderr.write(`${dim("wait:")} 어느 비교 화면에서든 고르거나 보내면 끝납니다\n`);
   const { record, file } = await pick;
@@ -406,6 +419,8 @@ const DAEMON_HELP = `usage: jstyle daemon [--port PORT] [--idle MIN]
 프로젝트 목록은 hubs/127.0.0.1-<port>.json에서 되살리고, 출력은 daemon/daemon.log에 남습니다.
 대기자도 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 끝납니다.
 jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>는 데몬을 끕니다.
+새 버전 jstyle이 교체를 요청하면, 대기자가 없을 때 목록을 남기고 끝납니다. 대기자가 있으면 그들이 끝난 뒤에 끝납니다.
+데몬 이전에 127.0.0.1의 이 포트에 띄운 허브는 끄고 같은 토큰과 주소로 넘겨받습니다. 대기자가 있는 허브와 ::1, localhost의 허브는 끄지 않고 그대로 씁니다.
 `;
 
 async function daemonCommand(argv) {
@@ -422,7 +437,11 @@ async function daemonCommand(argv) {
   }
   if (options.pageGiven || options.root || options.wait || options.host !== "127.0.0.1") return fail("daemon은 폴더, --wait, --host를 받지 않습니다. 127.0.0.1에서만 띄웁니다");
   fs.mkdirSync(daemonFolder(), { recursive: true, mode: 0o700 });
-  return runHub(null, { ...options, open: false }, { daemon: true });
+  // A daemon that takes over a hub keeps its token, so tabs open on that hub go on working. It comes in the
+  // environment, not argv, because other users on this machine can read a process's argv.
+  const adopted = process.env.JSTYLE_ADOPT_TOKEN;
+  delete process.env.JSTYLE_ADOPT_TOKEN;
+  return runHub(null, { ...options, open: false }, { daemon: true, token: /^[0-9a-f]{32}$/.test(adopted ?? "") ? adopted : undefined });
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -484,25 +503,111 @@ async function hubFor({ host, port, idle }) {
 }
 
 async function runningOrNewHub({ host, port }) {
-  const shared = await sharedHub({ host, port });
-  if (shared) return { hub: shared, fellBack: false };
-  if (!daemonWanted(host, port)) return { hub: null, fellBack: false };
+  if (!daemonWanted(host, port)) return { hub: await sharedHub({ host, port }), fellBack: false };
   const { listRecords } = await import("../scripts/lib/registry.mjs");
-  // Another jstyle server (another version, a --wait server, a kit run without the daemon) keeps the port.
-  if (listRecords().some((r) => r.port === port)) {
-    process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: 다른 jstyle 서버가 ${port} 포트를 쓰고 있습니다. 이 명령의 서버를 빈 포트로 띄웁니다\n`);
-    return { hub: null, fellBack: true };
+  const here = listRecords().filter((r) => r.port === port);
+  const hub = here.find((r) => joinable(r) && r.host === "127.0.0.1");
+  // The daemon binds 127.0.0.1 only, so tabs opened on a ::1 or localhost hub could not reach it; such a hub is used, not taken over.
+  const other = hub ? null : here.find((r) => joinable(r));
+  if (other) {
+    if (other.version !== VERSION) return fallBack(`${other.host}:${port}에 jstyle ${other.version || "?"} 허브가 떠 있습니다`);
+    return (await answersAs(other)) ? { hub: other, fellBack: false } : fallBack(`${port}의 허브가 jstyle 서버로 응답하지 않습니다`);
   }
-  const started = await startDaemon(port);
-  if (started.hub) return { hub: started.hub, fellBack: false };
-  process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: ${started.reason}. 이 명령의 서버로 띄웁니다\n`);
+  if (hub?.daemon && hub.version === VERSION) return (await answersAs(hub)) ? { hub, fellBack: false } : fallBack(`${port}의 데몬이 응답하지 않습니다`);
+  if (hub?.daemon) return replaceDaemon(hub, port);
+  if (hub) return adoptHub(hub, port);
+  // Another jstyle server (a --wait server, a kit run without the daemon) keeps the port.
+  if (here.length) return fallBack(`다른 jstyle 서버가 ${port} 포트를 쓰고 있습니다`);
+  return startOrFallBack(port);
+}
+
+function fallBack(reason) {
+  process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: ${reason}. 이 명령의 서버를 빈 포트로 띄웁니다\n`);
   return { hub: null, fellBack: true };
+}
+
+async function startOrFallBack(port, env = {}) {
+  const started = await startDaemon(port, env);
+  return started.hub ? { hub: started.hub, fellBack: false } : fallBack(started.reason);
+}
+
+// Waits until a server's process is gone or its port no longer answers as it.
+async function ended(record) {
+  const { isAlive } = await import("../scripts/lib/registry.mjs");
+  for (let i = 0; i < 50; i += 1) {
+    if (!isAlive(record.pid) || !(await answersAs(record, 300))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
+// A daemon of another version is asked to make way. With agents waiting on it
+// it stays; this run then uses it while the HTTP shape (api) is the same.
+async function replaceDaemon(old, port) {
+  const { API } = await import("../scripts/serve.mjs");
+  const name = `${port}의 jstyle ${old.version || "?"} 데몬`;
+  if (!(await answersAs(old))) return fallBack(`${name}이 응답하지 않습니다`);
+  const reply = await postJson(old, "/__jstyle/daemon/handoff", {});
+  if (reply.status === 200) {
+    if (!(await ended(old))) return fallBack(`${name}이 교체 요청 뒤에도 끝나지 않았습니다`);
+    process.stderr.write(`${dim(`${name}을 jstyle ${VERSION} 데몬으로 바꿉니다`)}\n`);
+    // The new daemon keeps the old token, so tabs opened on the old one still save their picks.
+    return startOrFallBack(port, { JSTYLE_ADOPT_TOKEN: old.token });
+  }
+  const waiters = reply.body?.waiters;
+  if (reply.status === 409 && old.api === API) {
+    process.stderr.write(`${yellow("!")} ${name}에 대기자 ${waiters}개가 있어 그대로 씁니다. 대기자가 모두 끝나면 그 데몬이 물러나고 다음 실행이 jstyle ${VERSION} 데몬을 띄웁니다\n`);
+    return { hub: old, fellBack: false };
+  }
+  if (reply.status === 409) return fallBack(`${name}에 대기자 ${waiters}개가 있고, 주고받는 방식(api ${old.api ?? "?"})이 이 명령(api ${API})과 다릅니다`);
+  return fallBack(`${name}이 교체 요청을 받지 않았습니다(${reply.body?.error ?? (reply.status || "연결 실패")})`);
+}
+
+// A hub from before the daemon on the daemon port: its projects go to the
+// daemon's list under the same slugs, it is stopped like jstyle stop does,
+// and the daemon starts with its token, so its open tabs keep working.
+async function adoptHub(old, port) {
+  const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
+  if (!(await answersAs(old))) return fallBack(`${port}의 허브가 jstyle 서버로 응답하지 않습니다`);
+  // Stopping a hub cuts off agents waiting on it, and it cannot take a handoff, so a busy hub is left running.
+  const listed = await requestJson(old, "GET", "/__jstyle/hub.json");
+  const waiters = (listed.body?.projects ?? []).reduce((sum, p) => sum + (p.waiters || 0), 0);
+  if (waiters) {
+    if (old.version !== VERSION) return fallBack(`${port}의 jstyle ${old.version || "?"} 허브에 대기자 ${waiters}개가 있습니다`);
+    process.stderr.write(`${yellow("!")} ${port}의 허브에 대기자 ${waiters}개가 있어 데몬으로 넘겨받지 않고 그대로 씁니다\n`);
+    return { hub: old, fellBack: false };
+  }
+  const store = hubStoreFile("127.0.0.1", port);
+  let saved = [];
+  try {
+    saved = readHubStore(store);
+  } catch {
+    // The hub's record is the list to keep.
+  }
+  const now = new Date().toISOString();
+  const projects = old.projects.map(({ slug, root }) => {
+    const known = saved.find((p) => p.slug === slug && p.root === root);
+    return { slug, root, added: known?.added ?? now, lastUsed: known?.lastUsed ?? now };
+  });
+  try {
+    writeHubStore(store, projects);
+  } catch (error) {
+    return fallBack(`${port}의 허브 목록을 옮기지 못했습니다(${error.message})`);
+  }
+  try {
+    process.kill(old.pid, "SIGTERM");
+  } catch {
+    // Ended on its own meanwhile.
+  }
+  if (!(await ended(old))) return fallBack(`${port}의 허브(프로세스 ${old.pid})가 끝나지 않았습니다`);
+  process.stderr.write(`${dim(`${port}의 허브와 프로젝트 ${projects.length}개를 데몬으로 넘겨받습니다`)}\n`);
+  return startOrFallBack(port, { JSTYLE_ADOPT_TOKEN: old.token });
 }
 
 // Starts `jstyle daemon` detached, logging to daemon/daemon.log, and waits until
 // a hub of this version answers on the port. When two runs start one each, the
 // one that opens the port wins and the other exits; either run then finds the winner.
-async function startDaemon(port) {
+async function startDaemon(port, extraEnv = {}) {
   const { listRecords } = await import("../scripts/lib/registry.mjs");
   const dir = daemonFolder();
   const log = path.join(dir, "daemon.log");
@@ -513,7 +618,7 @@ async function startDaemon(port) {
     // The log holds the address line with the token, so it stays private.
     const fd = fs.openSync(log, "a", 0o600);
     fs.chmodSync(log, 0o600);
-    child = spawn(process.execPath, [fileURLToPath(import.meta.url), "daemon", "--port", String(port)], { detached: true, stdio: ["ignore", fd, fd], windowsHide: true, env: { ...process.env, NO_COLOR: "1" } });
+    child = spawn(process.execPath, [fileURLToPath(import.meta.url), "daemon", "--port", String(port)], { detached: true, stdio: ["ignore", fd, fd], windowsHide: true, env: { ...process.env, ...extraEnv, NO_COLOR: "1" } });
     fs.closeSync(fd);
   } catch (error) {
     return { reason: `띄우지 못했습니다(${error.message})` };

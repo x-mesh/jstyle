@@ -1,0 +1,87 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><style>
+:root{--tool:#1f2326;--tool-2:#262b2f;--tool-3:#2f3539;--line:#ffffff1a;--line-2:#ffffff33;--text:#eceee9;--soft:#b4bab2;--faint:#9ca39a;--note:#7c3aed;--accent:#3e7049;--desk:#dfe0db;--ink:#22282b;--ink-soft:#4f584f;--card:#faf8f1;--sans:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Inter",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:light;font-family:var(--sans);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:var(--desk) radial-gradient(circle,#0000001c 1px,transparent 1.4px) 0 0/18px 18px;color:var(--ink)}button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}a{color:inherit}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;min-height:60px;padding:10px 24px;background:var(--tool);color:var(--text);border-bottom:1px solid #00000059}
+.mark{width:28px;height:28px;flex:none;border-radius:7px;background:#242626;box-shadow:0 0 0 1px #ffffff40;display:grid;place-items:center;font:700 16px/1 Georgia,serif;color:#fafaf9}
+.wm{font:400 30px/1 "Instrument Serif",Georgia,serif;letter-spacing:-.02em}.sep{width:1px;height:18px;background:var(--line-2)}
+.who{display:grid;gap:1px;min-width:0;max-width:min(520px,42vw)}.title{font-size:17px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.where{font:11.5px/1.3 var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sum{font-size:13px;color:var(--soft)}.sp{flex:1}.up{font-size:12.5px;color:var(--soft);text-decoration:none;white-space:nowrap}.up:hover{color:var(--text)}.up[hidden]{display:none}
+.live{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--soft)}.live i{width:7px;height:7px;border-radius:50%;background:#4ade80}.live[data-off] i{background:#9ca39a}
+main{max-width:1600px;margin:0 auto;padding:28px 24px 64px;display:grid;gap:36px}
+.intro{margin:0;max-width:72ch;font-size:14px;line-height:1.7;color:var(--ink-soft)}
+.group h2{display:flex;align-items:baseline;gap:10px;margin:0 0 14px;font-size:17px}.group h2 code{font:12.5px var(--mono);color:var(--ink-soft);font-weight:400}
+.rounds{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.round{position:relative;display:grid;gap:10px;padding:16px;border-radius:12px;background:var(--card);box-shadow:0 0 0 1px #00000014,0 16px 32px -24px #00000066;text-decoration:none;transition:box-shadow .2s,transform .3s cubic-bezier(.2,.8,.2,1)}
+.round:hover{box-shadow:0 0 0 1px #00000029,0 22px 40px -24px #00000073;transform:translateY(-2px)}.round[data-latest]{box-shadow:0 0 0 2px var(--ink),0 16px 32px -24px #00000066}
+.round .top{display:flex;align-items:center;gap:8px}.round .no{font:600 13px var(--mono)}.round .when{margin-left:auto;font-size:12px;color:var(--ink-soft)}
+.round h3{margin:0;font-size:15px;line-height:1.4}.round h3 code{font:12px var(--mono);color:var(--ink-soft);font-weight:400}.round .top>span:first-child:not(.no){font-size:12.5px;color:var(--ink-soft)}.round p{margin:0;font-size:13px;line-height:1.6;color:var(--ink-soft);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.strips{display:grid;gap:5px}.strips div{display:grid;grid-template-columns:minmax(0,1fr) 64px;align-items:center;gap:10px;font-size:12.5px}.strips span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.strips i{display:flex;height:6px;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px #0000001f}.strips b{flex:1}
+.state{justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#e8e9e3;color:var(--ink-soft)}
+.state[data-kind=picked]{background:#dcebdf;color:#2c5235}.state[data-kind=notes]{background:#ede5fd;color:#5b21b6}.state[data-kind=stale]{background:#f6ead2;color:#7a4b00}
+.empty{max-width:560px;margin:14vh auto;padding:24px;text-align:center;font-size:15px;line-height:1.8;color:var(--ink-soft)}.empty code{font:13px var(--mono);padding:1px 6px;border-radius:4px;background:#00000010}
+@media(max-width:760px){.bar{padding:10px 16px;flex-wrap:wrap}main{padding:20px 16px 48px}.sum{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition-duration:0s!important}}
+</style></head><body>
+<header class="bar"><span class="mark">j</span><span class="wm">jstyle</span><span class="sep" aria-hidden="true"></span><div class="who"><span class="title" id="title"></span><span class="where" id="where"></span></div><span class="sum" id="sum"></span><span class="sp"></span><a class="up" id="up" hidden></a><span class="live" id="live"><i></i><span></span></span></header>
+<main id="main"><p class="intro" id="intro"></p></main>
+<script>
+const I18N={
+ ko:{lang:"ko",page:"시안 허브",tab:"{project} · 시안 허브",title:"시안 허브 · 비교 화면 {n}개 · 페이지 {g}개",intro:"페이지마다 만든 시안 비교 화면입니다. 회차를 누르면 그 비교 화면이 열리고, 거기서 고르거나 의견을 보내면 이 서버가 받습니다.",round:"{round}회",drafts:"안 {n}개",baseline:"기존 화면",picked:"고름 · {pick}",notes:"의견 {n}개",noted:"전체 의견만",open:"검토 전",stale:"다시 만든 뒤 아직 검토 전",live:"자동 갱신",offline:"서버 연결 끊김",empty:"아직 비교 화면이 없습니다. <code>jstyle explore</code>로 비교 화면을 만들면 여기에 나타납니다.",now:"방금",min:"{n}분 전",hour:"{n}시간 전",day:"{n}일 전",latest:"가장 최근",projects:"프로젝트 {n}개",introRoot:"이 허브가 띄운 프로젝트입니다. 프로젝트를 누르면 그 프로젝트의 비교 화면 목록이 열립니다. 다른 프로젝트에서 <code>jstyle hub</code>를 실행하면 여기에 더해집니다.",allProjects:"모든 프로젝트",stats:"페이지 {g}개 · 비교 화면 {n}개",openCount:"검토 전 {n}개",reviewed:"모두 검토함",noRounds:"비교 화면 없음"},
+ en:{lang:"en",page:"Drafts hub",tab:"{project} · Drafts hub",title:"Drafts hub · {n} comparison pages · {g} pages",intro:"Comparison pages made for each page of the product. Open a round to review it; picks and comments sent there reach this server.",round:"Round {round}",drafts:"{n} drafts",baseline:"Current",picked:"Picked · {pick}",notes:"{n} comments",noted:"Overall notes only",open:"Not reviewed",stale:"Rebuilt, not reviewed yet",live:"Live",offline:"Server offline",empty:"No comparison pages yet. Make one with <code>jstyle explore</code> and it appears here.",now:"just now",min:"{n} min ago",hour:"{n} h ago",day:"{n} d ago",latest:"Latest",projects:"{n} projects",introRoot:"Projects this hub serves. Open one to see its comparison pages. Running <code>jstyle hub</code> in another project adds it here.",allProjects:"All projects",stats:"{g} pages · {n} comparison pages",openCount:"{n} not reviewed",reviewed:"All reviewed",noRounds:"No comparison pages"}};
+const L=I18N[(navigator.language||'').toLowerCase().startsWith('ko')?'ko':'en'],t=(k,v={})=>L[k].replace(/\{(\w+)\}/g,(_,x)=>v[x]??'');
+const token=new URLSearchParams(location.search).get('t')||'',$=s=>document.querySelector(s);
+const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
+document.documentElement.lang=L.lang;document.title=t('page');$('#intro').textContent=t('intro');
+function ago(ms){const m=Math.round((Date.now()-ms)/60000);return m<1?t('now'):m<60?t('min',{n:m}):m<1440?t('hour',{n:Math.round(m/60)}):t('day',{n:Math.round(m/1440)});}
+function state(e){
+ const c=e.choice,s=el('span','state');
+ if(!c){s.textContent=t('open');return s;}
+ if(c.stale){s.dataset.kind='stale';s.textContent=t('stale');return s;}
+ if(c.id){s.dataset.kind='picked';s.textContent=t('picked',{pick:`${c.number==='baseline'?t('baseline'):c.number} ${c.name}`})+(c.comments?` · ${t('notes',{n:c.comments})}`:'');return s;}
+ s.dataset.kind='notes';s.textContent=c.comments?t('notes',{n:c.comments}):t('noted');return s;
+}
+const q=token?`?t=${encodeURIComponent(token)}`:'',atRoot=location.pathname==='/';
+function projectCard(p){
+ const a=el('a','round');a.href=p.base+q;
+ const top=el('div','top');top.append(el('span',null,t('stats',{g:p.pages,n:p.rounds})),el('span','when',p.latest?ago(p.latest):''));
+ const s=el('span','state');if(!p.rounds)s.textContent=t('noRounds');else if(p.open){s.textContent=t('openCount',{n:p.open});}else{s.dataset.kind='picked';s.textContent=t('reviewed');}
+ const name=el('h3',null,p.project);if(p.slug!==p.project)name.append(' ',el('code',null,p.slug));
+ a.append(top,name,el('p',null,p.location),s);
+ return a;
+}
+function card(e,latest,base){
+ const a=el('a','round');a.href=base+e.path.split('/').map(encodeURIComponent).join('/')+q;a.toggleAttribute('data-latest',latest);if(latest)a.title=t('latest');
+ const top=el('div','top');top.append(el('span','no',e.round?t('round',{round:e.round}):e.path),el('span','when',ago(e.mtime)));
+ const strips=el('div','strips');
+ for(const c of e.candidates.slice(0,5)){const row=el('div'),bar=el('i');(c.palette.length?c.palette:['#c9cbc3']).forEach(h=>{const b=el('b');b.style.background=h;bar.append(b);});row.append(el('span',null,c.baseline?`${t('baseline')} · ${c.name}`:c.name),bar);strips.append(row);}
+ a.append(top);if(e.project)a.append(el('h3',null,e.project));if(e.brief)a.append(el('p',null,e.brief));a.append(strips,state(e));
+ const drafts=e.candidates.filter(c=>!c.baseline).length;top.querySelector('.no').title=t('drafts',{n:drafts});
+ return a;
+}
+let last='';
+async function load(){
+ let data;
+ try{const r=await fetch(atRoot?'/__jstyle/hub.json':`/__jstyle/hub.json?page=${encodeURIComponent(location.pathname)}`,{cache:'no-store'});if(!r.ok)throw new Error(r.status);data=await r.json();$('#live').removeAttribute('data-off');$('#live span').textContent=t('live');}
+ catch{$('#live').setAttribute('data-off','');$('#live span').textContent=t('offline');return;}
+ const key=JSON.stringify(data);if(key===last)return;last=key;
+ if(atRoot){
+  $('#title').textContent=t('page');$('#where').textContent='';document.title=t('page');$('#sum').textContent=t('projects',{n:data.projects.length});$('#intro').innerHTML=t('introRoot');
+  const main=$('#main'),intro=$('#intro');main.replaceChildren(intro);const rounds=el('div','rounds');
+  data.projects.slice().sort((a,b)=>(b.latest||0)-(a.latest||0)).forEach(p=>rounds.append(projectCard(p)));main.append(rounds);return;
+ }
+ const up=$('#up');up.hidden=!data.others;up.textContent='← '+t('allProjects');up.href='/'+q;
+ const groups=new Map();for(const e of data.entries){if(!groups.has(e.group))groups.set(e.group,[]);groups.get(e.group).push(e);}
+ const project=data.project||data.root||'';$('#title').textContent=project;$('#where').textContent=data.location||'';$('#where').title=data.location||'';
+ document.title=project?t('tab',{project}):t('page');$('#sum').textContent=t('title',{n:data.entries.length,g:groups.size});
+ const main=$('#main'),intro=$('#intro');main.replaceChildren(intro);
+ if(!data.entries.length){const empty=el('p','empty');empty.innerHTML=t('empty');main.append(empty);return;}
+ const newest=data.entries[0]?.path;
+ for(const [name,list] of groups){
+  const g=el('section','group'),h=el('h2');h.append(document.createTextNode(name==='.'?project:name),el('code',null,list[0].path.split('/').slice(0,-2).join('/')||list[0].path));
+  const rounds=el('div','rounds');list.sort((a,b)=>String(b.round).localeCompare(String(a.round),undefined,{numeric:true})).forEach(e=>rounds.append(card(e,e.path===newest,data.base)));
+  g.append(h,rounds);main.append(g);
+ }
+}
+// A hidden hub skips the list but still tells the server it is open, so an idle shutdown waits for closed tabs.
+load();setInterval(()=>{if(!document.hidden)load();},5000);setInterval(()=>{if(document.hidden)fetch('/__jstyle/alive',{cache:'no-store'}).catch(()=>{});},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
+</script></body></html>

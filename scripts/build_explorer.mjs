@@ -181,10 +181,17 @@ const STORAGE_SHIM = "<script>(()=>{const mem=()=>{const m=new Map();return{get 
   + "for(const n of['localStorage','sessionStorage']){try{window[n].length}catch{"
   + "Object.defineProperty(window,n,{value:mem(),configurable:true})}}})();</script>";
 
+// The element picker runs in every HTML preview. A static preview allows only
+// this script by its hash, so the candidate's own scripts stay blocked.
+// HTML parsing turns CRLF into LF before the browser hashes a script, so a
+// CRLF checkout (Windows autocrlf) would otherwise block the picker.
+export const PICK_SCRIPT = readText(joinPath(joinPath(SKILL_ROOT, "assets"), "explorer-pick.js")).replace(/\r\n?/g, "\n").trim();
+export const PICK_HASH = "sha256-" + createHash("sha256").update(PICK_SCRIPT, "utf8").digest("base64");
+
 function previewCsp(interactive) {
   // Interactive prototypes may run their own inline scripts, still with no network or external files.
   // 'unsafe-eval' lets declarative libraries such as Alpine.js evaluate their attribute expressions.
-  return interactive ? PREVIEW_CSP.replace("script-src 'none'", "script-src 'unsafe-inline' 'unsafe-eval'") : PREVIEW_CSP;
+  return PREVIEW_CSP.replace("script-src 'none'", interactive ? "script-src 'unsafe-inline' 'unsafe-eval'" : `script-src '${PICK_HASH}'`);
 }
 
 const EMBEDDABLE = {
@@ -678,10 +685,14 @@ export function prepareHtml(source, interactive = false, used = null) {
   parser.feed(content);
   for (const style of parser.styles) checkCss(style, nameOf(source));
   if (parser.headPosition === null) throw new PyError("TypeError", "cannot unpack non-iterable NoneType object");
-  const [index, startTag] = parser.headPosition;
-  const headEnd = index + startTag.length;
+  // The policy goes first in the document, right after a leading doctype. Any content before the
+  // candidate's own <head> makes the browser open <body> early, and a meta placed there is ignored;
+  // as the first element, the parser puts it into the implied <head>. Keeping the doctype first
+  // keeps the candidate out of quirks mode.
+  const lead = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(content);
+  const at = lead ? lead[0].length : 0;
   const meta = `<meta http-equiv="Content-Security-Policy" content="${previewCsp(interactive)}">`;
-  return content.slice(0, headEnd) + meta + (interactive ? STORAGE_SHIM : "") + content.slice(headEnd);
+  return content.slice(0, at) + meta + (interactive ? STORAGE_SHIM : "") + `<script>${PICK_SCRIPT}</script>` + content.slice(at);
 }
 
 function prepareImage(source, used = null) {
@@ -1058,7 +1069,8 @@ export function build(source, output, { force = false, stderr = process.stderr }
     const port = parts.port !== null ? `:${parts.port}` : "";
     origins.add(`${parts.scheme}://${host}${port}`);
   }
-  const connectCsp = "connect-src " + (origins.size ? [...origins].sort(compareCodePoints).join(" ") : "'none'");
+  // 'self' lets the served page post the picked direction back to jstyle serve.
+  const connectCsp = ["connect-src 'self'", ...[...origins].sort(compareCodePoints)].join(" ");
   // A closing script tag in metadata or a nested candidate cannot escape the container.
   const payload = jsonDumps(data).replaceAll("<", "\\u003c").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
   const page = template.split(CONNECT_CSP).join(connectCsp).split(MARKER).join(payload);

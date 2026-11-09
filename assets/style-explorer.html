@@ -829,6 +829,8 @@ function t(key, values={}) {
  }).catch(()=>{});
  if(st.layout==='compare'){$('#grid').classList.add('first');$('.intro').classList.add('first');setTimeout(()=>{$('#grid').classList.remove('first');$('.intro').classList.remove('first');},1400);}
  render();syncBars();
+ // A served page tells its server it is still open, even in a background tab, so an idle shutdown waits for closed tabs.
+ if(/^https?:$/.test(location.protocol)){const alive=()=>fetch('/__jstyle/alive',{cache:'no-store'}).catch(()=>{});setInterval(alive,30000);}
  if(services.size){checkServices();setInterval(()=>{if(!document.hidden)checkServices();},5000);window.addEventListener('focus',checkServices);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkServices();});}
 })();
 </script></body></html>

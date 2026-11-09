@@ -8,11 +8,14 @@ import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isAlive, removeRecord, writeRecord } from "./lib/registry.mjs";
+
 const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.meta.url), "utf8")).types;
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
 export const CHOICE_PATH = "/__jstyle/choice";
 export const CHOICE_FILE = "choice.json";
 export const HUB_PATH = "/__jstyle/hub.json";
+export const ALIVE_PATH = "/__jstyle/alive";
 const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
 const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
@@ -317,8 +320,9 @@ export function hubList(root) {
   return entries.sort((a, b) => b.mtime - a.mtime);
 }
 
-export function createServer({ root, page, choice = null }) {
+export function createServer({ root, page, choice = null, onActivity = null }) {
   return http.createServer((request, response) => {
+    onActivity?.();
     const send = (status, headers, body = "") => {
       // Without no-store, browsers reuse an old script after an edit, which
       // leaves new sidebar entries visible but inert.
@@ -326,6 +330,8 @@ export function createServer({ root, page, choice = null }) {
       response.end(request.method === "HEAD" ? undefined : body);
     };
     const url = new URL(request.url, "http://localhost");
+    // Open pages call this to keep an idle server up; the pid lets `jstyle stop` check it ends a jstyle server.
+    if (url.pathname === ALIVE_PATH) return send(204, { "X-Jstyle-Pid": String(process.pid) });
     if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
     if (choice?.hub && (request.method === "GET" || request.method === "HEAD")) {
       if (url.pathname === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
@@ -403,9 +409,31 @@ export function hubChoice(root, onChoice, { once = false } = {}) {
   return { token: randomBytes(16).toString("hex"), hub: true, root, onChoice, once, closed: false };
 }
 
-// Resolves once the server listens; stays running until Ctrl+C.
-export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true, out = process.stderr, choice = null }) {
-  const server = createServer({ root, page, choice });
+// The project a served folder belongs to: the folder that holds its .jstyle, if any.
+export function projectOf(root) {
+  const parts = path.resolve(root).split(path.sep);
+  const at = parts.lastIndexOf(".jstyle");
+  return at > 0 ? parts[at - 1] : path.basename(path.resolve(root));
+}
+
+let packageVersion = null;
+function version() {
+  if (packageVersion === null) {
+    try {
+      packageVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+    } catch {
+      packageVersion = "";
+    }
+  }
+  return packageVersion;
+}
+
+// Resolves once the server listens; stays running until Ctrl+C, `jstyle stop`,
+// registry.idle minutes without requests, or (registry.wait) the end of the
+// process that started it.
+export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true, out = process.stderr, choice = null, registry = null }) {
+  let touch = () => {};
+  const server = createServer({ root, page, choice, onActivity: () => touch() });
   return new Promise((resolve, reject) => {
     server.once("error", (error) => {
       if (error.code === "EADDRINUSE") reject(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다. --port로 다른 포트를 지정하세요`));
@@ -420,15 +448,88 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
         server.close();
         process.exit(130);
       });
+      process.once("SIGTERM", () => {
+        server.close();
+        process.exit(143);
+      });
+      // A closed terminal sends SIGHUP; exiting through it still removes the record.
+      process.once("SIGHUP", () => {
+        server.close();
+        process.exit(129);
+      });
+      if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       resolve(server);
     });
   });
 }
 
-const HELP = `usage: serve.mjs [page] [--root DIR] [--host HOST] [--port PORT] [--no-open]
+function track({ server, root, page, host, local, other, out, registry }) {
+  const started = Date.now();
+  let last = started;
+  let written = started;
+  const record = {
+    pid: process.pid,
+    port: server.address().port,
+    host,
+    kind: registry.kind,
+    project: registry.project ?? projectOf(root),
+    root: path.resolve(root),
+    page,
+    url: local,
+    other,
+    wait: Boolean(registry.wait),
+    idle: registry.idle ?? null,
+    started: new Date(started).toISOString(),
+    lastActivity: new Date(started).toISOString(),
+    version: version(),
+  };
+  try {
+    writeRecord(record);
+  } catch (error) {
+    out.write(`! 실행 기록을 쓰지 못했습니다(jstyle ps에 보이지 않습니다): ${error.message}\n`);
+  }
+  process.once("exit", () => removeRecord(process.pid));
+  // Activity is written at most every 15 s, enough for `jstyle ps` to show idle time.
+  const touch = () => {
+    last = Date.now();
+    if (last - written < 15000) return;
+    written = last;
+    record.lastActivity = new Date(last).toISOString();
+    try {
+      writeRecord(record);
+    } catch {
+      // ps then shows an older activity time; the server keeps running.
+    }
+  };
+  // A --wait server that closes without a pick fails, so the agent does not read an empty result as success.
+  const shutdown = (message) => {
+    out.write(`${message}\n`);
+    server.closeAllConnections();
+    server.close();
+    process.exit(registry.wait ? 1 : 0);
+  };
+  if (registry.idle > 0) {
+    const limit = registry.idle * 60000;
+    setInterval(() => {
+      if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
+    }, Math.max(200, Math.min(30000, limit / 4))).unref();
+  }
+  if (registry.wait && registry.parent > 1) {
+    // registry.parent is the process waiting on --wait; once it is gone, nobody will read the pick.
+    const check = () => {
+      if (!isAlive(registry.parent)) shutdown(`기다리던 프로세스 ${registry.parent}가 끝나 서버를 닫습니다`);
+    };
+    check();
+    setInterval(check, 2000).unref();
+  }
+  return touch;
+}
+
+const HELP = `usage: serve.mjs [page] [--root DIR] [--host HOST] [--port PORT] [--no-open] [--idle MIN]
 
 Serve DIR (default: the jstyle folder) with caching disabled and open page in it.
 The bare root URL redirects to page, so other devices can open http://<host>:<port>/.
+With --idle MIN the server closes after MIN minutes with no request (default: never).
 `;
 
 export function parseServeArgs(argv, defaults) {
@@ -445,11 +546,13 @@ export function parseServeArgs(argv, defaults) {
     else if (arg === "--port") options.port = Number(value());
     else if (arg === "--no-open") options.open = false;
     else if (arg === "--wait") options.wait = true;
+    else if (arg === "--idle") options.idle = Number(value());
     else if (arg.startsWith("-")) throw new Error(`알 수 없는 옵션: ${arg}`);
     else if (options.pageGiven) throw new Error(`page는 하나만 받습니다: ${arg}`);
     else Object.assign(options, { page: arg, pageGiven: true });
   }
   if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) throw new Error("--port는 0~65535 사이의 정수여야 합니다");
+  if (options.idle !== undefined && !(options.idle >= 0)) throw new Error("--idle은 0 이상의 분이어야 합니다(0은 끄지 않음)");
   return options;
 }
 
@@ -477,7 +580,7 @@ async function main() {
     return 2;
   }
   try {
-    await serve({ ...options, root });
+    await serve({ ...options, root, registry: { kind: "serve", idle: options.idle ?? 0 } });
   } catch (error) {
     process.stderr.write(`serve.mjs: error: ${error.message}\n`);
     return 1;

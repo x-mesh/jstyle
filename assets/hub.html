@@ -67,5 +67,6 @@ async function load(){
   g.append(h,rounds);main.append(g);
  }
 }
-load();setInterval(()=>{if(!document.hidden)load();},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
+// A hidden hub skips the list but still tells the server it is open, so an idle shutdown waits for closed tabs.
+load();setInterval(()=>{if(!document.hidden)load();},5000);setInterval(()=>{if(document.hidden)fetch('/__jstyle/alive',{cache:'no-store'}).catch(()=>{});},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
 </script></body></html>

@@ -544,13 +544,15 @@ export function addProject(hub, root) {
 // evicted lists the projects that left to keep the list at MAX_PROJECTS.
 export function joinProject(hub, root) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [] };
+  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [], saved: true };
   let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
   // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
   base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
   if (base.startsWith("__")) base = `p${base}`;
   let slug = base;
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
+  const projects = [...hub.projects];
+  const times = [...hub.times];
   hub.projects.set(slug, real);
   const now = new Date().toISOString();
   hub.times.set(slug, { added: now, lastUsed: now });
@@ -560,12 +562,20 @@ export function joinProject(hub, root) {
     const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
     hub.projects.delete(oldest);
     hub.times.delete(oldest);
-    for (const waiter of [...hub.waiters.values()]) if (waiter.project === oldest) dropWaiter(hub, waiter, "evicted");
     evicted.push(oldest);
   }
+  // A join the list cannot keep would be gone on the next start, so it is undone, evictions included, and refused.
+  if (hub.onProjects?.() === false) {
+    hub.projects.clear();
+    for (const [name, root] of projects) hub.projects.set(name, root);
+    hub.times.clear();
+    for (const [name, value] of times) hub.times.set(name, value);
+    hub.onProjects?.();
+    return { slug: null, evicted: [], saved: false };
+  }
+  for (const waiter of [...hub.waiters.values()]) if (evicted.includes(waiter.project)) dropWaiter(hub, waiter, "evicted");
   if (evicted.length) hub.onEvicted?.(evicted);
-  hub.onProjects?.();
-  return { slug, evicted };
+  return { slug, evicted, saved: true };
 }
 
 // The shape addProject makes; a saved slug outside it was not written by this code.
@@ -839,7 +849,8 @@ function receiveProject(request, hub, json) {
       }
       const real = servableFolder(body.root);
       if (!real) return json(400, { error: "root" });
-      const { slug, evicted } = joinProject(hub, real);
+      const { slug, evicted, saved } = joinProject(hub, real);
+      if (!saved) return json(500, { error: "save" });
       return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/`, ...(evicted.length ? { evicted } : {}) });
     } catch (error) {
       try {
@@ -885,6 +896,8 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
     });
     server.listen(port, WILDCARD.has(host) ? undefined : host, () => {
       const { local, other } = pageUrls({ host, port: server.address().port, page, search: choice ? `?t=${choice.token}` : "" });
+      // The record comes before the address line, so a caller that runs jstyle ps on seeing the address finds it.
+      if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       out.write(`Serving ${root} at ${local} (Ctrl+C to stop)\n`);
       if (other) out.write(`Other devices: ${other}\n`);
       if (open) setTimeout(() => openBrowser(local), 300);
@@ -901,7 +914,6 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
         server.close();
         process.exit(129);
       });
-      if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       resolve(server);
     });
   });

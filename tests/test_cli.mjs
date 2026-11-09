@@ -381,7 +381,9 @@ test("stop ends a recorded server and ps drops records of ended ones", async (t)
   assert.equal(jstyle(["stop", "1"]).status, 1);
   const stopped = jstyle(["stop", String(port)]);
   assert.equal(stopped.status, 0, stopped.stderr);
-  assert.ok([143, "SIGTERM"].includes(await exit));
+  // Windows has no SIGTERM handler: the process is ended at once with exit code 1.
+  const ended = await exit;
+  if (process.platform !== "win32") assert.ok([143, "SIGTERM"].includes(ended), String(ended));
   // A record left by a process that is gone is pruned on the next listing.
   const dir = path.join(process.env.JSTYLE_HOME, "servers");
   fs.mkdirSync(dir, { recursive: true });
@@ -445,10 +447,15 @@ test("stop leaves a process that does not answer as that server, and refuses a n
   const shared = jstyle(["stop", "twin"]);
   assert.equal(shared.status, 1);
   assert.match(shared.stderr, /2개/);
-  // SIGINT ends the server and removes its record.
+  // SIGINT ends the server and removes its record. Windows ends it without running handlers,
+  // so there the record stays until the next listing prunes it.
   child.kill("SIGINT");
-  assert.ok([130, "SIGINT"].includes(await exit));
-  assert.equal(fs.existsSync(path.join(dir, `${child.pid}.json`)), false);
+  const ended = await exit;
+  if (process.platform !== "win32") {
+    assert.ok([130, "SIGINT"].includes(ended), String(ended));
+    assert.equal(fs.existsSync(path.join(dir, `${child.pid}.json`)), false);
+  }
+  assert.ok(!JSON.parse(jstyle(["ps", "--json"]).stdout).some((r) => r.pid === child.pid));
 });
 
 function freePort() {

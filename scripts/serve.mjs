@@ -524,8 +524,9 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // A hub serves one or more project folders, each under /<slug>/, and takes
 // picks for every explorer in them; the page in each post says which.
 // waiterTtl is how long a waiter may go without polling before it counts as gone.
-export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL } = {}) {
-  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
+// A daemon hub may end up with no project at all; a hub started for a folder keeps at least one.
+export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL, daemon = false } = {}) {
+  return { token: randomBytes(16).toString("hex"), hub: true, daemon, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
 export function addProject(hub, root) {
@@ -790,7 +791,7 @@ function receiveProject(request, hub, json) {
       if (!body) return json(problem === "size" ? 413 : 400, { error: problem });
       if (typeof body.remove === "string") {
         if (!hub.projects.has(body.remove)) return json(404, { error: "project" });
-        if (hub.projects.size === 1) return json(409, { error: "last" });
+        if (hub.projects.size === 1 && !hub.daemon) return json(409, { error: "last" });
         const projects = [...hub.projects];
         const times = [...hub.times];
         hub.projects.delete(body.remove);
@@ -933,7 +934,9 @@ function track({ server, root, page, host, local, other, out, registry }) {
   if (registry.idle > 0) {
     const limit = registry.idle * 60000;
     setInterval(() => {
-      if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
+      // A registered waiter is an agent still waiting, even between its polls.
+      if (registry.busy?.()) last = Date.now();
+      else if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
     }, Math.max(200, Math.min(30000, limit / 4))).unref();
   }
   if (registry.wait && registry.parent > 1) {

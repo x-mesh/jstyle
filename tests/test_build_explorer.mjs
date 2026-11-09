@@ -18,6 +18,8 @@ const KOREAN_OR_HAN = /[\p{Script=Hangul}\p{Script=Han}]/u;
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Servers started by these tests record themselves; keep that out of the real ~/.jstyle.
 process.env.JSTYLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-home-"));
+// No detached daemon from these tests: servers stay children of the test.
+process.env.JSTYLE_NO_DAEMON = "1";
 const WINDOWS = process.platform === "win32";
 const SLOW = Boolean(process.env.JSTYLE_SHOOT_SLOW_HOST);
 const CHROME = (() => {

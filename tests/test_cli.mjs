@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { request } from "node:http";
+import { createServer as httpServer, request } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -263,27 +263,35 @@ test("hub serves every explorer under a folder and takes picks for each page", a
   child.stdout.on("data", (data) => { stdout += data; });
   const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
   const { port, token } = await waitForUrl(child);
-  const page = await fetch(port, "GET", "/");
+  const slug = path.basename(root);
+  // One project: the bare address goes to it, keeping the token.
+  assert.equal((await fetch(port, "GET", `/?t=${token}`)).headers.location, `/${slug}/?t=${token}`);
+  const page = await fetch(port, "GET", `/${slug}/`);
   assert.equal(page.status, 200);
   assert.match(page.body, /__jstyle\/hub\.json/);
-  const hub = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  assert.equal((await fetch(port, "GET", `/${slug}`)).status, 301);
+  assert.equal((await fetch(port, "GET", "/unknown/")).status, 404);
+  const hub = JSON.parse((await fetch(port, "GET", `/__jstyle/hub.json?page=${encodeURIComponent(`/${slug}/`)}`)).body);
   assert.equal(hub.project, path.basename(root));
+  assert.equal(hub.base, `/${slug}/`);
   assert.deepEqual(hub.entries.map((e) => [e.group, e.round, e.path, e.candidates.length, e.choice]).sort(), [
     ["admin", "01", "admin/explore/01/style-explorer.html", 2, null],
     ["settings", "01", "settings/explore/01/style-explorer.html", 2, null],
   ]);
-  assert.equal((await fetch(port, "GET", "/settings/explore/01/style-explorer.html")).status, 200);
+  assert.equal((await fetch(port, "GET", `/${slug}/settings/explore/01/style-explorer.html`)).status, 200);
   const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
   const post = (body) => fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify(body) });
   assert.equal((await post({ id: "candidate-1" })).status, 400);
-  assert.equal((await post({ page: "/../../etc/passwd", id: "candidate-1" })).status, 400);
-  assert.equal((await post({ page: "/admin/explore/01/a.html", id: "candidate-1" })).status, 400);
-  const ok = await post({ page: "/admin/explore/01/style-explorer.html", id: "candidate-2", notes: "Keep it" });
+  assert.equal((await post({ page: `/${slug}/../../etc/passwd`, id: "candidate-1" })).status, 400);
+  assert.equal((await post({ page: `/${slug}/admin/explore/01/a.html`, id: "candidate-1" })).status, 400);
+  assert.equal((await post({ page: "/admin/explore/01/style-explorer.html", id: "candidate-1" })).status, 400);
+  const ok = await post({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-2", notes: "Keep it" });
   assert.equal(ok.status, 200);
   assert.equal(JSON.parse(ok.body).waiting, true);
   assert.equal(await exit, 0);
   const picked = JSON.parse(stdout.trim().split("\n").at(-1));
   assert.equal(picked.page, "admin/explore/01/style-explorer.html");
+  assert.equal(picked.project, slug);
   assert.equal(picked.number, "02");
   assert.equal(fs.realpathSync.native(picked.file), fs.realpathSync.native(path.join(root, "admin", "explore", "01", CHOICE_FILE)));
   assert.equal(fs.existsSync(path.join(root, "settings", "explore", "01", CHOICE_FILE)), false);
@@ -295,10 +303,11 @@ test("hub lists the saved status and refuses a missing folder", async (t) => {
   t.after(() => child.kill("SIGKILL"));
   const { port, token } = await waitForUrl(child);
   const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
-  const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: "/settings/explore/01/style-explorer.html", id: null, notes: "Tighter rows" }) });
+  const slug = path.basename(root);
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/settings/explore/01/style-explorer.html`, id: null, notes: "Tighter rows" }) });
   assert.equal(sent.status, 200);
   assert.equal(JSON.parse(sent.body).waiting, false);
-  const hub = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  const hub = JSON.parse((await fetch(port, "GET", `/__jstyle/hub.json?page=/${slug}/`)).body);
   const settings = hub.entries.find((e) => e.group === "settings");
   assert.deepEqual({ ...settings.choice, at: undefined }, { id: null, number: null, name: null, comments: 0, notes: true, at: undefined, stale: false });
   assert.equal(jstyle(["hub", path.join(root, "missing"), "--no-open"]).status, 2);
@@ -327,13 +336,14 @@ test("hub survives a broken explorer and refuses a page reached through a link o
   const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
   t.after(() => child.kill("SIGKILL"));
   const { port, token } = await waitForUrl(child);
-  const listed = await fetch(port, "GET", "/__jstyle/hub.json");
+  const slug = path.basename(root);
+  const listed = await fetch(port, "GET", `/__jstyle/hub.json?page=/${slug}/`);
   assert.equal(listed.status, 200);
   assert.deepEqual(JSON.parse(listed.body).entries.map((e) => e.group).sort(), ["admin", "settings"]);
   assert.equal((await fetch(port, "GET", "/__jstyle/hub.json")).status, 200);
   if (linked) {
     const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
-    const escaped = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: "/link/style-explorer.html", id: "candidate-1" }) });
+    const escaped = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/link/style-explorer.html`, id: "candidate-1" }) });
     assert.equal(escaped.status, 400);
     assert.equal(fs.existsSync(path.join(outside, CHOICE_FILE)), false);
   }
@@ -439,4 +449,82 @@ test("stop leaves a process that does not answer as that server, and refuses a n
   child.kill("SIGINT");
   assert.ok([130, "SIGINT"].includes(await exit));
   assert.equal(fs.existsSync(path.join(dir, `${child.pid}.json`)), false);
+});
+
+function freePort() {
+  return new Promise((resolve) => {
+    const probe = httpServer();
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+test("a second hub run joins the running hub, and stop lets go of one project", async (t) => {
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const port = await freePort();
+  const child = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { token } = await waitForUrl(child);
+  const joined = jstyle(["hub", second, "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(joined.status, 0, joined.stderr);
+  const reply = JSON.parse(joined.stdout.trim());
+  assert.equal(reply.hub, port);
+  assert.equal(reply.project, path.basename(second));
+  assert.equal(reply.url, `http://127.0.0.1:${port}/${path.basename(second)}/?t=${token}`);
+  // Joining the same folder again keeps one entry.
+  assert.equal(JSON.parse(jstyle(["hub", second, "--no-open", "--port", String(port)]).stdout).project, path.basename(second));
+  const root = await fetch(port, "GET", "/");
+  assert.equal(root.status, 200);
+  const listed = JSON.parse((await fetch(port, "GET", "/__jstyle/hub.json")).body);
+  assert.deepEqual(listed.projects.map((p) => [p.slug, p.pages, p.rounds, p.open]).sort(), [[path.basename(first), 2, 2, 2], [path.basename(second), 2, 2, 2]].sort());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const page = `/${path.basename(second)}/admin/explore/01/style-explorer.html`;
+  assert.equal((await fetch(port, "GET", page)).status, 200);
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page, id: "candidate-1" }) });
+  assert.equal(sent.status, 200);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(second, "admin", "explore", "01", CHOICE_FILE), "utf8")).project, path.basename(second));
+  const hubRecord = () => JSON.parse(jstyle(["ps", "--json"]).stdout).find((r) => r.pid === child.pid);
+  assert.equal(hubRecord().projects.length, 2);
+  // serve on a page the hub already has opens it there instead of a second server.
+  const served = jstyle(["serve", path.join(second, "settings", "explore", "01", "style-explorer.html"), "--no-open", "--port", String(port)], { timeout: 10000 });
+  assert.equal(served.status, 0, served.stderr);
+  assert.match(served.stderr, new RegExp(`/${path.basename(second)}/settings/explore/01/style-explorer\\.html\\?t=${token}`));
+  // --wait still needs its own server, so it moves off the hub's port.
+  const waiter = spawn(process.execPath, [CLI, "hub", second, "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => waiter.kill("SIGKILL"));
+  const moved = await waitForUrl(waiter);
+  assert.notEqual(moved.port, port);
+  // A killed child that is not reaped yet still looks alive, and its record would make the name match two servers.
+  await new Promise((resolve) => {
+    waiter.on("exit", resolve);
+    waiter.kill("SIGKILL");
+  });
+  const stopped = jstyle(["stop", path.basename(second)]);
+  assert.equal(stopped.status, 0, stopped.stderr);
+  assert.deepEqual(hubRecord().projects.map((p) => p.slug), [path.basename(first)]);
+  assert.equal((await fetch(port, "GET", page)).status, 404);
+});
+
+test("the hub takes folders only with its token and refuses requests from other sites", async (t) => {
+  const root = buildPages(t);
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port, token } = await waitForUrl(child);
+  const register = (body, token_ = token) => fetch(port, "POST", "/__jstyle/projects", { headers: { "Content-Type": "application/json", "X-Jstyle-Token": token_ }, body: JSON.stringify(body) });
+  assert.equal((await register({ root }, "wrong")).status, 403);
+  for (const bad of [path.parse(root).root, os.homedir(), path.dirname(os.homedir()), "relative/path", path.join(root, "missing")]) {
+    assert.equal((await register({ root: bad })).status, 400, bad);
+  }
+  assert.equal((await register({ remove: path.basename(root) })).status, 409);
+  // A page on another site pointing its name at 127.0.0.1 is refused; loopback names pass.
+  assert.equal((await fetch(port, "GET", `/${path.basename(root)}/`, { headers: { Host: `evil.example:${port}` } })).status, 403);
+  assert.equal((await fetch(port, "GET", `/${path.basename(root)}/`, { headers: { Host: `localhost:${port}` } })).status, 200);
+  // jstyle's own endpoints refuse a request another site makes; the page's own requests pass.
+  assert.equal((await fetch(port, "GET", "/__jstyle/alive", { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
+  assert.equal((await fetch(port, "GET", "/__jstyle/alive", { headers: { "Sec-Fetch-Site": "same-origin" } })).status, 204);
+  // Static files stay readable from a sandboxed candidate frame, whose requests are cross-site.
+  assert.equal((await fetch(port, "GET", `/${path.basename(root)}/admin/explore/01/a.html`, { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 200);
 });

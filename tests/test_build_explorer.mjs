@@ -899,21 +899,32 @@ test("a hub lists the pages and an explorer opened from it gets a page menu", { 
   const base = await new Promise((resolve, reject) => {
     child.stderr.on("data", (data) => {
       stderr += data;
-      const match = / at (http:\/\/127\.0\.0\.1:\d+)\/\?t=([0-9a-f]+)/.exec(stderr);
-      if (match) resolve({ origin: match[1], token: match[2] });
+      const match = / at (http:\/\/127\.0\.0\.1:(\d+))\/([^/\s]+)\/\?t=([0-9a-f]+)/.exec(stderr);
+      if (match) resolve({ origin: match[1], port: match[2], slug: match[3], token: match[4] });
     });
     child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
   });
   const hub = f.runBrowserProbe("sum", "chrome-hub", `${base.origin}/?t=${base.token}`);
   assert.equal(hub.status, 0, hub.stderr);
   assert.match(hub.stdout, /2\D+2/);
-  const probed = f.runBrowserProbe("menu-result", "chrome-menu", `${base.origin}/output/explore.html?t=${base.token}`);
+  const probed = f.runBrowserProbe("menu-result", "chrome-menu", `${base.origin}/${base.slug}/output/explore.html?t=${base.token}`);
   assert.equal(probed.status, 0, probed.stderr);
   const observed = JSON.parse(probed.stdout);
   assert.equal(observed.shown, true);
   assert.equal(observed.token, true);
   // Any built explorer counts, whatever --output named it; the newest page comes first.
-  assert.deepEqual(observed.links, [["/", null], ["/output/explore.html", "page"], ["/settings/explore/01/style-explorer.html", null]]);
+  assert.deepEqual(observed.links, [[`/${base.slug}/`, null], [`/${base.slug}/output/explore.html`, "page"], [`/${base.slug}/settings/explore/01/style-explorer.html`, null]]);
+  // A second project joins the running hub, and the bare address then lists both projects.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-other-"));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(other, "home", "explore", "01"), { recursive: true });
+  fs.copyFileSync(path.join(second, "style-explorer.html"), path.join(other, "home", "explore", "01", "style-explorer.html"));
+  const joined = spawnSync(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "hub", other, "--no-open", "--port", base.port], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });
+  assert.equal(joined.status, 0, joined.stderr);
+  const projects = f.runBrowserProbe("sum", "chrome-projects", `${base.origin}/?t=${base.token}`);
+  assert.equal(projects.status, 0, projects.stderr);
+  assert.match(projects.stdout, /2/);
+  assert.match(projects.stdout, /projects|프로젝트/);
 });
 
 test("portable single file and HTML payload", (t) => {

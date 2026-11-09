@@ -1230,3 +1230,51 @@ test("a --wait that loses its hub connection removes its waiter on the way out",
   assert.equal(stdout, "");
   assert.deepEqual(deleted, [`/__jstyle/waiters/${"a".repeat(24)}`]);
 });
+
+test("--wait starts its own server when the running hub has no room for another waiter", { timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  const port = await freePort();
+  const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => hub.kill("SIGKILL"));
+  const { token } = await waitForUrl(hub);
+  const slug = path.basename(root);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  for (let i = 0; i < 200; i += 1) {
+    assert.equal((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: slug, page: null }) })).status, 200);
+  }
+  const waiter = spawn(process.execPath, [CLI, "serve", path.join(root, "admin", "explore", "01", "style-explorer.html"), "--wait", "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => waiter.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  waiter.stdout.on("data", (data) => { stdout += data; });
+  waiter.stderr.on("data", (data) => { stderr += data; });
+  const exit = new Promise((resolve) => waiter.on("exit", (code) => resolve(code)));
+  const own = await waitForUrl(waiter);
+  assert.notEqual(own.port, port);
+  assert.match(stderr, /기다릴 수 없습니다\(waiters\)/);
+  const sent = await fetch(own.port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": own.token }, body: JSON.stringify({ id: "candidate-2" }) });
+  assert.equal(sent.status, 200);
+  assert.equal(await exit, 0);
+  assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)).id, "candidate-2");
+});
+
+test("hub waiters end with a project that leaves, and stay when the removal cannot be saved", { timeout: 30000 }, async (t) => {
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const { hub, slugs, register, poll, headers, port } = await hubInProcess(t, [first, second]);
+  const remove = (slug) => fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ remove: slug }) });
+  const kept = JSON.parse((await register({ project: slugs[1], page: null })).body).id;
+  hub.onProjects = () => false;
+  const refused = await remove(slugs[1]);
+  assert.equal(refused.status, 500);
+  assert.equal(JSON.parse(refused.body).error, "save");
+  assert.equal((await poll(kept)).status, 204, "a removal that was undone keeps its waiters");
+  hub.onProjects = null;
+  const leaving = JSON.parse((await register({ project: slugs[0], page: null })).body).id;
+  const held = poll(leaving, 10);
+  assert.equal((await remove(slugs[0])).status, 200);
+  const answer = await held;
+  assert.equal(answer.status, 410);
+  assert.equal(JSON.parse(answer.body).reason, "project");
+  assert.equal((await poll(kept)).status, 204);
+});

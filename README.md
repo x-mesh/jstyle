@@ -92,7 +92,9 @@ Use jstyle to make three drafts of the first screen of the order dashboard. Show
 The agent first describes each direction in text. If you want to see the screens, it makes one HTML first screen for each draft and puts them on one comparison page. If you do not give a number, it makes three drafts.
 
 The comparison page shows the drafts side by side or one at a time at full size. The default screen sizes are 1280×900 for desktop and 390×844 for mobile.
-Press **Select** on the draft that you prefer. The page copies a sentence such as `Round 01: Go with 02 Name`. Send this sentence and your comments to the agent. The agent continues with the selected draft.
+In the single view, write what works and what to change in the notes field, then press **Select** on the draft that you prefer. The page sends the draft and your notes to the agent, and the agent continues with the selected draft. You do not paste anything into the chat.
+
+If you open the page as a file, **Select** copies a sentence such as `Round 01: Go with 02 Name`. Paste this sentence to the agent.
 
 ![A comparison page with three drafts of an order dashboard side by side](assets/readme/style-explorer.en.webp)
 
@@ -103,6 +105,8 @@ jstyle explore ./designs
 ```
 
 Each HTML file in the folder becomes one draft. The name comes from the HTML `<title>` or from the file name. The result is `style-explorer.html` in the folder. If you run the command in a terminal, it starts a local server and opens the page in the browser. To make the page again after you change a draft, add `--force`.
+
+When you serve the page, the page writes the selected draft and the notes to `choice.json` in the folder. With `--wait`, the command waits for the first selection, prints it as one JSON line, and stops. The agent uses this to get your selection.
 
 - Open the page on a phone or another computer: add `--host 0.0.0.0`, then open the `Other devices` address in the terminal output. Other people in the same network can also open this address.
 - Compare with the current screen: in `manifest.json`, add the current screen with `"baseline": true`. It becomes the first item. A page from a running development server can use `"kind": "url"`, but other devices cannot show it.

@@ -1,6 +1,6 @@
 // Observable builder contracts. Run with: node --test tests/test_build_explorer.mjs
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -115,7 +115,7 @@ class Fixture {
     return readText(this.output);
   }
 
-  runBrowserProbe(resultId = "i18n-result", profile = "chrome-probe") {
+  runBrowserProbe(resultId = "i18n-result", profile = "chrome-probe", url = asUri(this.output)) {
     let runner = String.raw`
 import {spawn} from 'node:child_process';
 const chrome=spawn(process.argv[1],['--headless=new','--remote-debugging-pipe',
@@ -156,7 +156,7 @@ try{
 finally{clearTimeout(deadline);chrome.kill();}
 `;
     runner = runner.replaceAll("#i18n-result", "#" + resultId);
-    return run([process.execPath, "--input-type=module", "-e", runner, CHROME, path.join(this.folder, profile), asUri(this.output)],
+    return run([process.execPath, "--input-type=module", "-e", runner, CHROME, path.join(this.folder, profile), url],
       { timeout: SLOW ? 45000 : 25000 });
   }
 }
@@ -518,6 +518,62 @@ test("rendered interfaces do not mix languages", { skip: CHROME_SKIP("rendered i
         : ["Round 01: Go with Current Direction A"]);
     });
   }
+});
+
+test("a served page sends the pick and notes instead of copying", { skip: CHROME_SKIP("served pick checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.data.lang = "ko";
+  f.data.candidates.push({ ...f.data.candidates[0], id: "b", name: "두 번째 안" });
+  f.save();
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const copied=[];
+ Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>copied.push(text)},configurable:true});
+ document.querySelector('[data-layout=loupe]').click();
+ const box=document.querySelector('#info-body .notes textarea');
+ box.value='헤더 여백 줄이기';box.dispatchEvent(new Event('input'));
+ document.querySelector('#info-body [data-pick]').click();
+ const label=()=>document.querySelector('#toast b').textContent;
+ for(let i=0;i<100&&!label();i++)await new Promise(r=>setTimeout(r,50));
+ const sent=label();
+ await new Promise(r=>setTimeout(r,800));
+ document.querySelector('#info-body [data-pick]').click();
+ for(let i=0;i<100&&label()===sent;i++)await new Promise(r=>setTimeout(r,50));
+ const result=document.createElement('pre');result.id='send-result';
+ result.textContent=JSON.stringify({toast:sent,after:label(),button:document.querySelector('#info-body [data-pick]').firstChild.textContent,copied,stored:localStorage.getItem(${"`"}jstyle:${"${DATA.fingerprint}"}${"`"})});
+ document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "serve", f.output, "--wait", "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (data) => { stdout += data; });
+  const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  const url = await new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = / at (http:\/\/\S+\?t=[0-9a-f]+)/.exec(stderr);
+      if (match) resolve(match[1]);
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const probed = f.runBrowserProbe("send-result", "chrome-send", url);
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  const table = i18nTable().ko;
+  assert.equal(observed.toast, table.sent);
+  assert.equal(observed.button, table.selectedSent);
+  assert.equal(observed.after, table.sendFailed);
+  assert.deepEqual(observed.copied, ["01회: 01 첫 번째 안 안을 고릅니다\n헤더 여백 줄이기"]);
+  assert.doesNotMatch(observed.stored ?? "", /헤더 여백/);
+  assert.equal(await exit, 0);
+  const picked = JSON.parse(stdout.trim().split("\n").at(-1));
+  assert.equal(picked.id, "a");
+  assert.equal(picked.notes, "헤더 여백 줄이기");
 });
 
 test("portable single file and HTML payload", (t) => {
@@ -1076,11 +1132,11 @@ test("shell connections allow only this round's candidate origins", (t) => {
   const policies = startTags(f.page())
     .filter(([tag, attrs]) => tag === "meta" && attrs["http-equiv"] === "Content-Security-Policy")
     .map(([, attrs]) => attrs.content);
-  assert.deepEqual(policies, ["connect-src http://localhost:3456 http://localhost:5173 https://127.0.0.1:4443"]);
+  assert.deepEqual(policies, ["connect-src 'self' http://localhost:3456 http://localhost:5173 https://127.0.0.1:4443"]);
   f.data.candidates = [{ ...f.data.candidates[0], kind: "html" }];
   f.save();
   f.build(true);
-  assert.ok(f.page().includes("content=\"connect-src 'none'\""));
+  assert.ok(f.page().includes("content=\"connect-src 'self'\""));
 });
 
 test("interactive HTML runs inline scripts only when asked", (t) => {

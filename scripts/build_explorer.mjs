@@ -1058,7 +1058,8 @@ export function build(source, output, { force = false, stderr = process.stderr }
     const port = parts.port !== null ? `:${parts.port}` : "";
     origins.add(`${parts.scheme}://${host}${port}`);
   }
-  const connectCsp = "connect-src " + (origins.size ? [...origins].sort(compareCodePoints).join(" ") : "'none'");
+  // 'self' lets the served page post the picked direction back to jstyle serve.
+  const connectCsp = ["connect-src 'self'", ...[...origins].sort(compareCodePoints)].join(" ");
   // A closing script tag in metadata or a nested candidate cannot escape the container.
   const payload = jsonDumps(data).replaceAll("<", "\\u003c").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
   const page = template.split(CONNECT_CSP).join(connectCsp).split(MARKER).join(payload);

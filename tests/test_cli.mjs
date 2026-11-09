@@ -16,6 +16,8 @@ process.env.JSTYLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-home-"))
 // No detached daemon unless a test asks for one with daemonEnv(); servers stay children of the test.
 process.env.JSTYLE_NO_DAEMON = "1";
 const CLI = path.join(ROOT, "bin", "jstyle.mjs");
+// How a jstyle server ended by SIGTERM exits. Windows runs no SIGTERM handler: it ends the process at once with exit code 1.
+const TERMINATED = process.platform === "win32" ? [1] : [143, "SIGTERM"];
 
 function jstyle(args, options = {}) {
   return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" }, ...options });
@@ -384,9 +386,8 @@ test("stop ends a recorded server and ps drops records of ended ones", async (t)
   assert.equal(jstyle(["stop", "1"]).status, 1);
   const stopped = jstyle(["stop", String(port)]);
   assert.equal(stopped.status, 0, stopped.stderr);
-  // Windows has no SIGTERM handler: the process is ended at once with exit code 1.
   const ended = await exit;
-  if (process.platform !== "win32") assert.ok([143, "SIGTERM"].includes(ended), String(ended));
+  assert.ok(TERMINATED.includes(ended), String(ended));
   // A record left by a process that is gone is pruned on the next listing.
   const dir = path.join(process.env.JSTYLE_HOME, "servers");
   fs.mkdirSync(dir, { recursive: true });
@@ -1330,7 +1331,6 @@ test("hub waiters end with a project that leaves, and stay when the removal cann
 
 // Daemon tests run a detached daemon on a free port. It outlives the CLI that
 // started it, so every test kills it by pid and the file sweeps what is left.
-const DAEMON_SKIP = process.platform === "win32" && "detached daemons and their signals differ on Windows";
 
 function daemonEnv(port, extra = {}) {
   const env = { ...process.env, NO_COLOR: "1", JSTYLE_DAEMON_PORT: String(port) };
@@ -1373,7 +1373,7 @@ function runAsync(t, args, env) {
   });
 }
 
-test("hub starts a daemon on the daemon port, returns, and later runs share it", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("hub starts a daemon on the daemon port, returns, and later runs share it", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1423,7 +1423,7 @@ test("hub starts a daemon on the daemon port, returns, and later runs share it",
   assert.deepEqual(daemonRecords(env), []);
 });
 
-test("two runs that start a daemon at once end up on one daemon", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("two runs that start a daemon at once end up on one daemon", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1436,7 +1436,7 @@ test("two runs that start a daemon at once end up on one daemon", { skip: DAEMON
   assert.deepEqual(daemons[0].projects.map((p) => p.slug).sort(), roots.map((root) => path.basename(root)).sort());
 });
 
-test("no daemon with JSTYLE_NO_DAEMON, another --port or a non-loopback --host", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("no daemon with JSTYLE_NO_DAEMON, another --port or a non-loopback --host", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const root = buildPages(t);
@@ -1455,7 +1455,7 @@ test("no daemon with JSTYLE_NO_DAEMON, another --port or a non-loopback --host",
   assert.deepEqual(daemonRecords(daemonEnv(port)), []);
 });
 
-test("--wait serves on its own free port when something else holds the daemon port", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("--wait serves on its own free port when something else holds the daemon port", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const squatter = httpServer((request, response) => response.end("not jstyle"));
@@ -1493,7 +1493,7 @@ function servedPort(t, args, env) {
   });
 }
 
-test("a hub moves off the daemon port when a kit run without the daemon holds it", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a hub moves off the daemon port when a kit run without the daemon holds it", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1514,7 +1514,7 @@ test("jstyle daemon refuses --root", () => {
   assert.match(refused.stderr, /daemon은 폴더/);
 });
 
-test("a daemon stays up while a waiter is registered and idles out after it leaves", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon stays up while a waiter is registered and idles out after it leaves", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   const env = daemonEnv(port);
   const root = buildPages(t);
@@ -1546,7 +1546,7 @@ async function oldDaemon(t, port, extra = {}) {
   return { child, exit, token, headers, join, wait };
 }
 
-test("a daemon of another version with no waiter hands over to a new daemon with its projects", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon of another version with no waiter hands over to a new daemon with its projects", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1570,7 +1570,7 @@ test("a daemon of another version with no waiter hands over to a new daemon with
   assert.equal(pick.status, 200, pick.body);
 });
 
-test("a daemon of another version with a waiter stays until the waiter ends and is used while its api matches", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon of another version with a waiter stays until the waiter ends and is used while its api matches", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1593,7 +1593,7 @@ test("a daemon of another version with a waiter stays until the waiter ends and 
   assert.equal(daemon.projects.length, 3);
 });
 
-test("a daemon of another api with a waiter makes the run serve by itself", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon of another api with a waiter makes the run serve by itself", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const old = await oldDaemon(t, port, { JSTYLE_TEST_API: "99" });
@@ -1608,7 +1608,7 @@ test("a daemon of another api with a waiter makes the run serve by itself", { sk
   assert.equal(old.child.exitCode, null);
 });
 
-test("a hub from before the daemon on the daemon port is taken over with its token and addresses", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a hub from before the daemon on the daemon port is taken over with its token and addresses", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1623,7 +1623,8 @@ test("a hub from before the daemon on the daemon port is taken over with its tok
   const third = buildPages(t);
   const run = jstyle(["hub", third, "--no-open"], { env, timeout: 20000 });
   assert.equal(run.status, 0, run.stderr);
-  assert.ok([143, "SIGTERM"].includes(await hubExit));
+  const hubEnded = await hubExit;
+  assert.ok(TERMINATED.includes(hubEnded), String(hubEnded));
   const [daemon] = daemonRecords(env);
   assert.equal(daemon.token, token);
   assert.deepEqual(daemon.projects.map((p) => p.slug), [first, second, third].map((root) => path.basename(root)));
@@ -1634,7 +1635,7 @@ test("a hub from before the daemon on the daemon port is taken over with its tok
   assert.equal(sent.status, 200, sent.body);
 });
 
-test("a hub from before the daemon on ::1 is used, not taken over, so its tabs keep their address", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a hub from before the daemon on ::1 is used, not taken over, so its tabs keep their address", { timeout: 60000 }, async (t) => {
   const probe = net.createServer();
   const ipv6 = await new Promise((resolve) => probe.once("error", () => resolve(false)).listen(0, "::1", () => probe.close(() => resolve(true))));
   if (!ipv6) return t.skip("no ::1 on this machine");
@@ -1664,7 +1665,7 @@ test("a hub from before the daemon on ::1 is used, not taken over, so its tabs k
   assert.equal(sent.status, 200, sent.body);
 });
 
-test("a hub from before the daemon with an agent waiting on it is used, not taken over", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a hub from before the daemon with an agent waiting on it is used, not taken over", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1681,7 +1682,7 @@ test("a hub from before the daemon with an agent waiting on it is used, not take
   assert.deepEqual(daemonRecords(env), []);
 });
 
-test("kit, library and any served file open on the daemon under their own addresses", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("kit, library and any served file open on the daemon under their own addresses", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1715,7 +1716,7 @@ test("kit, library and any served file open on the daemon under their own addres
   assert.equal(await servedPort(t, ["kit", "--no-open"], daemonEnv(port, { JSTYLE_NO_DAEMON: "1", JSTYLE_DAEMON_PORT: String(await freePort()) })) > 0, true);
 });
 
-test("a daemon that steps down after its waiters leaves its token to the next daemon", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon that steps down after its waiters leaves its token to the next daemon", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1740,7 +1741,7 @@ test("a daemon that steps down after its waiters leaves its token to the next da
   assert.equal(sent.status, 200, sent.body);
 });
 
-test("ps lists the daemon's projects with their waiters, and the daemon is not stopped under a waiter without --force", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("ps lists the daemon's projects with their waiters, and the daemon is not stopped under a waiter without --force", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1765,7 +1766,7 @@ test("ps lists the daemon's projects with their waiters, and the daemon is not s
   assert.equal(jstyle(["daemon", "stop"], { env }).status, 1);
 });
 
-test("a daemon of this version but another api is replaced, so kit gets the paths it expects", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a daemon of this version but another api is replaced, so kit gets the paths it expects", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);
@@ -1779,7 +1780,7 @@ test("a daemon of this version but another api is replaced, so kit gets the path
   assert.equal(daemon.api, API);
 });
 
-test("stop asks for --force when it cannot tell whether a daemon has waiters", { skip: DAEMON_SKIP, timeout: 30000 }, async (t) => {
+test("stop asks for --force when it cannot tell whether a daemon has waiters", { timeout: 30000 }, async (t) => {
   // A daemon that answers alive as itself but whose hub.json fails.
   const script = 'const http=require("http");const s=http.createServer((q,r)=>{if(q.url==="/__jstyle/alive"){r.writeHead(204,{"X-Jstyle-Pid":String(process.pid)});return r.end();}r.writeHead(500);r.end();});s.listen(0,"127.0.0.1",()=>console.log(s.address().port));';
   const child = spawn(process.execPath, ["-e", script]);
@@ -1800,10 +1801,11 @@ test("stop asks for --force when it cannot tell whether a daemon has waiters", {
     assert.equal(child.exitCode, null);
   }
   assert.equal(jstyle(["stop", String(port), "--force"], { env }).status, 0);
-  assert.ok([143, "SIGTERM"].includes(await exit));
+  const ended = await exit;
+  assert.ok(TERMINATED.includes(ended), String(ended));
 });
 
-test("a folder joined for one plain file stays out of the daemon's saved list", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+test("a folder joined for one plain file stays out of the daemon's saved list", { timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
   const env = daemonEnv(port);

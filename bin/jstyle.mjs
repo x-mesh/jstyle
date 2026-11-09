@@ -306,6 +306,7 @@ JSTYLE_NO_DAEMON=1, 다른 --port, loopback이 아닌 --host에서는 이 명령
 같은 포트에 허브가 이미 떠 있으면 새 서버를 띄우지 않고 그 허브에 이 폴더를 붙인 뒤
 {hub, project, url} JSON 한 줄을 쓰고 끝납니다. 허브의 / 주소는 붙은 프로젝트를 모두 보여 줍니다.
 jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
+데몬은 jstyle daemon stop으로 끄며, 기다리는 에이전트가 있으면 --force가 필요합니다. jstyle ps는 프로젝트마다 대기자 수를 보입니다.
 고정 포트의 허브는 붙은 프로젝트 목록을 저장해 두고, 같은 주소에서 다시 시작하면 같은 /<프로젝트>/ 주소로 되살립니다.
 사라진 폴더는 시작할 때 목록에서 뺍니다. --wait와 --port 0 허브는 저장하지 않습니다.
 
@@ -397,6 +398,8 @@ async function runHub(root, options, { daemon = false, token } = {}) {
   } catch (error) {
     return fail(error.message, 1);
   }
+  // The token a stepped-down daemon left is used now; a daemon that lost the port race leaves it for the winner.
+  if (daemon) fs.rmSync(handedTokenFile(), { force: true });
   if (store) {
     // Only now, holding the port, may this run set aside a list it could not read.
     let broken = null;
@@ -423,6 +426,15 @@ async function runHub(root, options, { daemon = false, token } = {}) {
   if (daemon) {
     choice.onRetire = () => {
       save();
+      // A daemon that steps down after its waiters has no run to pass the token to; the next daemon reads it here.
+      try {
+        const file = handedTokenFile();
+        fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(`${file}.${process.pid}.tmp`, choice.token, { mode: 0o600 });
+        fs.renameSync(`${file}.${process.pid}.tmp`, file);
+      } catch (error) {
+        process.stderr.write(`! 토큰을 남기지 못했습니다(다음 데몬은 새 토큰을 씁니다): ${error.message}\n`);
+      }
       process.stderr.write("새 버전 jstyle에 자리를 넘기고 데몬을 끝냅니다\n");
       setTimeout(() => {
         server.closeAllConnections();
@@ -444,17 +456,34 @@ async function runHub(root, options, { daemon = false, token } = {}) {
 }
 
 const DAEMON_HELP = `usage: jstyle daemon [--port PORT] [--idle MIN]
+       jstyle daemon stop [--force]
 
 모든 프로젝트를 127.0.0.1:<port>(기본 8765, JSTYLE_DAEMON_PORT) 한 서버로 띄우는 데몬입니다.
 보통은 직접 실행하지 않습니다. hub, explore --serve, 비교 화면 serve가 필요할 때 분리 실행합니다.
 프로젝트 목록은 hubs/127.0.0.1-<port>.json에서 되살리고, 출력은 daemon/daemon.log에 남습니다.
 대기자도 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 끝납니다.
-jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>는 데몬을 끕니다.
+jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>와 jstyle daemon stop은 데몬을 끕니다.
+대기자가 있으면 --force 없이는 끄지 않습니다. kit, library는 /__skill/ 아래에서 엽니다.
 새 버전 jstyle이 교체를 요청하면, 대기자가 없을 때 목록을 남기고 끝납니다. 대기자가 있으면 그들이 끝난 뒤에 끝납니다.
 데몬 이전에 127.0.0.1의 이 포트에 띄운 허브는 끄고 같은 토큰과 주소로 넘겨받습니다. 대기자가 있는 허브와 ::1, localhost의 허브는 끄지 않고 그대로 씁니다.
 `;
 
+function handedTokenFile() {
+  return path.join(daemonFolder(), "token");
+}
+
+// Agents waiting on a daemon, from its hub.json; 0 when it does not answer.
+async function daemonWaiters(record) {
+  const reply = await requestJson(record, "GET", "/__jstyle/hub.json", null, 1500);
+  return reply.status === 200 ? (reply.body?.projects ?? []).reduce((sum, p) => sum + (p.waiters || 0), 0) : 0;
+}
+
 async function daemonCommand(argv) {
+  if (argv[0] === "stop") {
+    const { listRecords } = await import("../scripts/lib/registry.mjs");
+    if (!listRecords().some((r) => r.daemon && r.port === DAEMON_PORT)) return fail(`${DAEMON_PORT} 포트에 떠 있는 데몬이 없습니다`, 1);
+    return stopCommand([String(DAEMON_PORT), ...argv.slice(1).filter((arg) => arg === "--force")]);
+  }
   const { parseServeArgs } = await import("../scripts/serve.mjs");
   let options;
   try {
@@ -470,8 +499,15 @@ async function daemonCommand(argv) {
   fs.mkdirSync(daemonFolder(), { recursive: true, mode: 0o700 });
   // A daemon that takes over a hub keeps its token, so tabs open on that hub go on working. It comes in the
   // environment, not argv, because other users on this machine can read a process's argv.
-  const adopted = process.env.JSTYLE_ADOPT_TOKEN;
+  let adopted = process.env.JSTYLE_ADOPT_TOKEN;
   delete process.env.JSTYLE_ADOPT_TOKEN;
+  if (!adopted) {
+    try {
+      adopted = fs.readFileSync(handedTokenFile(), "utf8").trim();
+    } catch {
+      // No daemon stepped down for this one.
+    }
+  }
   return runHub(null, { ...options, open: false }, { daemon: true, token: /^[0-9a-f]{32}$/.test(adopted ?? "") ? adopted : undefined });
 }
 
@@ -834,6 +870,14 @@ async function psCommand(argv) {
   }
   const { listRecords } = await import("../scripts/lib/registry.mjs");
   const records = listRecords();
+  // A daemon reports its live waiters per project; its record only knows the projects.
+  for (const r of records) {
+    if (!r.daemon || !joinable(r)) continue;
+    const reply = await requestJson(r, "GET", "/__jstyle/hub.json", null, 1500);
+    if (reply.status !== 200) continue;
+    const waiting = new Map((reply.body?.projects ?? []).map((p) => [p.slug, p.waiters ?? 0]));
+    r.projects = r.projects.map((p) => ({ ...p, waiters: waiting.get(p.slug) ?? 0 }));
+  }
   if (argv.includes("--json")) {
     process.stdout.write(JSON.stringify(records) + "\n");
     return 0;
@@ -848,16 +892,24 @@ async function psCommand(argv) {
     process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.daemon ? "daemon" : r.kind ?? "?").padEnd(8)}${name}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
     const home = process.env.HOME || "";
     const short = (dir) => (home && dir?.startsWith(home + path.sep) ? "~" + dir.slice(home.length) : dir ?? "");
+    if (r.daemon) {
+      const width = Math.max(0, ...r.projects.map((p) => p.slug.length));
+      const lines = r.projects.map((p) => `      ${p.slug.padEnd(width)}  ${(p.waiters ? `대기자 ${p.waiters}` : "").padEnd(8)}${dim(short(p.root))}\n`);
+      process.stdout.write(`      ${r.url}\n${lines.join("")}`);
+      continue;
+    }
     const where = Array.isArray(r.projects) ? r.projects.map((p) => short(p.root)) : [short(r.root)];
     process.stdout.write(`      ${r.url}\n${where.map((dir) => `      ${dim(dir)}\n`).join("")}`);
   }
   return 0;
 }
 
-const STOP_HELP = `usage: jstyle stop <port|project|all>
+const STOP_HELP = `usage: jstyle stop <port|project|all> [--force]
 
 jstyle 서버를 끕니다. 포트 번호, 프로젝트 이름(jstyle ps에 보이는 이름) 또는 all을 받습니다.
 끄기 전에 그 포트가 기록된 jstyle 서버인지 확인합니다.
+데몬에서 프로젝트 이름을 주면 그 프로젝트만 뺍니다. 데몬 자체는 기다리는 에이전트(대기자)가 있으면
+--force 없이는 끄지 않습니다. jstyle daemon stop [--force]도 같습니다.
 `;
 
 // Asks the port which process answers, so a reused pid never ends another program.
@@ -900,6 +952,14 @@ async function stopCommand(argv) {
         process.stderr.write(`${yellow("!")} ${r.port} 허브에서 프로젝트 ${target}를 빼지 못했습니다(${reply.body?.error ?? reply.status}). 허브를 끄려면 jstyle stop ${r.port}\n`);
       }
       continue;
+    }
+    // Ending the daemon under a waiting agent fails that agent's --wait; it takes --force.
+    if (r.daemon && !argv.includes("--force") && (await answersAs(r))) {
+      const waiters = await daemonWaiters(r);
+      if (waiters) {
+        process.stderr.write(`${yellow("!")} ${r.port} 데몬에 대기자 ${waiters}개가 기다리고 있어 끄지 않았습니다. 그래도 끄려면 --force를 붙입니다\n`);
+        continue;
+      }
     }
     if (!(await answersAs(r))) {
       // A server that is busy or paused keeps its record, so ps can still show it.

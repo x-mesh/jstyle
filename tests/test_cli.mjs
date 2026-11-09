@@ -1694,3 +1694,47 @@ test("kit, library and any served file open on the daemon under their own addres
   // Without the daemon, kit serves from the command as before.
   assert.equal(await servedPort(t, ["kit", "--no-open"], daemonEnv(port, { JSTYLE_NO_DAEMON: "1", JSTYLE_DAEMON_PORT: String(await freePort()) })) > 0, true);
 });
+
+test("a daemon that steps down after its waiters leaves its token to the next daemon", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const old = await oldDaemon(t, port);
+  const slug = await old.join(buildPages(t));
+  const id = await old.wait(slug);
+  assert.equal(jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 }).status, 0);
+  assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${id}`, { headers: old.headers })).status, 200);
+  assert.equal(await old.exit, 0);
+  assert.equal(jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 }).status, 0);
+  const [daemon] = daemonRecords(env);
+  assert.notEqual(daemon.pid, old.child.pid);
+  assert.equal(daemon.token, old.token, "a tab opened on the old daemon would get 403");
+  assert.equal(fs.existsSync(path.join(process.env.JSTYLE_HOME, "daemon", "token")), false, "the handed-over token stays on disk");
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers: old.headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(sent.status, 200, sent.body);
+});
+
+test("ps lists the daemon's projects with their waiters, and the daemon is not stopped under a waiter without --force", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const root = buildPages(t);
+  assert.equal(jstyle(["hub", root, "--no-open"], { env, timeout: 15000 }).status, 0);
+  const [daemon] = daemonRecords(env);
+  const slug = path.basename(root);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": daemon.token };
+  assert.equal((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: slug, page: null }) })).status, 200);
+  const listed = jstyle(["ps"], { env }).stdout;
+  assert.match(listed, new RegExp(`${slug}\\s+대기자 1`));
+  assert.deepEqual(JSON.parse(jstyle(["ps", "--json"], { env }).stdout).find((r) => r.daemon).projects.map((p) => [p.slug, p.waiters]), [[slug, 1]]);
+  for (const args of [["stop", String(port)], ["daemon", "stop"]]) {
+    const refused = jstyle(args, { env });
+    assert.equal(refused.status, 1, args.join(" "));
+    assert.match(refused.stderr, /--force/);
+    assert.equal(daemonRecords(env).length, 1);
+  }
+  const forced = jstyle(["daemon", "stop", "--force"], { env });
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.deepEqual(daemonRecords(env), []);
+  assert.equal(jstyle(["daemon", "stop"], { env }).status, 1);
+});

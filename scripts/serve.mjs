@@ -531,7 +531,9 @@ export function addProject(hub, root) {
 export function joinProject(hub, root) {
   const real = fs.realpathSync(root);
   for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [] };
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "").slice(0, MAX_SLUG - 10) || "project";
+  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
+  // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
+  base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
   if (base.startsWith("__")) base = `p${base}`;
   let slug = base;
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
@@ -645,9 +647,19 @@ function receiveProject(request, hub, json) {
       if (typeof body.remove === "string") {
         if (!hub.projects.has(body.remove)) return json(404, { error: "project" });
         if (hub.projects.size === 1) return json(409, { error: "last" });
+        const projects = [...hub.projects];
+        const times = [...hub.times];
         hub.projects.delete(body.remove);
         hub.times.delete(body.remove);
-        hub.onProjects?.();
+        // A removal the list cannot keep would come back on the next start, so it is undone and refused.
+        if (hub.onProjects?.() === false) {
+          hub.projects.clear();
+          for (const [slug, root] of projects) hub.projects.set(slug, root);
+          hub.times.clear();
+          for (const [slug, value] of times) hub.times.set(slug, value);
+          hub.onProjects?.();
+          return json(500, { error: "save" });
+        }
         return json(200, { ok: true, removed: body.remove });
       }
       const real = servableFolder(body.root);

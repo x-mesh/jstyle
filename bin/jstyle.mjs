@@ -318,17 +318,20 @@ async function hubCommand(argv) {
   const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
   // Nothing is saved until this process holds the port, so a start that fails leaves the list of the hub that holds it.
   let saving = false;
+  // Returns false when the list could not be written, so a removal can be undone.
   const save = () => {
-    if (!saving) return;
+    if (!saving) return true;
     try {
       writeHubStore(store, savedProjects(choice));
+      return true;
     } catch (error) {
       process.stderr.write(`${yellow("!")} 프로젝트 목록을 저장하지 못했습니다(다음에 다시 시작하면 이 목록이 없습니다): ${error.message}\n`);
+      return false;
     }
   };
   choice.onProjects = () => {
     registry.refresh?.();
-    save();
+    return save();
   };
   choice.onUsed = save;
   let server;

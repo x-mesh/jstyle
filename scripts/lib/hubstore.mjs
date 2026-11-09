@@ -25,7 +25,8 @@ export function readHubStore(file) {
     if (error.code === "ENOENT") return [];
     throw new Error(`저장된 프로젝트 목록을 읽지 못했습니다(${file}): ${error.message}`);
   }
-  if (data?.schema !== SCHEMA || !Array.isArray(data.projects)) return [];
+  // A list in another shape is set aside like a broken one, not read as empty and overwritten.
+  if (data?.schema !== SCHEMA || !Array.isArray(data.projects)) throw new Error(`저장된 프로젝트 목록의 형식이 다릅니다(${file}, schema ${JSON.stringify(data?.schema)})`);
   return data.projects.filter((p) => typeof p?.slug === "string" && typeof p.root === "string" && path.isAbsolute(p.root));
 }
 

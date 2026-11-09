@@ -863,3 +863,77 @@ test("a second hub run joins a hub on ::1 through ::1", { timeout: 30000 }, asyn
   assert.match(JSON.parse(joined.stdout).url, new RegExp(`^http://\\[::1\\]:${port}/`));
   assert.equal((await fetch(port, "GET", `/${path.basename(second)}/`, { host: "::1" })).status, 200);
 });
+
+for (const [label, text] of [["cannot be parsed", "{not json"], ["has another shape", JSON.stringify({ schema: 2, projects: [] })]]) {
+  test(`a hub whose saved list ${label} sets it aside as .broken and still starts`, { timeout: 30000 }, async (t) => {
+    const root = buildPages(t);
+    const port = await freePort();
+    fs.mkdirSync(path.dirname(hubStore(port)), { recursive: true });
+    fs.writeFileSync(hubStore(port), text);
+    const hub = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+    t.after(() => hub.kill("SIGKILL"));
+    let stderr = "";
+    hub.stderr.on("data", (data) => { stderr += data; });
+    await waitForUrl(hub);
+    // The list is set aside right after the address line, once the port is held.
+    for (let n = 0; n < 50 && !fs.existsSync(`${hubStore(port)}.broken`); n += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(fs.readFileSync(`${hubStore(port)}.broken`, "utf8"), text);
+    assert.deepEqual(JSON.parse(fs.readFileSync(hubStore(port), "utf8")).projects.map((p) => p.slug), [path.basename(root)]);
+    assert.match(stderr, /\.broken/);
+    assert.equal((await fetch(port, "GET", `/${path.basename(root)}/`)).status, 200);
+  });
+}
+
+test("an error inside a request answers 500 and the server keeps answering", async (t) => {
+  let thrown = false;
+  const server = createServer({
+    root: ROOT,
+    page: "SKILL.md",
+    onActivity: () => {
+      if (thrown) return;
+      thrown = true;
+      throw new Error("boom");
+    },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  assert.equal((await fetch(port, "GET", "/SKILL.md")).status, 500);
+  assert.equal((await fetch(port, "GET", "/SKILL.md")).status, 200);
+});
+
+test("removing a project whose list cannot be saved fails and keeps the project", async (t) => {
+  const { addProject, hubChoice } = await import("../scripts/serve.mjs");
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slugs = [addProject(hub, first), addProject(hub, second)];
+  hub.onProjects = () => false;
+  const server = createServer({ root: first, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const reply = await fetch(server.address().port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ remove: slugs[0] }) });
+  assert.equal(reply.status, 500);
+  assert.equal(JSON.parse(reply.body).error, "save");
+  assert.deepEqual([...hub.projects.keys()], slugs);
+  assert.ok(hub.times.has(slugs[0]));
+});
+
+test("a long folder name with a supplementary-plane letter at the cut makes a whole slug", async (t) => {
+  const { hubChoice } = await import("../scripts/serve.mjs");
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-emoji-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  // 244 ASCII letters and U+20000, a letter outside the BMP: 248 bytes on disk, and its two UTF-16 halves sit across the 245th unit.
+  const dir = path.join(parent, `${"a".repeat(244)}\u{20000}`);
+  fs.mkdirSync(dir);
+  const hub = hubChoice(() => {});
+  const server = createServer({ root: parent, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const reply = await fetch(server.address().port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: dir }) });
+  assert.equal(reply.status, 200, reply.body);
+  const { slug } = JSON.parse(reply.body);
+  assert.equal(slug.isWellFormed(), true);
+});

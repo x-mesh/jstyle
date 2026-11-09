@@ -187,7 +187,8 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
     // A file goes to the daemon with its folder as a project. A bare folder stays here: on a hub its address is the project page, not a listing.
     if (page && daemonWanted(host, port)) {
       const { hub, fellBack } = await hubFor({ host, port, idle });
-      const done = hub ? await openOnHub(hub, file, open, root) : null;
+      // Any folder can hold a plain file, such as /tmp; it is served for now and not kept in the daemon's list.
+      const done = hub ? await openOnHub(hub, file, open, root, { keep: false }) : null;
       if (done !== null) return done;
       port = await freePortFor(port, fellBack);
     } else {
@@ -231,6 +232,7 @@ jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice
 기본 주소(127.0.0.1:8765)에서 비교 화면을 띄우면 데몬(jstyle daemon)에 그 폴더를 붙이고 주소를 알린 뒤 끝나며,
 떠 있는 데몬이 없으면 분리 실행하고, 이때 --idle은 적용되지 않습니다.
 비교 화면이 아닌 파일도 기본 주소에서는 그 폴더를 데몬에 붙이고 /<프로젝트>/<파일> 주소를 알린 뒤 끝납니다.
+이 폴더는 데몬이 떠 있는 동안만 두고, 다음에 데몬이 뜰 때 되살리는 목록에는 넣지 않습니다.
 kit과 library는 기본 주소에서 데몬의 /__skill/ 아래로 열고 끝납니다. 파일 없이 폴더만 주면 이 명령이 띄웁니다.
 JSTYLE_NO_DAEMON=1, 다른 --port, loopback이 아닌 --host에서는 이 명령이 서버를 띄우고, 데몬 포트가 차 있으면 빈 포트를 씁니다.
 이 명령이 띄운 비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
@@ -472,10 +474,10 @@ function handedTokenFile() {
   return path.join(daemonFolder(), "token");
 }
 
-// Agents waiting on a daemon, from its hub.json; 0 when it does not answer.
+// Agents waiting on a daemon, from its hub.json; null when it cannot be told.
 async function daemonWaiters(record) {
   const reply = await requestJson(record, "GET", "/__jstyle/hub.json", null, 1500);
-  return reply.status === 200 ? (reply.body?.projects ?? []).reduce((sum, p) => sum + (p.waiters || 0), 0) : 0;
+  return reply.status === 200 ? (reply.body?.projects ?? []).reduce((sum, p) => sum + (p.waiters || 0), 0) : null;
 }
 
 async function daemonCommand(argv) {
@@ -580,7 +582,9 @@ async function runningOrNewHub({ host, port }) {
     if (other.version !== VERSION) return fallBack(`${other.host}:${port}에 jstyle ${other.version || "?"} 허브가 떠 있습니다`);
     return (await answersAs(other)) ? { hub: other, fellBack: false } : fallBack(`${port}의 허브가 jstyle 서버로 응답하지 않습니다`);
   }
-  if (hub?.daemon && hub.version === VERSION) return (await answersAs(hub)) ? { hub, fellBack: false } : fallBack(`${port}의 데몬이 응답하지 않습니다`);
+  const { API } = await import("../scripts/serve.mjs");
+  // The same version can still speak another api (a development install); only a daemon matching both is used as is.
+  if (hub?.daemon && hub.version === VERSION && hub.api === API) return (await answersAs(hub)) ? { hub, fellBack: false } : fallBack(`${port}의 데몬이 응답하지 않습니다`);
   if (hub?.daemon) return replaceDaemon(hub, port);
   if (hub) return adoptHub(hub, port);
   // Another jstyle server (a --wait server, a kit run without the daemon) keeps the port.
@@ -708,8 +712,8 @@ async function startDaemon(port, extraEnv = {}) {
 }
 
 // A comparison page on a hub: join its folder like jstyle hub does, then print the page's address.
-async function openOnHub(hub, file, open, projectRoot = hubFolderFor(hub, file)) {
-  const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot });
+async function openOnHub(hub, file, open, projectRoot = hubFolderFor(hub, file), { keep = true } = {}) {
+  const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot, ...(keep ? {} : { keep: false }) });
   if (joined.status !== 200) {
     process.stderr.write(`${yellow("!")} 떠 있는 허브(${hub.port})에 ${projectRoot}를 붙이지 못했습니다(${joined.body?.error ?? (joined.status || "연결 실패")}). 이 명령의 서버로 띄웁니다\n`);
     return null;
@@ -909,7 +913,7 @@ const STOP_HELP = `usage: jstyle stop <port|project|all> [--force]
 jstyle 서버를 끕니다. 포트 번호, 프로젝트 이름(jstyle ps에 보이는 이름) 또는 all을 받습니다.
 끄기 전에 그 포트가 기록된 jstyle 서버인지 확인합니다.
 데몬에서 프로젝트 이름을 주면 그 프로젝트만 뺍니다. 데몬 자체는 기다리는 에이전트(대기자)가 있으면
---force 없이는 끄지 않습니다. jstyle daemon stop [--force]도 같습니다.
+--force 없이는 끄지 않습니다. 대기자 수를 확인하지 못해도 같습니다. jstyle daemon stop [--force]도 같습니다.
 `;
 
 // Asks the port which process answers, so a reused pid never ends another program.
@@ -955,9 +959,11 @@ async function stopCommand(argv) {
     }
     // Ending the daemon under a waiting agent fails that agent's --wait; it takes --force.
     if (r.daemon && !argv.includes("--force") && (await answersAs(r))) {
+      // Not knowing counts as waiting: ending it could still cut off an agent.
       const waiters = await daemonWaiters(r);
-      if (waiters) {
-        process.stderr.write(`${yellow("!")} ${r.port} 데몬에 대기자 ${waiters}개가 기다리고 있어 끄지 않았습니다. 그래도 끄려면 --force를 붙입니다\n`);
+      if (waiters !== 0) {
+        const why = waiters === null ? "대기자가 있는지 확인하지 못해" : `대기자 ${waiters}개가 기다리고 있어`;
+        process.stderr.write(`${yellow("!")} ${r.port} 데몬에 ${why} 끄지 않았습니다. 그래도 끄려면 --force를 붙입니다\n`);
         continue;
       }
     }

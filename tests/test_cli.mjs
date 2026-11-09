@@ -1738,3 +1738,82 @@ test("ps lists the daemon's projects with their waiters, and the daemon is not s
   assert.deepEqual(daemonRecords(env), []);
   assert.equal(jstyle(["daemon", "stop"], { env }).status, 1);
 });
+
+test("a daemon of this version but another api is replaced, so kit gets the paths it expects", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const old = await oldDaemon(t, port, { JSTYLE_TEST_VERSION: "", JSTYLE_TEST_API: "1" });
+  assert.equal(daemonRecords(env)[0].version, JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version);
+  const kit = jstyle(["kit", "--no-open"], { env, timeout: 20000 });
+  assert.equal(kit.status, 0, kit.stderr);
+  assert.equal(await old.exit, 0);
+  const [daemon] = daemonRecords(env);
+  assert.notEqual(daemon.pid, old.child.pid);
+  assert.equal(daemon.api, API);
+});
+
+test("stop asks for --force when it cannot tell whether a daemon has waiters", { skip: DAEMON_SKIP, timeout: 30000 }, async (t) => {
+  // A daemon that answers alive as itself but whose hub.json fails.
+  const script = 'const http=require("http");const s=http.createServer((q,r)=>{if(q.url==="/__jstyle/alive"){r.writeHead(204,{"X-Jstyle-Pid":String(process.pid)});return r.end();}r.writeHead(500);r.end();});s.listen(0,"127.0.0.1",()=>console.log(s.address().port));';
+  const child = spawn(process.execPath, ["-e", script]);
+  t.after(() => child.kill("SIGKILL"));
+  const exit = new Promise((resolve) => child.on("exit", (code, signal) => resolve(code ?? signal)));
+  const port = await new Promise((resolve) => child.stdout.once("data", (data) => resolve(Number(String(data).trim()))));
+  const dir = path.join(process.env.JSTYLE_HOME, "servers");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${child.pid}.json`);
+  t.after(() => fs.rmSync(file, { force: true }));
+  const now = new Date().toISOString();
+  fs.writeFileSync(file, JSON.stringify({ pid: child.pid, port, host: "127.0.0.1", kind: "hub", daemon: true, wait: false, token: "f".repeat(32), projects: [], version: "0.0.0", api: API, project: "daemon", url: `http://127.0.0.1:${port}/`, started: now, lastActivity: now }));
+  const env = daemonEnv(port);
+  for (const args of [["stop", String(port)], ["daemon", "stop"]]) {
+    const refused = jstyle(args, { env });
+    assert.equal(refused.status, 1, args.join(" "));
+    assert.match(refused.stderr, /--force/);
+    assert.equal(child.exitCode, null);
+  }
+  assert.equal(jstyle(["stop", String(port), "--force"], { env }).status, 0);
+  assert.ok([143, "SIGTERM"].includes(await exit));
+});
+
+test("a folder joined for one plain file stays out of the daemon's saved list", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-plain-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(folder, "plain.html"), "<main>plain</main>");
+  assert.equal(jstyle(["serve", path.join(folder, "plain.html"), "--no-open"], { env, timeout: 15000 }).status, 0);
+  const pages = buildPages(t);
+  assert.equal(jstyle(["hub", pages, "--no-open"], { env, timeout: 15000 }).status, 0);
+  assert.deepEqual(daemonRecords(env)[0].projects.map((p) => p.slug).sort(), [path.basename(folder), path.basename(pages)].sort());
+  const saved = JSON.parse(fs.readFileSync(path.join(process.env.JSTYLE_HOME, "hubs", `127.0.0.1-${port}.json`), "utf8"));
+  assert.deepEqual(saved.projects.map((p) => p.slug), [path.basename(pages)]);
+});
+
+test("a borrowed folder stays borrowed when a join, a keep or a removal cannot be saved", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const [kept, borrowed, refused] = [buildPages(t), buildPages(t), buildPages(t)];
+  const hub = hubChoice(() => {}, { daemon: true });
+  joinProject(hub, kept);
+  const { slug } = joinProject(hub, borrowed, { keep: false });
+  assert.deepEqual(savedProjects(hub).map((p) => p.slug), [path.basename(kept)]);
+  hub.onProjects = () => false;
+  // A new borrowed folder that cannot be saved leaves nothing behind.
+  assert.equal(joinProject(hub, refused, { keep: false }).saved, false);
+  assert.equal([...hub.projects.values()].includes(fs.realpathSync(refused)), false);
+  // Keeping the borrowed folder fails, so it stays borrowed.
+  assert.equal(joinProject(hub, borrowed).saved, false);
+  assert.ok(hub.transient.has(slug));
+  // Removing it fails and is undone, still borrowed.
+  const server = createServer({ root: kept, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  assert.equal((await fetch(server.address().port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ remove: slug }) })).status, 500);
+  assert.ok(hub.projects.has(slug));
+  assert.ok(hub.transient.has(slug), "an undone removal turned a borrowed folder into a kept one");
+  hub.onProjects = null;
+  assert.deepEqual(savedProjects(hub).map((p) => p.slug), [path.basename(kept)]);
+});

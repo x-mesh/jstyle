@@ -537,7 +537,7 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // A daemon hub may end up with no project at all; a hub started for a folder keeps at least one.
 export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL, daemon = false, token = randomBytes(16).toString("hex") } = {}) {
   hubPage();
-  return { token, hub: true, daemon, builtin: daemon ? new Map([[SKILL_SLUG, SKILL_ROOT]]) : new Map(), onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
+  return { token, hub: true, daemon, transient: new Set(), builtin: daemon ? new Map([[SKILL_SLUG, SKILL_ROOT]]) : new Map(), onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
 export function addProject(hub, root) {
@@ -545,9 +545,18 @@ export function addProject(hub, root) {
 }
 
 // evicted lists the projects that left to keep the list at MAX_PROJECTS.
-export function joinProject(hub, root) {
+export function joinProject(hub, root, { keep = true } = {}) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [], saved: true };
+  for (const [slug, known] of hub.projects) {
+    if (known !== real) continue;
+    // A folder that was only borrowed becomes a kept project once something joins it to keep; if that cannot be saved it stays borrowed.
+    if (keep && hub.transient.delete(slug) && hub.onProjects?.() === false) {
+      hub.transient.add(slug);
+      hub.onProjects?.();
+      return { slug: null, evicted: [], saved: false };
+    }
+    return { slug, evicted: [], saved: true };
+  }
   let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
   // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
   base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
@@ -556,7 +565,9 @@ export function joinProject(hub, root) {
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
   const projects = [...hub.projects];
   const times = [...hub.times];
+  const borrowed = [...hub.transient];
   hub.projects.set(slug, real);
+  if (!keep) hub.transient.add(slug);
   const now = new Date().toISOString();
   hub.times.set(slug, { added: now, lastUsed: now });
   // The saved list stays small: past the limit the project used longest ago goes.
@@ -565,6 +576,7 @@ export function joinProject(hub, root) {
     const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
     hub.projects.delete(oldest);
     hub.times.delete(oldest);
+    hub.transient.delete(oldest);
     evicted.push(oldest);
   }
   // A join the list cannot keep would be gone on the next start, so it is undone, evictions included, and refused.
@@ -573,6 +585,8 @@ export function joinProject(hub, root) {
     for (const [name, root] of projects) hub.projects.set(name, root);
     hub.times.clear();
     for (const [name, value] of times) hub.times.set(name, value);
+    hub.transient.clear();
+    for (const name of borrowed) hub.transient.add(name);
     hub.onProjects?.();
     return { slug: null, evicted: [], saved: false };
   }
@@ -604,8 +618,9 @@ export function restoreProjects(hub, entries) {
   return { restored, dropped };
 }
 
+// A folder joined only to show one file is served while the hub runs but not kept for its next start.
 export function savedProjects(hub) {
-  return [...hub.projects].map(([slug, root]) => ({ slug, root, ...hub.times.get(slug) }));
+  return [...hub.projects].filter(([slug]) => !hub.transient.has(slug)).map(([slug, root]) => ({ slug, root, ...hub.times.get(slug) }));
 }
 
 // lastUsed decides which project goes first past the limit; saving it at most once a minute is enough.
@@ -840,12 +855,14 @@ function receiveProject(request, hub, json) {
         const times = [...hub.times];
         hub.projects.delete(body.remove);
         hub.times.delete(body.remove);
+        const borrowed = hub.transient.delete(body.remove);
         // A removal the list cannot keep would come back on the next start, so it is undone and refused.
         if (hub.onProjects?.() === false) {
           hub.projects.clear();
           for (const [slug, root] of projects) hub.projects.set(slug, root);
           hub.times.clear();
           for (const [slug, value] of times) hub.times.set(slug, value);
+          if (borrowed) hub.transient.add(body.remove);
           hub.onProjects?.();
           return json(500, { error: "save" });
         }
@@ -854,7 +871,7 @@ function receiveProject(request, hub, json) {
       }
       const real = servableFolder(body.root);
       if (!real) return json(400, { error: "root" });
-      const { slug, evicted, saved } = joinProject(hub, real);
+      const { slug, evicted, saved } = joinProject(hub, real, { keep: body.keep !== false });
       if (!saved) return json(500, { error: "save" });
       return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/`, ...(evicted.length ? { evicted } : {}) });
     } catch (error) {

@@ -1847,6 +1847,26 @@ test("a borrowed folder never pushes a kept project out: 50 kept projects stay w
   assert.equal(savedProjects(hub).length, 50);
 });
 
+test("keeping a borrowed folder in a hub with 50 kept projects drops the oldest kept one, or nothing when that cannot be saved", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const folder = limitFolders(t);
+  const hub = hubChoice(() => {}, { daemon: true });
+  for (let i = 0; i < 50; i += 1) joinProject(hub, folder(`kept${i}`));
+  hub.times.get("kept7").lastUsed = new Date(0).toISOString();
+  const borrowed = folder("borrowed");
+  const { slug } = joinProject(hub, borrowed, { keep: false });
+  hub.onProjects = () => false;
+  assert.equal(joinProject(hub, borrowed).saved, false);
+  assert.ok(hub.projects.has("kept7"), "an undone keep left the oldest kept project out");
+  assert.ok(hub.transient.has(slug));
+  hub.onProjects = null;
+  const kept = joinProject(hub, borrowed);
+  assert.deepEqual(kept, { slug, evicted: ["kept7"], saved: true });
+  assert.equal(hub.transient.has(slug), false);
+  assert.equal(savedProjects(hub).length, 50);
+  assert.ok(savedProjects(hub).some((p) => p.slug === slug));
+});
+
 test("borrowed folders have their own limit of 50, and the oldest borrowed one goes", async (t) => {
   const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
   const folder = limitFolders(t);

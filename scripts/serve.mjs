@@ -547,29 +547,25 @@ export function addProject(hub, root) {
 // evicted lists the projects that left to keep the list at MAX_PROJECTS.
 export function joinProject(hub, root, { keep = true } = {}) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) {
-    if (known !== real) continue;
-    // A folder that was only borrowed becomes a kept project once something joins it to keep; if that cannot be saved it stays borrowed.
-    if (keep && hub.transient.delete(slug) && hub.onProjects?.() === false) {
-      hub.transient.add(slug);
-      hub.onProjects?.();
-      return { slug: null, evicted: [], saved: false };
-    }
-    return { slug, evicted: [], saved: true };
-  }
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
-  // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
-  base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
-  if (base.startsWith("__")) base = `p${base}`;
-  let slug = base;
-  for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
   const projects = [...hub.projects];
   const times = [...hub.times];
   const borrowed = [...hub.transient];
-  hub.projects.set(slug, real);
-  if (!keep) hub.transient.add(slug);
-  const now = new Date().toISOString();
-  hub.times.set(slug, { added: now, lastUsed: now });
+  let slug = projects.find(([, known]) => known === real)?.[0];
+  if (slug !== undefined) {
+    // A folder that was only borrowed becomes a kept project once something joins it to keep, and counts toward the kept limit.
+    if (!keep || !hub.transient.delete(slug)) return { slug, evicted: [], saved: true };
+  } else {
+    let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
+    // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
+    base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
+    if (base.startsWith("__")) base = `p${base}`;
+    slug = base;
+    for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
+    hub.projects.set(slug, real);
+    if (!keep) hub.transient.add(slug);
+    const now = new Date().toISOString();
+    hub.times.set(slug, { added: now, lastUsed: now });
+  }
   // Kept projects (the saved list) and borrowed folders each stay at MAX_PROJECTS: past it the one of the same
   // kind used longest ago goes, so a borrowed folder never pushes a kept project out.
   const sameKind = (name) => hub.transient.has(name) === !keep;

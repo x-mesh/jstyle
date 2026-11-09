@@ -815,6 +815,41 @@ test("the discovery hint closes and stays closed", { skip: CHROME_SKIP("hint che
   assert.deepEqual(JSON.parse(probed.stdout), { before: true, after: false, stored: "1" });
 });
 
+test("on a narrow served page the hint sits at the bottom with readable width", { skip: CHROME_SKIP("narrow hint checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ await new Promise(r=>setTimeout(r,600));
+ const hint=document.querySelector('#comment-hint'),r=hint.getBoundingClientRect();
+ const result=document.createElement('pre');result.id='narrow-result';
+ result.textContent=JSON.stringify({shown:!hint.hidden,width:Math.round(r.width),left:Math.round(r.left),right:Math.round(innerWidth-r.right),bottom:Math.round(innerHeight-r.bottom),viewport:innerWidth});
+ document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  // A served page has the review panel, whose width the hint used to subtract even after the panel moved below the board.
+  const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "serve", f.output, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stderr = "";
+  const url = await new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = / at (http:\/\/\S+\?t=[0-9a-f]+)/.exec(stderr);
+      if (match) resolve(match[1]);
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const probed = f.runBrowserProbe("narrow-result", "chrome-narrow", url, "390,844");
+  assert.equal(probed.status, 0, probed.stderr);
+  const hint = JSON.parse(probed.stdout);
+  assert.equal(hint.shown, true);
+  assert.ok(hint.width >= 200, JSON.stringify(hint));
+  assert.ok(hint.left >= 0 && hint.right >= 0, JSON.stringify(hint));
+  assert.ok(hint.bottom >= 0 && hint.bottom <= 40, JSON.stringify(hint));
+});
+
 test("a static candidate with content before its head still blocks its own scripts", { skip: CHROME_SKIP("CSP placement checks") }, async (t) => {
   const f = new Fixture(t);
   // Content before <head> makes the browser open <body> early; a CSP meta inserted after <head> would land in the body and do nothing.

@@ -92,7 +92,7 @@ function sameToken(given, token) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// choice: { token, data, file, onChoice } accepts one POST route for the
+// choice: { token, data, file, onChoice, once } accepts one POST route for the
 // explorer page. The custom token header forces a CORS preflight that this
 // server never answers, so other sites cannot post to it, and the token keeps
 // other devices out when the server listens on the network.
@@ -121,9 +121,13 @@ function receiveChoice(request, choice, send) {
     if (body.viewport != null && typeof body.viewport !== "string") return json(400, { error: "viewport" });
     const record = choiceRecord(choice.data, body);
     if (!record) return json(400, { error: "id" });
+    // With once (--wait), later picks are refused so choice.json keeps what was printed.
+    if (choice.closed) return json(409, { error: "closed" });
+    if (choice.once) choice.closed = true;
     try {
       writeAtomic(choice.file, JSON.stringify(record, null, 2) + "\n");
     } catch (error) {
+      choice.closed = false;
       return json(500, { error: error.message });
     }
     json(200, { ok: true });
@@ -193,11 +197,11 @@ export function pageUrls({ host, port, page, search = "" }) {
 
 // With choices, an explorer page can post the picked direction back; it is
 // written to choice.json next to the page and passed to onChoice.
-export function explorerChoice(root, page, onChoice) {
+export function explorerChoice(root, page, onChoice, { once = false } = {}) {
   const file = path.join(root, page.split("#")[0]);
   const data = readExplorerData(file);
   if (!data) return null;
-  return { token: randomBytes(16).toString("hex"), data, file: path.join(path.dirname(file), CHOICE_FILE), onChoice };
+  return { token: randomBytes(16).toString("hex"), data, file: path.join(path.dirname(file), CHOICE_FILE), onChoice, once, closed: false };
 }
 
 // Resolves once the server listens; stays running until Ctrl+C.

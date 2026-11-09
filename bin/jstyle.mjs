@@ -133,7 +133,7 @@ async function serveExplorer({ root, page, host, port, open, wait }) {
   const { serve, explorerChoice } = await import("../scripts/serve.mjs");
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
-  const choice = explorerChoice(root, page, picked);
+  const choice = explorerChoice(root, page, picked, { once: wait });
   if (wait && !choice) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
   let server;
   try {

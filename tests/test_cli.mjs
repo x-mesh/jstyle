@@ -199,12 +199,14 @@ test("explore --wait prints the first pick as the last stdout line and stops", a
   const { port, token } = await waitForUrl(child);
   const root = await fetch(port, "GET", `/?t=${token}`);
   assert.equal(root.headers.location, `/style-explorer.html?t=${token}`);
-  const response = await fetch(port, "POST", CHOICE_PATH, {
-    headers: { "Content-Type": "application/json", "X-Jstyle-Token": token },
-    body: JSON.stringify({ id: "candidate-1", notes: "Keep the header" }),
-  });
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const response = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-1", notes: "Keep the header" }) });
   assert.equal(response.status, 200);
+  // A second pick before the server stops must not replace what --wait printed.
+  const late = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ id: "candidate-2" }) });
+  assert.equal(late.status, 409);
   assert.equal(await exit, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8")).id, "candidate-1");
   const lines = stdout.trim().split("\n");
   const picked = JSON.parse(lines.at(-1));
   assert.equal(picked.number, "01");

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,9 @@ const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
 export const CHOICE_PATH = "/__jstyle/choice";
 export const CHOICE_FILE = "choice.json";
+export const HUB_PATH = "/__jstyle/hub.json";
+const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
+const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
 const MAX_NOTES = 4000;
 const MAX_COMMENTS = 50;
@@ -180,23 +183,109 @@ function receiveChoice(request, choice, send) {
     if (body.notes != null && (typeof body.notes !== "string" || body.notes.length > MAX_NOTES)) return json(400, { error: "notes" });
     if (body.viewport != null && typeof body.viewport !== "string") return json(400, { error: "viewport" });
     if (body.comments != null && (!Array.isArray(body.comments) || body.comments.length > MAX_COMMENTS)) return json(400, { error: "comments" });
-    const record = choiceRecord(choice.data, body);
+    // A hub serves many explorers: the page names which one, and only a built explorer under the root counts.
+    let { data, file } = choice;
+    let page = null;
+    if (choice.hub) {
+      if (typeof body.page !== "string" || !body.page.startsWith("/") || body.page.length > 2000) return json(400, { error: "page" });
+      const html = localPath(choice.root, body.page);
+      data = readExplorerData(html);
+      if (!data) return json(400, { error: "page" });
+      file = path.join(path.dirname(html), CHOICE_FILE);
+      page = path.relative(choice.root, html).split(path.sep).join("/");
+    }
+    const record = choiceRecord(data, body);
     if (!record) return json(400, { error: body.comments?.length ? "comments" : "id" });
     // Nothing picked, noted or commented: refusing it keeps --wait from ending with an empty result.
     if (record.id === null && !record.comments.length && !record.notes.trim()) return json(400, { error: "empty" });
+    if (page) record.page = page;
     // With once (--wait), later picks are refused so choice.json keeps what was printed.
     if (choice.closed) return json(409, { error: "closed" });
     if (choice.once) choice.closed = true;
     try {
-      writeAtomic(choice.file, JSON.stringify(record, null, 2) + "\n");
+      writeAtomic(file, JSON.stringify(record, null, 2) + "\n");
     } catch (error) {
       choice.closed = false;
       return json(500, { error: error.message });
     }
     // waiting tells the page whether an agent receives this now (--wait) or only choice.json keeps it.
     json(200, { ok: true, waiting: Boolean(choice.once) });
-    choice.onChoice?.(record);
+    choice.onChoice?.(record, file);
   }
+}
+
+// One hub entry per built explorer: what the hub page shows and what the
+// explorer's page menu lists. Status comes from choice.json when its
+// fingerprint still matches the page.
+function hubEntry(root, html, data) {
+  const rel = path.relative(root, html).split(path.sep).join("/");
+  const dir = path.posix.dirname(rel);
+  const roundDir = /^\d+$/.test(path.posix.basename(dir));
+  const group = (roundDir ? path.posix.dirname(dir) : dir).replace(/(^|\/)explore$/, "") || ".";
+  let choice = null;
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(path.dirname(html), CHOICE_FILE), "utf8"));
+    choice = { id: saved.id ?? null, number: saved.number ?? null, name: saved.name ?? null, comments: Array.isArray(saved.comments) ? saved.comments.length : 0, notes: Boolean(saved.notes?.trim?.()), at: saved.at ?? null, stale: saved.fingerprint !== data.fingerprint };
+  } catch {
+    // No choice yet.
+  }
+  return {
+    path: rel,
+    group,
+    round: data.round || (roundDir ? path.posix.basename(dir) : ""),
+    project: data.project ?? "",
+    brief: data.brief ?? "",
+    candidates: data.candidates.map((c) => ({ name: c.name, baseline: Boolean(c.baseline), palette: Array.isArray(c.palette) ? c.palette.slice(0, 8) : [] })),
+    mtime: fs.statSync(html).mtimeMs,
+    choice,
+  };
+}
+
+// An explorer built with --output can have any name, so the hub looks for the
+// embedded data marker; only the head of each file is read to decide.
+function looksLikeExplorer(file) {
+  let handle;
+  try {
+    handle = fs.openSync(file, "r");
+    const head = Buffer.alloc(128 * 1024);
+    const read = fs.readSync(handle, head, 0, head.length, 0);
+    return head.subarray(0, read).includes("const DATA = ");
+  } catch {
+    return false;
+  } finally {
+    if (handle !== undefined) fs.closeSync(handle);
+  }
+}
+
+// The hub says whose drafts these are: the folder that holds .jstyle, or the served folder itself.
+export function hubProject(root) {
+  const dir = path.basename(root) === ".jstyle" ? path.dirname(root) : root;
+  const home = homedir();
+  return { project: path.basename(dir), location: dir === home || dir.startsWith(home + path.sep) ? "~" + dir.slice(home.length) : dir };
+}
+
+export function hubList(root) {
+  const entries = [];
+  const walk = (dir, depth) => {
+    if (depth > HUB_DEPTH) return;
+    let items;
+    try {
+      items = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const item of items) {
+      if (item.name === "node_modules" || (depth > 0 && item.name.startsWith("."))) continue;
+      const full = path.join(dir, item.name);
+      if (item.isDirectory()) walk(full, depth + 1);
+      else if (item.name.toLowerCase().endsWith(".html") && looksLikeExplorer(full)) {
+        const data = readExplorerData(full);
+        if (data) entries.push(hubEntry(root, full, data));
+      }
+    }
+  };
+  walk(root, 0);
+  return entries.sort((a, b) => b.mtime - a.mtime);
 }
 
 export function createServer({ root, page, choice = null }) {
@@ -209,6 +298,10 @@ export function createServer({ root, page, choice = null }) {
     };
     const url = new URL(request.url, "http://localhost");
     if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
+    if (choice?.hub && (request.method === "GET" || request.method === "HEAD")) {
+      if (url.pathname === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
+      if (url.pathname === HUB_PATH) return send(200, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify({ root: path.basename(choice.root), ...hubProject(choice.root), entries: hubList(choice.root) }) + "\n");
+    }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
     // The served folder rarely has an index.html, so a bare host URL opened on
     // another device would show a directory listing instead of the page.
@@ -266,6 +359,11 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
   const data = readExplorerData(file);
   if (!data) return null;
   return { token: randomBytes(16).toString("hex"), data, file: path.join(path.dirname(file), CHOICE_FILE), onChoice, once, closed: false };
+}
+
+// A hub takes picks for every explorer under root; the page in each post says which.
+export function hubChoice(root, onChoice, { once = false } = {}) {
+  return { token: randomBytes(16).toString("hex"), hub: true, root, onChoice, once, closed: false };
 }
 
 // Resolves once the server listens; stays running until Ctrl+C.

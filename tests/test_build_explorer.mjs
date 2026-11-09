@@ -834,6 +834,51 @@ test("a static candidate with content before its head still blocks its own scrip
   assert.ok(seen.includes("ready"), "the hashed picker should still run");
 });
 
+test("a hub lists the pages and an explorer opened from it gets a page menu", { skip: CHROME_SKIP("hub checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, "<html><head></head><body>Sample</body></html>");
+  f.data.round = "02";
+  f.save();
+  f.build(true);
+  const second = path.join(f.folder, "settings", "explore", "01");
+  fs.mkdirSync(second, { recursive: true });
+  writeText(path.join(second, "a.html"), "<html><head></head><body>Settings</body></html>");
+  writeText(path.join(second, "manifest.json"), JSON.stringify({ project: "Settings", round: "01", candidates: [{ id: "a", name: "Plain", source: "a.html" }] }));
+  build(path.join(second, "manifest.json"), path.join(second, "style-explorer.html"), { force: true });
+  const probe = String.raw`<script>
+(async()=>{
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+ for(let i=0;i<60&&document.querySelector('#pages').hidden;i++)await sleep(50);
+ const menu=document.querySelector('#pages .pages-menu');
+ const result=document.createElement('pre');result.id='menu-result';
+ result.textContent=JSON.stringify({shown:!document.querySelector('#pages').hidden,links:[...menu.querySelectorAll('a')].map(a=>[new URL(a.href).pathname,a.getAttribute('aria-current')]),token:[...menu.querySelectorAll('a')].every(a=>new URL(a.href).searchParams.get('t')===new URLSearchParams(location.search).get('t'))});
+ document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "hub", f.folder, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  let stderr = "";
+  const base = await new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = / at (http:\/\/127\.0\.0\.1:\d+)\/\?t=([0-9a-f]+)/.exec(stderr);
+      if (match) resolve({ origin: match[1], token: match[2] });
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const hub = f.runBrowserProbe("sum", "chrome-hub", `${base.origin}/?t=${base.token}`);
+  assert.equal(hub.status, 0, hub.stderr);
+  assert.match(hub.stdout, /2\D+2/);
+  const probed = f.runBrowserProbe("menu-result", "chrome-menu", `${base.origin}/output/explore.html?t=${base.token}`);
+  assert.equal(probed.status, 0, probed.stderr);
+  const observed = JSON.parse(probed.stdout);
+  assert.equal(observed.shown, true);
+  assert.equal(observed.token, true);
+  // Any built explorer counts, whatever --output named it; the newest page comes first.
+  assert.deepEqual(observed.links, [["/", null], ["/output/explore.html", "page"], ["/settings/explore/01/style-explorer.html", null]]);
+});
+
 test("portable single file and HTML payload", (t) => {
   const f = new Fixture(t);
   const result = f.build();

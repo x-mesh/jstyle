@@ -29,6 +29,7 @@ usage   jstyle <command> [options]
   serve    파일이나 폴더를 캐시 없는 로컬 서버로 띄웁니다
   kit      컴포넌트 키트를 엽니다
   library  패턴 라이브러리를 엽니다
+  hub      여러 페이지의 비교 화면을 한 서버로 모아 띄웁니다
 
 캡처와 자료
   shoot    화면 크기별 캡처, 연속 프레임, 녹화
@@ -206,6 +207,50 @@ async function serveCommand(argv, fixedPage = null) {
   return null;
 }
 
+const HUB_HELP = `usage: jstyle hub [folder] [--host HOST] [--port PORT] [--no-open] [--wait]
+
+folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄웁니다.
+첫 화면은 페이지별 회차 목록이고, 각 비교 화면 위쪽 막대에서 다른 페이지로 옮겨 갈 수 있습니다.
+어느 비교 화면에서 고르거나 보내도 그 폴더의 choice.json에 저장됩니다.
+--wait는 첫 선택을 기다렸다가 고른 안을 page 경로와 함께 JSON 한 줄로 쓰고 끝납니다.
+`;
+
+// Serves every explorer under a folder from one server, with a hub page at /.
+async function hubCommand(argv) {
+  const { parseServeArgs, serve, hubChoice } = await import("../scripts/serve.mjs");
+  let options;
+  try {
+    options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
+  } catch (error) {
+    return fail(error.message);
+  }
+  if (options.help) {
+    process.stdout.write(HUB_HELP);
+    return 0;
+  }
+  const root = path.resolve(options.page ?? ".jstyle");
+  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
+  let picked;
+  const pick = new Promise((resolve) => { picked = resolve; });
+  const choice = hubChoice(root, (record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  let server;
+  try {
+    server = await serve({ root, page: "", host: options.host, port: options.port, open: options.open, choice });
+  } catch (error) {
+    return fail(error.message, 1);
+  }
+  if (!options.wait) return null;
+  process.stderr.write(`${dim("wait:")} 어느 비교 화면에서든 고르거나 보내면 끝납니다\n`);
+  const { record, file } = await pick;
+  process.stdout.write(JSON.stringify({ ...record, file }) + "\n");
+  const label = record.id === null ? `고른 안 없이 의견 ${record.comments.length}개` : `고른 안: ${record.baseline ? "기존 화면" : record.number} ${record.name}`;
+  process.stderr.write(`${green("✓")} ${record.page} · ${label}\n  ${file}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  server.closeAllConnections();
+  server.close();
+  return 0;
+}
+
 function doctor(argv) {
   const json = argv.includes("--json");
   const checks = [];
@@ -272,6 +317,8 @@ async function main(argv) {
       return serveCommand(rest, "assets/kit/index.html");
     case "library":
       return serveCommand(rest, "assets/extended/index.html");
+    case "hub":
+      return hubCommand(rest);
     case "shoot":
       return runScript("shoot.mjs", rest);
     case "media":
@@ -287,7 +334,7 @@ async function main(argv) {
     case "doctor":
       return doctor(rest);
     default: {
-      const names = ["explore", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "eval", "doctor", "version"];
+      const names = ["explore", "hub", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "eval", "doctor", "version"];
       const near = names.find((name) => name.startsWith(command.slice(0, 2)));
       fail(`알 수 없는 명령: ${command}`);
       if (near) hint("try", `jstyle ${near}`);

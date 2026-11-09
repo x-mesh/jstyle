@@ -1166,3 +1166,23 @@ test("--wait starts its own server when the running hub refuses the page's folde
   assert.equal(await exit, 0);
   assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)).id, "candidate-1");
 });
+
+test("hub waiters on a project that leaves to keep the list at 50 get 410", { timeout: 60000 }, async (t) => {
+  const root = buildPages(t);
+  const { slugs: [slug], register, poll, headers, port } = await hubInProcess(t, [root]);
+  const { id } = JSON.parse((await register({ project: slug, page: null })).body);
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-many-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const held = poll(id, 20);
+  let evicted = [];
+  for (let i = 0; i < 50; i += 1) {
+    const folder = path.join(parent, `p${i}`);
+    fs.mkdirSync(folder);
+    const reply = JSON.parse((await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folder }) })).body);
+    evicted = evicted.concat(reply.evicted ?? []);
+  }
+  assert.deepEqual(evicted, [slug]);
+  const answer = await held;
+  assert.equal(answer.status, 410);
+  assert.equal(JSON.parse(answer.body).reason, "evicted");
+});

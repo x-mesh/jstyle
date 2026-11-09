@@ -551,6 +551,7 @@ export function joinProject(hub, root) {
     const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
     hub.projects.delete(oldest);
     hub.times.delete(oldest);
+    for (const waiter of [...hub.waiters.values()]) if (waiter.project === oldest) dropWaiter(hub, waiter, "evicted");
     evicted.push(oldest);
   }
   if (evicted.length) hub.onEvicted?.(evicted);

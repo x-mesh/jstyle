@@ -801,6 +801,25 @@ test("a pick for a page the hub refuses does not count as using its project", as
   assert.equal(hub.times.get(slug).lastUsed, "2000-01-01T00:00:00.000Z");
 });
 
+test("a pick counts as using its project and saves the list", async (t) => {
+  const { addProject, hubChoice, savedProjects } = await import("../scripts/serve.mjs");
+  const root = buildPages(t);
+  const hub = hubChoice(() => {});
+  const slug = addProject(hub, root);
+  hub.times.get(slug).lastUsed = "2000-01-01T00:00:00.000Z";
+  let saves = 0;
+  hub.onUsed = () => { saves += 1; };
+  const server = createServer({ root, page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const before = Date.now();
+  const picked = await fetch(server.address().port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(picked.status, 200);
+  assert.ok(Date.parse(savedProjects(hub)[0].lastUsed) >= before);
+  assert.equal(saves, 1);
+});
+
 test("a saved slug longer than any folder name makes is not restored", async (t) => {
   const { hubChoice, restoreProjects } = await import("../scripts/serve.mjs");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-slug-"));

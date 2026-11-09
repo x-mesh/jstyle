@@ -16,6 +16,8 @@ process.env.JSTYLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-home-"))
 // No detached daemon unless a test asks for one with daemonEnv(); servers stay children of the test.
 process.env.JSTYLE_NO_DAEMON = "1";
 const CLI = path.join(ROOT, "bin", "jstyle.mjs");
+// How a jstyle server ended by SIGTERM exits. Windows runs no SIGTERM handler: it ends the process at once with exit code 1.
+const TERMINATED = process.platform === "win32" ? [1] : [143, "SIGTERM"];
 
 function jstyle(args, options = {}) {
   return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" }, ...options });
@@ -384,9 +386,8 @@ test("stop ends a recorded server and ps drops records of ended ones", async (t)
   assert.equal(jstyle(["stop", "1"]).status, 1);
   const stopped = jstyle(["stop", String(port)]);
   assert.equal(stopped.status, 0, stopped.stderr);
-  // Windows has no SIGTERM handler: the process is ended at once with exit code 1.
   const ended = await exit;
-  if (process.platform !== "win32") assert.ok([143, "SIGTERM"].includes(ended), String(ended));
+  assert.ok(TERMINATED.includes(ended), String(ended));
   // A record left by a process that is gone is pruned on the next listing.
   const dir = path.join(process.env.JSTYLE_HOME, "servers");
   fs.mkdirSync(dir, { recursive: true });
@@ -1603,9 +1604,8 @@ test("a hub from before the daemon on the daemon port is taken over with its tok
   const third = buildPages(t);
   const run = jstyle(["hub", third, "--no-open"], { env, timeout: 20000 });
   assert.equal(run.status, 0, run.stderr);
-  // Windows has no SIGTERM handler: the process is ended at once with exit code 1.
   const hubEnded = await hubExit;
-  if (process.platform !== "win32") assert.ok([143, "SIGTERM"].includes(hubEnded), String(hubEnded));
+  assert.ok(TERMINATED.includes(hubEnded), String(hubEnded));
   const [daemon] = daemonRecords(env);
   assert.equal(daemon.token, token);
   assert.deepEqual(daemon.projects.map((p) => p.slug), [first, second, third].map((root) => path.basename(root)));
@@ -1783,7 +1783,7 @@ test("stop asks for --force when it cannot tell whether a daemon has waiters", {
   }
   assert.equal(jstyle(["stop", String(port), "--force"], { env }).status, 0);
   const ended = await exit;
-  if (process.platform !== "win32") assert.ok([143, "SIGTERM"].includes(ended), String(ended));
+  assert.ok(TERMINATED.includes(ended), String(ended));
 });
 
 test("a folder joined for one plain file stays out of the daemon's saved list", { timeout: 60000 }, async (t) => {

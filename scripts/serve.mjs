@@ -9,6 +9,7 @@ import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { MAX_PROJECTS } from "./lib/hubstore.mjs";
 import { isAlive, removeRecord, writeRecord } from "./lib/registry.mjs";
 
 const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.meta.url), "utf8")).types;
@@ -18,7 +19,14 @@ export const CHOICE_FILE = "choice.json";
 export const HUB_PATH = "/__jstyle/hub.json";
 export const ALIVE_PATH = "/__jstyle/alive";
 export const PROJECTS_PATH = "/__jstyle/projects";
+export const WAITERS_PATH = "/__jstyle/waiters";
+export const HANDOFF_PATH = "/__jstyle/daemon/handoff";
 const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
+// Read once when a hub starts: an update can replace the files under a running daemon, whose modules are already the old ones.
+let hubHtml = null;
+const hubPage = () => (hubHtml ??= fs.readFileSync(HUB_PAGE));
+// The HTTP shape between the CLI and a hub; raised only when it changes, so a CLI can still use a hub of another version.
+export const API = Number(process.env.JSTYLE_TEST_API) || 1;
 const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
 const MAX_NOTES = 4000;
@@ -200,6 +208,7 @@ function receiveChoice(request, choice, send) {
       if (!insideRoot(at.root, html)) return json(400, { error: "page" });
       data = readExplorerData(html);
       if (!data) return json(400, { error: "page" });
+      usedProject(choice, at.slug);
       file = path.join(path.dirname(html), CHOICE_FILE);
       page = path.relative(at.root, html).split(path.sep).join("/");
       project = at.slug;
@@ -218,8 +227,9 @@ function receiveChoice(request, choice, send) {
       choice.closed = false;
       return json(500, { error: error.message });
     }
-    // waiting tells the page whether an agent receives this now (--wait) or only choice.json keeps it.
-    json(200, { ok: true, waiting: Boolean(choice.once) });
+    // waiting counts the agents that receive this now (--wait or hub waiters); 0 means only choice.json keeps it.
+    const delivered = choice.hub ? deliverPick(choice, record, file) : 0;
+    json(200, { ok: true, waiting: (choice.once ? 1 : 0) + delivered });
     choice.onChoice?.(record, file);
   }
 }
@@ -384,7 +394,18 @@ function readJson(request, limit, done) {
 }
 
 export function createServer({ root, page, choice = null, onActivity = null }) {
+  // A hub serves many projects, so no request may end the process: an error answers 500 instead.
   return http.createServer((request, response) => {
+    try {
+      handle(request, response);
+    } catch {
+      if (response.headersSent) return response.destroy();
+      response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      response.end("Server error\n");
+    }
+  });
+
+  function handle(request, response) {
     const send = (status, headers, body = "") => {
       // Without no-store, browsers reuse an old script after an edit, which
       // leaves new sidebar entries visible but inert.
@@ -393,7 +414,12 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
     };
     const json = (status, value) => send(status, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify(value) + "\n");
     if (!allowedHost(request)) return send(403, { "Content-Type": "text/plain; charset=utf-8" }, "Host not allowed\n");
-    const url = new URL(request.url, "http://localhost");
+    let url;
+    try {
+      url = new URL(request.url, "http://localhost");
+    } catch {
+      return send(400, { "Content-Type": "text/plain; charset=utf-8" }, "Bad request\n");
+    }
     const own = url.pathname.startsWith("/__jstyle/");
     if (own && !ownRequest(request)) return json(403, { error: "site" });
     onActivity?.();
@@ -401,6 +427,9 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
     if (url.pathname === ALIVE_PATH) return send(204, { "X-Jstyle-Pid": String(process.pid) });
     if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
     if (choice?.hub && request.method === "POST" && url.pathname === PROJECTS_PATH) return receiveProject(request, choice, json);
+    if (choice?.hub && request.method === "POST" && url.pathname === WAITERS_PATH) return receiveWaiter(request, choice, json);
+    if (choice?.hub && request.method === "POST" && url.pathname === HANDOFF_PATH) return receiveHandoff(request, choice, json);
+    if (choice?.hub && url.pathname.startsWith(`${WAITERS_PATH}/`)) return waiterRequest(request, response, choice, json, url);
     if (choice?.hub && (request.method === "GET" || request.method === "HEAD")) {
       if (url.pathname === HUB_PATH) {
         let body;
@@ -414,12 +443,13 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       if (url.pathname === "/") {
         const only = choice.projects.size === 1 ? [...choice.projects.keys()][0] : null;
         if (only) return send(302, { Location: `/${encodeURIComponent(only)}/${url.search}` });
-        return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
+        return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       }
       const at = projectAt(choice, url.pathname);
       if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
+      usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
-      if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
+      if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       return serveFile(at.root, at.rest, url.pathname, true);
     }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
@@ -462,7 +492,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       const type = MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
       send(200, { "Content-Type": type, "Content-Length": stat.size, "Last-Modified": stat.mtime.toUTCString() }, fs.readFileSync(file));
     }
-  });
+  }
 }
 
 function openBrowser(url) {
@@ -483,7 +513,9 @@ function withQuery(target, search) {
 }
 
 export function pageUrls({ host, port, page, search = "" }) {
-  const local = withQuery(`http://${WILDCARD.has(host) ? "127.0.0.1" : host}:${port}/${page}`, search);
+  const name = WILDCARD.has(host) ? "127.0.0.1" : host;
+  // An IPv6 literal such as ::1 needs brackets in a URL.
+  const local = withQuery(`http://${name.includes(":") ? `[${name}]` : name}:${port}/${page}`, search);
   return { local, other: WILDCARD.has(host) ? withQuery(`http://${hostname()}:${port}/${page}`, search) : null };
 }
 
@@ -498,20 +530,90 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 
 // A hub serves one or more project folders, each under /<slug>/, and takes
 // picks for every explorer in them; the page in each post says which.
-export function hubChoice(onChoice, { once = false } = {}) {
-  return { token: randomBytes(16).toString("hex"), hub: true, projects: new Map(), onChoice, once, closed: false, onProjects: null };
+// waiterTtl is how long a waiter may go without polling before it counts as gone.
+// A daemon hub may end up with no project at all; a hub started for a folder keeps at least one.
+export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL, daemon = false, token = randomBytes(16).toString("hex") } = {}) {
+  hubPage();
+  return { token, hub: true, daemon, onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
 export function addProject(hub, root) {
+  return joinProject(hub, root).slug;
+}
+
+// evicted lists the projects that left to keep the list at MAX_PROJECTS.
+export function joinProject(hub, root) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) if (known === real) return slug;
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "") || "project";
+  for (const [slug, known] of hub.projects) if (known === real) return { slug, evicted: [], saved: true };
+  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
+  // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
+  base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
   if (base.startsWith("__")) base = `p${base}`;
   let slug = base;
   for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
+  const projects = [...hub.projects];
+  const times = [...hub.times];
   hub.projects.set(slug, real);
-  hub.onProjects?.();
-  return slug;
+  const now = new Date().toISOString();
+  hub.times.set(slug, { added: now, lastUsed: now });
+  // The saved list stays small: past the limit the project used longest ago goes.
+  const evicted = [];
+  while (hub.projects.size > MAX_PROJECTS) {
+    const [oldest] = [...hub.times].filter(([name]) => name !== slug).sort((a, b) => a[1].lastUsed.localeCompare(b[1].lastUsed))[0];
+    hub.projects.delete(oldest);
+    hub.times.delete(oldest);
+    evicted.push(oldest);
+  }
+  // A join the list cannot keep would be gone on the next start, so it is undone, evictions included, and refused.
+  if (hub.onProjects?.() === false) {
+    hub.projects.clear();
+    for (const [name, root] of projects) hub.projects.set(name, root);
+    hub.times.clear();
+    for (const [name, value] of times) hub.times.set(name, value);
+    hub.onProjects?.();
+    return { slug: null, evicted: [], saved: false };
+  }
+  for (const waiter of [...hub.waiters.values()]) if (evicted.includes(waiter.project)) dropWaiter(hub, waiter, "evicted");
+  if (evicted.length) hub.onEvicted?.(evicted);
+  return { slug, evicted, saved: true };
+}
+
+// The shape addProject makes; a saved slug outside it was not written by this code.
+const MAX_SLUG = 255;
+const SLUG = new RegExp(`^[\\p{L}\\p{N}_][\\p{L}\\p{N}._-]{0,${MAX_SLUG - 1}}$`, "u");
+
+// Puts back projects a hub saved, under the slugs they had. A folder that is
+// gone or may no longer be served is left out and reported.
+export function restoreProjects(hub, entries) {
+  const restored = [];
+  const dropped = [];
+  for (const entry of entries.slice(-MAX_PROJECTS)) {
+    const real = SLUG.test(entry.slug) && !entry.slug.startsWith("__") ? servableFolder(entry.root) : null;
+    if (!real || hub.projects.has(entry.slug) || [...hub.projects.values()].includes(real)) {
+      dropped.push(entry.root);
+      continue;
+    }
+    hub.projects.set(entry.slug, real);
+    const now = new Date().toISOString();
+    hub.times.set(entry.slug, { added: typeof entry.added === "string" ? entry.added : now, lastUsed: typeof entry.lastUsed === "string" ? entry.lastUsed : now });
+    restored.push(entry.slug);
+  }
+  return { restored, dropped };
+}
+
+export function savedProjects(hub) {
+  return [...hub.projects].map(([slug, root]) => ({ slug, root, ...hub.times.get(slug) }));
+}
+
+// lastUsed decides which project goes first past the limit; saving it at most once a minute is enough.
+function usedProject(hub, slug) {
+  const times = hub.times.get(slug);
+  if (!times) return;
+  const now = Date.now();
+  times.lastUsed = new Date(now).toISOString();
+  if (now - hub.usedAt < 60000) return;
+  hub.usedAt = now;
+  hub.onUsed?.();
 }
 
 export function projectList(hub) {
@@ -536,13 +638,172 @@ function hubJson(hub, page) {
     return {
       projects: projectList(hub).map(({ slug, root, project, location }) => {
         const entries = hubList(root);
-        return { slug, base: `/${encodeURIComponent(slug)}/`, project, location, pages: new Set(entries.map((e) => e.group)).size, rounds: entries.length, open: entries.filter((e) => !e.choice || e.choice.stale).length, latest: entries[0]?.mtime ?? null };
+        const waiters = [...hub.waiters.values()].filter((w) => w.project === slug && !w.pending).length;
+        return { slug, base: `/${encodeURIComponent(slug)}/`, project, location, waiters, pages: new Set(entries.map((e) => e.group)).size, rounds: entries.length, open: entries.filter((e) => !e.choice || e.choice.stale).length, latest: entries[0]?.mtime ?? null };
       }),
     };
   }
   const at = projectAt(hub, page);
   if (!at) return null;
   return { slug: at.slug, base: `/${encodeURIComponent(at.slug)}/`, root: path.basename(at.root), ...hubProject(at.root), others: hub.projects.size - 1, entries: hubList(at.root) };
+}
+
+// Agents wait on a hub through long polls: POST registers a waiter for a page
+// (or a whole project with page null), GET /<id>?wait=N holds up to N seconds
+// for a pick, DELETE leaves. A pick goes to every waiter on its page, or, when
+// there is none, to every waiter on its project. A poll is never held longer
+// than MAX_POLL so a gone agent is noticed by time and idle proxies never cut it.
+const WAITER_TTL = 60 * 1000;
+const MAX_POLL = 25;
+const SWEEP_EVERY = 2000;
+const ENDED_KEPT = 200;
+// Waiters cost memory and a sweep each; real use is a few per agent session.
+const MAX_WAITERS = 200;
+
+function receiveWaiter(request, hub, json) {
+  if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
+  if (!String(request.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) return json(415, { error: "content-type" });
+  readJson(request, 16 * 1024, (body, problem) => {
+    try {
+      if (!body) return json(problem === "size" ? 413 : 400, { error: problem });
+      const root = typeof body.project === "string" ? hub.projects.get(body.project) : null;
+      if (!root) return json(400, { error: "project" });
+      if (hub.waiters.size >= MAX_WAITERS) return json(429, { error: "waiters" });
+      if (body.pid != null && !(Number.isInteger(body.pid) && body.pid > 0)) return json(400, { error: "pid" });
+      let page = null;
+      if (body.page != null) {
+        if (typeof body.page !== "string" || body.page.startsWith("/") || body.page.length > 2000) return json(400, { error: "page" });
+        const html = localPath(root, body.page);
+        if (!insideRoot(root, html) || !readExplorerData(html)) return json(400, { error: "page" });
+        page = path.relative(root, html).split(path.sep).join("/");
+      }
+      const waiter = { id: randomBytes(12).toString("hex"), project: body.project, page, pid: body.pid ?? null, pending: null, held: null, last: Date.now() };
+      hub.waiters.set(waiter.id, waiter);
+      startSweep(hub);
+      const where = page ? page.split("/").map(encodeURIComponent).join("/") : "";
+      json(200, { id: waiter.id, project: waiter.project, page, url: `http://${request.headers.host}/${encodeURIComponent(waiter.project)}/${where}?t=${hub.token}` });
+    } catch (error) {
+      try {
+        json(500, { error: String(error?.message ?? error) });
+      } catch {
+        // The reply already went out; the error must still not end the server.
+      }
+    }
+  });
+}
+
+function waiterRequest(request, response, hub, json, url) {
+  if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
+  let id;
+  try {
+    id = decodeURIComponent(url.pathname.slice(WAITERS_PATH.length + 1));
+  } catch {
+    return json(404, { error: "waiter" });
+  }
+  const waiter = hub.waiters.get(id);
+  if (!waiter) return json(410, { reason: hub.ended.get(id) ?? "gone" });
+  if (request.method === "DELETE") {
+    dropWaiter(hub, waiter, "deleted");
+    return json(200, { ok: true });
+  }
+  if (request.method !== "GET") return json(405, { error: "method" });
+  waiter.last = Date.now();
+  if (waiter.pending) {
+    endWaiter(hub, waiter, "done");
+    return json(200, waiter.pending);
+  }
+  const seconds = Math.min(MAX_POLL, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+  if (!seconds) return send204();
+  // A newer poll replaces one still held, which answers empty.
+  waiter.held?.answer(204);
+  const timer = setTimeout(() => held.answer(204), seconds * 1000);
+  const held = {
+    answer(status, value) {
+      if (waiter.held !== held) return;
+      waiter.held = null;
+      waiter.last = Date.now();
+      clearTimeout(timer);
+      if (status === 204) send204();
+      else json(status, value);
+    },
+  };
+  waiter.held = held;
+  response.on("close", () => {
+    if (waiter.held !== held) return;
+    waiter.held = null;
+    waiter.last = Date.now();
+    clearTimeout(timer);
+  });
+  function send204() {
+    response.writeHead(204, { "Cache-Control": "no-store" });
+    response.end();
+  }
+}
+
+// Returns how many waiters receive the pick.
+function deliverPick(hub, record, file) {
+  if (!record.project) return 0;
+  const open = [...hub.waiters.values()].filter((w) => w.project === record.project && !w.pending);
+  const onPage = open.filter((w) => w.page === record.page);
+  const takers = onPage.length ? onPage : open.filter((w) => w.page === null);
+  const value = { record, project: record.project, page: record.page, file };
+  for (const waiter of takers) {
+    waiter.pending = value;
+    if (waiter.held) {
+      endWaiter(hub, waiter, "done");
+      waiter.held.answer(200, value);
+    }
+  }
+  return takers.length;
+}
+
+function endWaiter(hub, waiter, reason) {
+  hub.waiters.delete(waiter.id);
+  if (hub.handoff && !hub.waiters.size) retire(hub);
+  hub.ended.set(waiter.id, reason);
+  if (hub.ended.size > ENDED_KEPT) hub.ended.delete(hub.ended.keys().next().value);
+  if (!hub.waiters.size && hub.sweep) {
+    clearInterval(hub.sweep);
+    hub.sweep = null;
+  }
+}
+
+function dropWaiter(hub, waiter, reason) {
+  endWaiter(hub, waiter, reason);
+  waiter.held?.answer(410, { reason });
+}
+
+// A newer CLI asks the daemon to make way. Ending it now would cut off agents
+// that wait on it, so with waiters it only remembers the request and leaves
+// when the last one is gone; the next run then starts the new daemon.
+function receiveHandoff(request, hub, json) {
+  if (!sameToken(request.headers["x-jstyle-token"], hub.token)) return json(403, { error: "token" });
+  if (!hub.daemon) return json(404, { error: "daemon" });
+  if (hub.waiters.size) {
+    hub.handoff = true;
+    return json(409, { waiters: hub.waiters.size });
+  }
+  json(200, { ok: true });
+  retire(hub);
+}
+
+function retire(hub) {
+  if (hub.retiring) return;
+  hub.retiring = true;
+  hub.onRetire?.();
+}
+
+// A waiter whose agent ended, or that stopped polling, would otherwise take picks nobody reads.
+function startSweep(hub) {
+  if (hub.sweep) return;
+  hub.sweep = setInterval(() => {
+    const now = Date.now();
+    for (const waiter of [...hub.waiters.values()]) {
+      if (waiter.pid && !isAlive(waiter.pid)) dropWaiter(hub, waiter, "process");
+      else if (!waiter.held && now - waiter.last > hub.waiterTtl) dropWaiter(hub, waiter, "expired");
+    }
+  }, SWEEP_EVERY);
+  hub.sweep.unref();
 }
 
 // Registering hands this server a folder to serve, so it takes the token and
@@ -569,15 +830,28 @@ function receiveProject(request, hub, json) {
       if (!body) return json(problem === "size" ? 413 : 400, { error: problem });
       if (typeof body.remove === "string") {
         if (!hub.projects.has(body.remove)) return json(404, { error: "project" });
-        if (hub.projects.size === 1) return json(409, { error: "last" });
+        if (hub.projects.size === 1 && !hub.daemon) return json(409, { error: "last" });
+        const projects = [...hub.projects];
+        const times = [...hub.times];
         hub.projects.delete(body.remove);
-        hub.onProjects?.();
+        hub.times.delete(body.remove);
+        // A removal the list cannot keep would come back on the next start, so it is undone and refused.
+        if (hub.onProjects?.() === false) {
+          hub.projects.clear();
+          for (const [slug, root] of projects) hub.projects.set(slug, root);
+          hub.times.clear();
+          for (const [slug, value] of times) hub.times.set(slug, value);
+          hub.onProjects?.();
+          return json(500, { error: "save" });
+        }
+        for (const waiter of [...hub.waiters.values()]) if (waiter.project === body.remove) dropWaiter(hub, waiter, "project");
         return json(200, { ok: true, removed: body.remove });
       }
       const real = servableFolder(body.root);
       if (!real) return json(400, { error: "root" });
-      const slug = addProject(hub, real);
-      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/` });
+      const { slug, evicted, saved } = joinProject(hub, real);
+      if (!saved) return json(500, { error: "save" });
+      return json(200, { ok: true, slug, base: `/${encodeURIComponent(slug)}/`, ...(evicted.length ? { evicted } : {}) });
     } catch (error) {
       try {
         json(500, { error: String(error?.message ?? error) });
@@ -597,6 +871,8 @@ export function projectOf(root) {
 
 let packageVersion = null;
 function version() {
+  // Tests stand in an older daemon with this.
+  if (process.env.JSTYLE_TEST_VERSION) return process.env.JSTYLE_TEST_VERSION;
   if (packageVersion === null) {
     try {
       packageVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -620,6 +896,8 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
     });
     server.listen(port, WILDCARD.has(host) ? undefined : host, () => {
       const { local, other } = pageUrls({ host, port: server.address().port, page, search: choice ? `?t=${choice.token}` : "" });
+      // The record comes before the address line, so a caller that runs jstyle ps on seeing the address finds it.
+      if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       out.write(`Serving ${root} at ${local} (Ctrl+C to stop)\n`);
       if (other) out.write(`Other devices: ${other}\n`);
       if (open) setTimeout(() => openBrowser(local), 300);
@@ -636,7 +914,6 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
         server.close();
         process.exit(129);
       });
-      if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       resolve(server);
     });
   });
@@ -661,6 +938,7 @@ function track({ server, root, page, host, local, other, out, registry }) {
     started: new Date(started).toISOString(),
     lastActivity: new Date(started).toISOString(),
     version: version(),
+    api: API,
     ...registry.extra?.(),
   };
   try {
@@ -700,7 +978,9 @@ function track({ server, root, page, host, local, other, out, registry }) {
   if (registry.idle > 0) {
     const limit = registry.idle * 60000;
     setInterval(() => {
-      if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
+      // A registered waiter is an agent still waiting, even between its polls.
+      if (registry.busy?.()) last = Date.now();
+      else if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
     }, Math.max(200, Math.min(30000, limit / 4))).unref();
   }
   if (registry.wait && registry.parent > 1) {

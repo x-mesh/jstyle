@@ -308,3 +308,31 @@ test("hub names the project that holds .jstyle", () => {
   const home = os.homedir();
   assert.deepEqual(hubProject(path.join(home, "work", "noti-mesh", ".jstyle")), { project: "noti-mesh", location: path.join("~", "work", "noti-mesh") });
 });
+
+test("hub survives a broken explorer and refuses a page reached through a link outside the folder", async (t) => {
+  const root = buildPages(t);
+  // A built-looking file with a broken candidate list used to throw inside the hub.json handler and end the server.
+  fs.writeFileSync(path.join(root, "broken.html"), '<script>\nconst DATA = {"candidates":[null]};\n</script>');
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-outside-"));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  fs.copyFileSync(path.join(root, "admin", "explore", "01", "style-explorer.html"), path.join(outside, "style-explorer.html"));
+  let linked = true;
+  try {
+    fs.symlinkSync(outside, path.join(root, "link"), "dir");
+  } catch {
+    linked = false; // Windows without symlink rights.
+  }
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port, token } = await waitForUrl(child);
+  const listed = await fetch(port, "GET", "/__jstyle/hub.json");
+  assert.equal(listed.status, 200);
+  assert.deepEqual(JSON.parse(listed.body).entries.map((e) => e.group).sort(), ["admin", "settings"]);
+  assert.equal((await fetch(port, "GET", "/__jstyle/hub.json")).status, 200);
+  if (linked) {
+    const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+    const escaped = await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: "/link/style-explorer.html", id: "candidate-1" }) });
+    assert.equal(escaped.status, 400);
+    assert.equal(fs.existsSync(path.join(outside, CHOICE_FILE)), false);
+  }
+});

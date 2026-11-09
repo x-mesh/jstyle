@@ -189,6 +189,7 @@ function receiveChoice(request, choice, send) {
     if (choice.hub) {
       if (typeof body.page !== "string" || !body.page.startsWith("/") || body.page.length > 2000) return json(400, { error: "page" });
       const html = localPath(choice.root, body.page);
+      if (!insideRoot(choice.root, html)) return json(400, { error: "page" });
       data = readExplorerData(html);
       if (!data) return json(400, { error: "page" });
       file = path.join(path.dirname(html), CHOICE_FILE);
@@ -264,6 +265,29 @@ export function hubProject(root) {
   return { project: path.basename(dir), location: dir === home || dir.startsWith(home + path.sep) ? "~" + dir.slice(home.length) : dir };
 }
 
+// A file reached through a link outside the hub folder is not part of the hub, even if it is an explorer.
+function insideRoot(root, file) {
+  try {
+    const top = fs.realpathSync(root);
+    const real = fs.realpathSync(file);
+    return real === top || real.startsWith(top + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+// The hub page polls every few seconds; an unchanged explorer is not read again.
+const explorerCache = new Map();
+function cachedExplorer(file) {
+  const stat = fs.statSync(file);
+  const key = `${stat.mtimeMs}:${stat.size}`;
+  const hit = explorerCache.get(file);
+  if (hit?.key === key) return hit.data;
+  const data = looksLikeExplorer(file) ? readExplorerData(file) : null;
+  explorerCache.set(file, { key, data });
+  return data;
+}
+
 export function hubList(root) {
   const entries = [];
   const walk = (dir, depth) => {
@@ -275,12 +299,17 @@ export function hubList(root) {
       return;
     }
     for (const item of items) {
-      if (item.name === "node_modules" || (depth > 0 && item.name.startsWith("."))) continue;
+      if (item.name === "node_modules" || item.name.startsWith(".")) continue;
       const full = path.join(dir, item.name);
       if (item.isDirectory()) walk(full, depth + 1);
-      else if (item.name.toLowerCase().endsWith(".html") && looksLikeExplorer(full)) {
-        const data = readExplorerData(full);
-        if (data) entries.push(hubEntry(root, full, data));
+      else if (item.name.toLowerCase().endsWith(".html")) {
+        // One broken or vanishing page (a round deleted mid-walk) must not fail the list or the server.
+        try {
+          const data = cachedExplorer(full);
+          if (data) entries.push(hubEntry(root, full, data));
+        } catch {
+          // Skipped.
+        }
       }
     }
   };
@@ -300,7 +329,15 @@ export function createServer({ root, page, choice = null }) {
     if (choice && request.method === "POST" && url.pathname === CHOICE_PATH) return receiveChoice(request, choice, send);
     if (choice?.hub && (request.method === "GET" || request.method === "HEAD")) {
       if (url.pathname === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
-      if (url.pathname === HUB_PATH) return send(200, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify({ root: path.basename(choice.root), ...hubProject(choice.root), entries: hubList(choice.root) }) + "\n");
+      if (url.pathname === HUB_PATH) {
+        let body;
+        try {
+          body = JSON.stringify({ root: path.basename(choice.root), ...hubProject(choice.root), entries: hubList(choice.root) }) + "\n";
+        } catch (error) {
+          return send(500, { "Content-Type": "application/json; charset=utf-8" }, JSON.stringify({ error: String(error?.message ?? error) }) + "\n");
+        }
+        return send(200, { "Content-Type": "application/json; charset=utf-8" }, body);
+      }
     }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
     // The served folder rarely has an index.html, so a bare host URL opened on

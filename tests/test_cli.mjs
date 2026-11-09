@@ -1489,7 +1489,7 @@ test("a daemon stays up while a waiter is registered and idles out after it leav
 
 // An older daemon on the daemon port, run in the foreground so the test owns it.
 async function oldDaemon(t, port, extra = {}) {
-  const env = daemonEnv(port, { JSTYLE_VERSION_OVERRIDE: "0.0.1", ...extra });
+  const env = daemonEnv(port, { JSTYLE_TEST_VERSION: "0.0.1", ...extra });
   const child = spawn(process.execPath, [CLI, "daemon", "--port", String(port)], { env });
   t.after(() => child.kill("SIGKILL"));
   const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
@@ -1518,6 +1518,10 @@ test("a daemon of another version with no waiter hands over to a new daemon with
   assert.notEqual(daemon.version, "0.0.1");
   assert.equal(daemon.api, 1);
   assert.deepEqual(daemon.projects.map((p) => p.slug).sort(), [slug, path.basename(second)].sort());
+  // Tabs opened on the old daemon keep its token, so their picks still save.
+  assert.equal(daemon.token, old.token);
+  const pick = await fetch(port, "POST", CHOICE_PATH, { headers: old.headers, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(pick.status, 200, pick.body);
 });
 
 test("a daemon of another version with a waiter stays until the waiter ends and is used while its api matches", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
@@ -1546,7 +1550,7 @@ test("a daemon of another version with a waiter stays until the waiter ends and 
 test("a daemon of another api with a waiter makes the run serve by itself", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));
-  const old = await oldDaemon(t, port, { JSTYLE_API_OVERRIDE: "99" });
+  const old = await oldDaemon(t, port, { JSTYLE_TEST_API: "99" });
   await old.wait(await old.join(buildPages(t)));
   const own = spawn(process.execPath, [CLI, "hub", buildPages(t), "--no-open"], { env: daemonEnv(port) });
   t.after(() => own.kill("SIGKILL"));

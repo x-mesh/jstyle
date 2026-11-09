@@ -30,8 +30,8 @@ function waitingProcess() {
 }
 const LAUNCHED_BY = process.argv.includes("--wait") ? waitingProcess() : null;
 const SCRIPTS = path.join(ROOT, "scripts");
-// JSTYLE_VERSION_OVERRIDE lets tests stand in an older daemon.
-const VERSION = process.env.JSTYLE_VERSION_OVERRIDE || JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+// JSTYLE_TEST_VERSION lets tests stand in an older daemon.
+const VERSION = process.env.JSTYLE_TEST_VERSION || JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
 // One daemon per user serves every project on this loopback port; JSTYLE_DAEMON_PORT moves it (tests use a free port).
 const DAEMON_PORT = Number(process.env.JSTYLE_DAEMON_PORT) || 8765;
@@ -545,7 +545,8 @@ async function replaceDaemon(old, port) {
   if (reply.status === 200) {
     if (!(await ended(old))) return fallBack(`${name}이 교체 요청 뒤에도 끝나지 않았습니다`);
     process.stderr.write(`${dim(`${name}을 jstyle ${VERSION} 데몬으로 바꿉니다`)}\n`);
-    return startOrFallBack(port);
+    // The new daemon keeps the old token, so tabs opened on the old one still save their picks.
+    return startOrFallBack(port, { JSTYLE_ADOPT_TOKEN: old.token });
   }
   const waiters = reply.body?.waiters;
   if (reply.status === 409 && old.api === API) {

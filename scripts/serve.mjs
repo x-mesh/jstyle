@@ -22,10 +22,11 @@ export const PROJECTS_PATH = "/__jstyle/projects";
 export const WAITERS_PATH = "/__jstyle/waiters";
 export const HANDOFF_PATH = "/__jstyle/daemon/handoff";
 const HUB_PAGE = new URL("../assets/hub.html", import.meta.url);
-// Read once: an update can replace the files under a running daemon, whose modules are already the old ones.
-const HUB_HTML = fs.readFileSync(HUB_PAGE);
+// Read once when a hub starts: an update can replace the files under a running daemon, whose modules are already the old ones.
+let hubHtml = null;
+const hubPage = () => (hubHtml ??= fs.readFileSync(HUB_PAGE));
 // The HTTP shape between the CLI and a hub; raised only when it changes, so a CLI can still use a hub of another version.
-export const API = Number(process.env.JSTYLE_API_OVERRIDE) || 1;
+export const API = Number(process.env.JSTYLE_TEST_API) || 1;
 const HUB_DEPTH = 6;
 const MAX_CHOICE_BYTES = 256 * 1024;
 const MAX_NOTES = 4000;
@@ -442,13 +443,13 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       if (url.pathname === "/") {
         const only = choice.projects.size === 1 ? [...choice.projects.keys()][0] : null;
         if (only) return send(302, { Location: `/${encodeURIComponent(only)}/${url.search}` });
-        return send(200, { "Content-Type": "text/html; charset=utf-8" }, HUB_HTML);
+        return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       }
       const at = projectAt(choice, url.pathname);
       if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
       usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
-      if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, HUB_HTML);
+      if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       return serveFile(at.root, at.rest, url.pathname, true);
     }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
@@ -532,6 +533,7 @@ export function explorerChoice(root, page, onChoice, { once = false } = {}) {
 // waiterTtl is how long a waiter may go without polling before it counts as gone.
 // A daemon hub may end up with no project at all; a hub started for a folder keeps at least one.
 export function hubChoice(onChoice, { once = false, waiterTtl = WAITER_TTL, daemon = false, token = randomBytes(16).toString("hex") } = {}) {
+  hubPage();
   return { token, hub: true, daemon, onRetire: null, retiring: false, handoff: false, projects: new Map(), times: new Map(), onChoice, once, closed: false, onProjects: null, onUsed: null, onEvicted: null, usedAt: 0, waiters: new Map(), ended: new Map(), waiterTtl, sweep: null };
 }
 
@@ -859,7 +861,7 @@ export function projectOf(root) {
 let packageVersion = null;
 function version() {
   // Tests stand in an older daemon with this.
-  if (process.env.JSTYLE_VERSION_OVERRIDE) return process.env.JSTYLE_VERSION_OVERRIDE;
+  if (process.env.JSTYLE_TEST_VERSION) return process.env.JSTYLE_TEST_VERSION;
   if (packageVersion === null) {
     try {
       packageVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;

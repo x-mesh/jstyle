@@ -258,6 +258,8 @@ folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄
 같은 포트에 허브가 이미 떠 있으면 새 서버를 띄우지 않고 그 허브에 이 폴더를 붙인 뒤
 {hub, project, url} JSON 한 줄을 쓰고 끝납니다. 허브의 / 주소는 붙은 프로젝트를 모두 보여 줍니다.
 jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
+고정 포트의 허브는 붙은 프로젝트 목록을 저장해 두고, 같은 주소에서 다시 시작하면 같은 /<프로젝트>/ 주소로 되살립니다.
+사라진 폴더는 시작할 때 목록에서 뺍니다. --wait와 --port 0 허브는 저장하지 않습니다.
 
 --wait는 첫 선택을 기다렸다가 고른 안을 project, page와 함께 JSON 한 줄로 쓰고 끝납니다.
 --wait는 자기 서버를 띄우며, 포트를 jstyle 서버가 쓰고 있으면 빈 포트를 씁니다.
@@ -266,7 +268,8 @@ jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
 
 // Serves every explorer under a folder from one server, with a hub page at /.
 async function hubCommand(argv) {
-  const { parseServeArgs, serve, hubChoice, addProject, projectList } = await import("../scripts/serve.mjs");
+  const { parseServeArgs, serve, hubChoice, addProject, projectList, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
+  const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
   let options;
   try {
     options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
@@ -286,6 +289,24 @@ async function hubCommand(argv) {
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  // A hub on a fixed port keeps its projects for the next start there; --wait and a random port are one-off.
+  const store = !options.wait && options.port ? hubStoreFile(options.host, options.port) : null;
+  if (store) {
+    let saved = [];
+    try {
+      saved = readHubStore(store);
+    } catch (error) {
+      process.stderr.write(`${yellow("!")} ${error.message}. 이 목록은 ${store}.broken으로 옮기고 새로 시작합니다\n`);
+      try {
+        fs.renameSync(store, `${store}.broken`);
+      } catch {
+        // The next save replaces it.
+      }
+    }
+    const { restored, dropped } = restoreProjects(choice, saved);
+    if (restored.length) process.stderr.write(`${dim(`저장된 프로젝트 ${restored.length}개를 다시 붙였습니다: ${restored.join(", ")}`)}\n`);
+    for (const gone of dropped) process.stderr.write(`${dim(`사라졌거나 띄울 수 없는 폴더를 목록에서 뺐습니다: ${gone}`)}\n`);
+  }
   const slug = addProject(choice, root);
   // The record names the first remaining project, so ps and stop never point at a project the hub let go of.
   const hubExtra = (record) => {
@@ -298,12 +319,30 @@ async function hubCommand(argv) {
     return { ...extra, project: first.project, root: first.root, url: url.href };
   };
   const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
-  choice.onProjects = () => registry.refresh?.();
+  // Nothing is saved until this process holds the port, so a start that fails leaves the list of the hub that holds it.
+  let saving = false;
+  const save = () => {
+    if (!saving) return;
+    try {
+      writeHubStore(store, savedProjects(choice));
+    } catch (error) {
+      process.stderr.write(`${yellow("!")} 프로젝트 목록을 저장하지 못했습니다(다음에 다시 시작하면 이 목록이 없습니다): ${error.message}\n`);
+    }
+  };
+  choice.onProjects = () => {
+    registry.refresh?.();
+    save();
+  };
+  choice.onUsed = save;
   let server;
   try {
     server = await serve({ root, page: `${encodeURIComponent(slug)}/`, host: options.host, port: options.port, open: options.open, choice, registry });
   } catch (error) {
     return fail(error.message, 1);
+  }
+  if (store) {
+    saving = true;
+    save();
   }
   if (!options.wait) return null;
   process.stderr.write(`${dim("wait:")} 어느 비교 화면에서든 고르거나 보내면 끝납니다\n`);

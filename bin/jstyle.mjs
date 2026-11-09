@@ -377,16 +377,25 @@ async function runHub(root, options, { daemon = false, token } = {}) {
   }
   if (store) {
     // Only now, holding the port, may this run set aside a list it could not read.
+    let broken = null;
     if (unreadable) {
       process.stderr.write(`${yellow("!")} ${unreadable.message}. 이 목록은 ${store}.broken으로 옮기고 새로 시작합니다\n`);
       try {
-        fs.renameSync(store, `${store}.broken`);
+        broken = fs.readFileSync(store);
       } catch {
-        // The save below replaces it.
+        // Gone already; the save below writes a new list.
       }
     }
     saving = true;
     save();
+    // The new list replaces the old one in one rename before .broken appears, so a reader never finds the list missing or half old.
+    if (broken) {
+      try {
+        fs.writeFileSync(`${store}.broken`, broken, { mode: 0o600 });
+      } catch {
+        // Only the copy for reading later is lost.
+      }
+    }
   }
   // A newer CLI's handoff ends the daemon once it has no waiter; the saved list carries its projects over.
   if (daemon) {

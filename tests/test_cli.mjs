@@ -905,6 +905,34 @@ test("an error inside a request answers 500 and the server keeps answering", asy
   assert.equal((await fetch(port, "GET", "/SKILL.md")).status, 200);
 });
 
+test("adding a project whose list cannot be saved fails and changes nothing, even past the limit", async (t) => {
+  const { addProject, hubChoice } = await import("../scripts/serve.mjs");
+  const folders = Array.from({ length: 51 }, () => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-cli-"));
+    t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+    return folder;
+  });
+  const hub = hubChoice(() => {});
+  const slugs = folders.slice(0, 50).map((folder) => addProject(hub, folder));
+  const times = structuredClone([...hub.times]);
+  const server = createServer({ root: folders[0], page: "", choice: hub });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": hub.token };
+  const { id } = JSON.parse((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: slugs[0], page: null }) })).body);
+  let evicted = null;
+  hub.onEvicted = (names) => { evicted = names; };
+  hub.onProjects = () => false;
+  const reply = await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root: folders[50] }) });
+  assert.equal(reply.status, 500);
+  assert.equal(JSON.parse(reply.body).error, "save");
+  assert.deepEqual([...hub.projects.keys()], slugs);
+  assert.deepEqual([...hub.times], times);
+  assert.equal(evicted, null);
+  assert.ok(hub.waiters.has(id), "the waiter of the project that would have gone was dropped");
+});
+
 test("removing a project whose list cannot be saved fails and keeps the project", async (t) => {
   const { addProject, hubChoice } = await import("../scripts/serve.mjs");
   const first = buildPages(t);

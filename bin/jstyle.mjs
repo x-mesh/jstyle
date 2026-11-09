@@ -420,7 +420,7 @@ const DAEMON_HELP = `usage: jstyle daemon [--port PORT] [--idle MIN]
 대기자도 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 끝납니다.
 jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>는 데몬을 끕니다.
 새 버전 jstyle이 교체를 요청하면, 대기자가 없을 때 목록을 남기고 끝납니다. 대기자가 있으면 그들이 끝난 뒤에 끝납니다.
-데몬 이전에 띄운 허브가 이 포트에 있으면 그 허브를 끄고 같은 토큰과 주소로 넘겨받습니다(대기자가 있는 허브는 두고 씁니다).
+데몬 이전에 127.0.0.1의 이 포트에 띄운 허브는 끄고 같은 토큰과 주소로 넘겨받습니다. 대기자가 있는 허브와 ::1, localhost의 허브는 끄지 않고 그대로 씁니다.
 `;
 
 async function daemonCommand(argv) {
@@ -506,7 +506,13 @@ async function runningOrNewHub({ host, port }) {
   if (!daemonWanted(host, port)) return { hub: await sharedHub({ host, port }), fellBack: false };
   const { listRecords } = await import("../scripts/lib/registry.mjs");
   const here = listRecords().filter((r) => r.port === port);
-  const hub = here.find((r) => joinable(r));
+  const hub = here.find((r) => joinable(r) && r.host === "127.0.0.1");
+  // The daemon binds 127.0.0.1 only, so tabs opened on a ::1 or localhost hub could not reach it; such a hub is used, not taken over.
+  const other = hub ? null : here.find((r) => joinable(r));
+  if (other) {
+    if (other.version !== VERSION) return fallBack(`${other.host}:${port}에 jstyle ${other.version || "?"} 허브가 떠 있습니다`);
+    return (await answersAs(other)) ? { hub: other, fellBack: false } : fallBack(`${port}의 허브가 jstyle 서버로 응답하지 않습니다`);
+  }
   if (hub?.daemon && hub.version === VERSION) return (await answersAs(hub)) ? { hub, fellBack: false } : fallBack(`${port}의 데몬이 응답하지 않습니다`);
   if (hub?.daemon) return replaceDaemon(hub, port);
   if (hub) return adoptHub(hub, port);

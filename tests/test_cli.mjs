@@ -1588,6 +1588,36 @@ test("a hub from before the daemon on the daemon port is taken over with its tok
   assert.equal(sent.status, 200, sent.body);
 });
 
+test("a hub from before the daemon on ::1 is used, not taken over, so its tabs keep their address", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const probe = net.createServer();
+  const ipv6 = await new Promise((resolve) => probe.once("error", () => resolve(false)).listen(0, "::1", () => probe.close(() => resolve(true))));
+  if (!ipv6) return t.skip("no ::1 on this machine");
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const first = buildPages(t);
+  const hub = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--host", "::1"], { env: daemonEnv(port, { JSTYLE_NO_DAEMON: "1" }) });
+  t.after(() => hub.kill("SIGKILL"));
+  const token = await new Promise((resolve, reject) => {
+    let stderr = "";
+    hub.stderr.on("data", (data) => {
+      stderr += data;
+      const match = /Serving .*\?t=([0-9a-f]+)/.exec(stderr);
+      if (match) resolve(match[1]);
+    });
+    hub.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+  const second = buildPages(t);
+  const run = jstyle(["hub", second, "--no-open"], { env, timeout: 20000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(JSON.parse(run.stdout.trim()).hub, port);
+  assert.equal(hub.exitCode, null, "the ::1 hub was stopped");
+  assert.deepEqual(daemonRecords(env), []);
+  const slug = path.basename(first);
+  const sent = await fetch(port, "POST", CHOICE_PATH, { host: "::1", headers: { "Content-Type": "application/json", "X-Jstyle-Token": token }, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(sent.status, 200, sent.body);
+});
+
 test("a hub from before the daemon with an agent waiting on it is used, not taken over", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
   const port = await freePort();
   t.after(() => killDaemons(port));

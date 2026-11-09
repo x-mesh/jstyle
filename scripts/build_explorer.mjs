@@ -685,10 +685,14 @@ export function prepareHtml(source, interactive = false, used = null) {
   parser.feed(content);
   for (const style of parser.styles) checkCss(style, nameOf(source));
   if (parser.headPosition === null) throw new PyError("TypeError", "cannot unpack non-iterable NoneType object");
-  const [index, startTag] = parser.headPosition;
-  const headEnd = index + startTag.length;
+  // The policy goes first in the document, right after a leading doctype. Any content before the
+  // candidate's own <head> makes the browser open <body> early, and a meta placed there is ignored;
+  // as the first element, the parser puts it into the implied <head>. Keeping the doctype first
+  // keeps the candidate out of quirks mode.
+  const lead = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(content);
+  const at = lead ? lead[0].length : 0;
   const meta = `<meta http-equiv="Content-Security-Policy" content="${previewCsp(interactive)}">`;
-  return content.slice(0, headEnd) + meta + (interactive ? STORAGE_SHIM : "") + `<script>${PICK_SCRIPT}</script>` + content.slice(headEnd);
+  return content.slice(0, at) + meta + (interactive ? STORAGE_SHIM : "") + `<script>${PICK_SCRIPT}</script>` + content.slice(at);
 }
 
 function prepareImage(source, used = null) {

@@ -110,7 +110,7 @@ function choiceRecord(data, body) {
   for (const comment of body.comments ?? []) {
     const target = data.candidates.find((item) => item.id === comment?.id);
     const element = elementRef(comment?.element);
-    const kind = comment.kind ?? "change";
+    const kind = comment?.kind ?? "change";
     if (!target || !element || !COMMENT_KINDS.has(kind) || !shortText(comment.note, MAX_COMMENT) || !comment.note.trim()) return null;
     comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, kind, note: comment.note, element });
   }
@@ -157,6 +157,18 @@ function receiveChoice(request, choice, send) {
     else chunks.push(chunk);
   });
   request.on("end", () => {
+    // An unexpected error answers 500 instead of ending the server and a waiting --wait.
+    try {
+      handleChoice();
+    } catch (error) {
+      try {
+        json(500, { error: String(error?.message ?? error) });
+      } catch {
+        // The reply already went out; the error must still not end the server.
+      }
+    }
+  });
+  function handleChoice() {
     if (tooLarge) return json(413, { error: "size" });
     let body;
     try {
@@ -170,6 +182,8 @@ function receiveChoice(request, choice, send) {
     if (body.comments != null && (!Array.isArray(body.comments) || body.comments.length > MAX_COMMENTS)) return json(400, { error: "comments" });
     const record = choiceRecord(choice.data, body);
     if (!record) return json(400, { error: body.comments?.length ? "comments" : "id" });
+    // Nothing picked, noted or commented: refusing it keeps --wait from ending with an empty result.
+    if (record.id === null && !record.comments.length && !record.notes.trim()) return json(400, { error: "empty" });
     // With once (--wait), later picks are refused so choice.json keeps what was printed.
     if (choice.closed) return json(409, { error: "closed" });
     if (choice.once) choice.closed = true;
@@ -182,7 +196,7 @@ function receiveChoice(request, choice, send) {
     // waiting tells the page whether an agent receives this now (--wait) or only choice.json keeps it.
     json(200, { ok: true, waiting: Boolean(choice.once) });
     choice.onChoice?.(record);
-  });
+  }
 }
 
 export function createServer({ root, page, choice = null }) {

@@ -770,6 +770,31 @@ test("a page opened as a file still takes comments and copies a message for the 
   assert.deepEqual(observed.copied, ["jstyle 비교 결과 · 프로젝트 · 01회\n고른 안 없음\n\n요소 의견\n1. [고침] 01 첫 번째 안 — th\n   위치: body > main > table > thead > tr > th:nth-of-type(2) · \"Status\"\n   의견: 상태 열이 너무 좁음"]);
 });
 
+test("a long element id is clipped to what the server accepts", { skip: CHROME_SKIP("picker clipping checks") }, async (t) => {
+  const f = new Fixture(t);
+  writeText(f.source, '<!doctype html><html><head><style>body{margin:0}#' + "x".repeat(400) + '{position:absolute;left:0;top:0;width:300px;height:80px;background:#eee}</style></head><body><button id="' + "x".repeat(400) + '">Go</button></body></html>');
+  f.data.candidates[0].nativeViewport = "1280x900";
+  f.save();
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const copied=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>copied.push(text)},configurable:true});
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));const wait=async test=>{for(let i=0;i<120&&!test();i++)await sleep(50);return test();};
+ await wait(()=>document.querySelector('#grid .stage.ready'));await sleep(200);
+ document.querySelector('#comment-mode').click();await sleep(300);
+ const frame=document.querySelector('#grid .stage iframe');scrollBy(0,frame.getBoundingClientRect().top-document.querySelector('#bar').offsetHeight-40);await sleep(150);
+ const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;window.__probeClick=[rect.left+100*scale,rect.top+30*scale];
+ const bubble=document.querySelector('#bubble');await wait(()=>!bubble.hidden);
+ const label=bubble.querySelector('h3 code').textContent;
+ const result=document.createElement('pre');result.id='clip-result';result.textContent=JSON.stringify({length:label.length,end:label.slice(-1)});document.body.append(result);
+})();
+</script>`;
+  writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+  const probed = f.runBrowserProbe("clip-result", "chrome-clip");
+  assert.equal(probed.status, 0, probed.stderr);
+  assert.deepEqual(JSON.parse(probed.stdout), { length: 300, end: "…" });
+});
+
 test("the discovery hint closes and stays closed", { skip: CHROME_SKIP("hint checks") }, async (t) => {
   const f = new Fixture(t);
   writeText(f.source, "<html><head></head><body>Sample</body></html>");
@@ -786,6 +811,27 @@ test("the discovery hint closes and stays closed", { skip: CHROME_SKIP("hint che
   const probed = f.runBrowserProbe("hint-result", "chrome-hint");
   assert.equal(probed.status, 0, probed.stderr);
   assert.deepEqual(JSON.parse(probed.stdout), { before: true, after: false, stored: "1" });
+});
+
+test("a static candidate with content before its head still blocks its own scripts", { skip: CHROME_SKIP("CSP placement checks") }, async (t) => {
+  const f = new Fixture(t);
+  // Content before <head> makes the browser open <body> early; a CSP meta inserted after <head> would land in the body and do nothing.
+  writeText(f.source, '<html><p>Intro</p><head><title>x</title></head><body onload="parent.postMessage({bad:2},\'*\')"><main>Draft</main><script>parent.postMessage({bad:1},"*")</script></body></html>');
+  f.build(true);
+  const probe = String.raw`<script>
+(async()=>{
+ const seen=[];addEventListener('message',e=>{if(e.data&&e.data.bad)seen.push(e.data.bad);else if(e.data&&e.data.jstyle==='pick'&&e.data.type==='ready')seen.push('ready');});
+ await new Promise(r=>setTimeout(r,2500));
+ const result=document.createElement('pre');result.id='csp-result';result.textContent=JSON.stringify(seen);document.body.append(result);
+})();
+</script>`;
+  // The picker now runs first in the candidate, so the listener must exist before the explorer creates its frames.
+  writeText(f.output, f.page().replace("<script>\nconst DATA", () => probe + "<script>\nconst DATA"));
+  const probed = f.runBrowserProbe("csp-result", "chrome-csp");
+  assert.equal(probed.status, 0, probed.stderr);
+  const seen = JSON.parse(probed.stdout);
+  assert.ok(!seen.includes(1) && !seen.includes(2), `candidate scripts ran: ${JSON.stringify(seen)}`);
+  assert.ok(seen.includes("ready"), "the hashed picker should still run");
 });
 
 test("portable single file and HTML payload", (t) => {
@@ -814,10 +860,14 @@ test("CSP is inserted in the actual head, not a comment", (t) => {
   writeText(f.source, `<!doctype html>
         <!-- Skeleton: <head> \u2028 extra text -->
         <html><head data-note="a > b"></head><body>content</body></html>`);
-  const observed = startTags(prepareHtml(f.source));
+  const prepared = prepareHtml(f.source);
+  const observed = startTags(prepared);
   const meta = observed.filter(([tag]) => tag === "meta").map(([, attrs]) => attrs);
   assert.deepEqual(meta, [{ "http-equiv": "Content-Security-Policy", content: PREVIEW_CSP.replace("script-src 'none'", `script-src '${PICK_HASH}'`) }]);
-  assert.deepEqual(observed.map(([tag]) => tag).slice(0, 3), ["html", "head", "meta"]);
+  // First element after the doctype: the parser puts it into the implied <head> whatever follows.
+  assert.deepEqual(observed.map(([tag]) => tag).slice(0, 4), ["meta", "script", "html", "head"]);
+  assert.match(prepared, /^<!doctype html><meta /);
+  assert.ok(prepared.includes("<!-- Skeleton: <head> \u2028 extra text -->"));
 });
 
 test("nested documents are rejected before replacing output", (t) => {
@@ -1210,9 +1260,9 @@ test("missing or unclosed head is completed before CSP", async (t) => {
         const content = prepareHtml(f.source, interactive);
         assert.ok(content.includes("내용"));
         assert.ok(content.includes("</head>"));
+        // The policy is the first element, so the parser places it in the (implied) head whatever follows.
         const observed = startTags(content).map(([tag]) => tag);
-        const head = indexOf(observed, "head");
-        assert.equal(observed[head + 1], "meta");
+        assert.equal(observed[0], "meta");
         assert.ok(indexOf(content, "Content-Security-Policy") < indexOf(content, "</head>"));
         assert.equal(readText(f.source), source);
       });

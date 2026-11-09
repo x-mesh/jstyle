@@ -165,6 +165,13 @@ test("an explorer page posts the pick back only with its token and a JSON body",
     Array.from({ length: 51 }, () => ({ id: "candidate-1", note: "x", element }))]) {
     assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", comments }))).status, 400, JSON.stringify(comments).slice(0, 80));
   }
+  // A null comment used to throw inside the request handler and end the whole server.
+  assert.equal((await post(auth, JSON.stringify({ id: "candidate-1", comments: [null] }))).status, 400);
+  assert.equal((await fetch(port, "GET", "/style-explorer.html")).status, 200);
+  // Nothing picked, noted or commented would end --wait with an empty result.
+  const empty = await post(auth, JSON.stringify({ id: null }));
+  assert.equal(empty.status, 400);
+  assert.equal(JSON.parse(empty.body).error, "empty");
   assert.equal(fs.existsSync(path.join(folder, CHOICE_FILE)), false);
   assert.equal(picks.length, 0);
   const ok = await post(auth, JSON.stringify({ id: "candidate-2", notes: "Less padding", viewport: "mobile", comments: [{ id: "candidate-1", note: "Header too dense", element: { ...element, extra: "dropped" } }] }));

@@ -25,12 +25,15 @@
   const px = (value) => `${value / scale}px`;
 
   const post = (message) => window.parent.postMessage({ jstyle: "pick", ...message }, "*");
+  // Same limits as jstyle serve, so one long id or a deep tree does not get the whole send refused.
+  const clip = (text, limit) => (text.length > limit ? `${text.slice(0, limit - 1)}…` : text);
+  const clipPath = (text) => (text.length > 2000 ? `… ${text.slice(text.length - 1997)}` : text);
 
   function describe(el) {
     const tag = el.tagName.toLowerCase();
     const id = el.id ? `#${el.id}` : "";
     const classes = Array.from(el.classList).slice(0, 2).map((name) => `.${name}`).join("");
-    return `${tag}${id}${classes}`;
+    return clip(`${tag}${id}${classes}`, 300);
   }
 
   function elementPath(el) {
@@ -83,9 +86,9 @@
     const kids = [...el.children].filter((child) => !child.hasAttribute(UI) && child.tagName !== "SCRIPT" && child.tagName !== "STYLE");
     if (!kids.length) return undefined;
     const lines = kids.slice(0, CHILDREN_MAX).map((child) => {
-      if (!child.checkVisibility()) return `${describe(child)} (hidden)`;
+      if (!child.checkVisibility()) return clip(`${describe(child)} (hidden)`, 300);
       const r = child.getBoundingClientRect();
-      return `${describe(child)} ${Math.round(r.width)}x${Math.round(r.height)} ${getComputedStyle(child).display}`;
+      return clip(`${describe(child)} ${Math.round(r.width)}x${Math.round(r.height)} ${getComputedStyle(child).display}`, 300);
     });
     if (kids.length > CHILDREN_MAX) lines.push(`+${kids.length - CHILDREN_MAX}`);
     return lines;
@@ -96,10 +99,10 @@
     const r = el.getBoundingClientRect();
     return {
       label: describe(el),
-      path: elementPath(el),
+      path: clipPath(elementPath(el)),
       size: `${Math.round(r.width)}x${Math.round(r.height)}`,
       text: (el.innerText ?? el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, TEXT_LEN) || undefined,
-      parent: el.parentElement && el.parentElement !== document.documentElement ? { label: describe(el.parentElement), path: elementPath(el.parentElement) } : null,
+      parent: el.parentElement && el.parentElement !== document.documentElement ? { label: describe(el.parentElement), path: clipPath(elementPath(el.parentElement)) } : null,
       styles: Object.fromEntries(STYLE_KEYS.map((key) => [key, cs.getPropertyValue(key)])),
       children: childOutline(el),
     };

@@ -581,12 +581,24 @@ function t(key, values={}) {
   const b=$('#comment-mode');b.setAttribute('aria-pressed',String(on));
   if(!on)closeBubble();syncFrames();renderPanel();
  }
+ // Interactive and live candidates can post their own "picked" messages, so only the fields and
+ // limits jstyle serve accepts are kept; anything else would make sending or copying fail later.
+ function cleanElement(v){
+  const str=(x,n)=>typeof x==='string'&&x.length<=n;
+  if(!v||typeof v!=='object'||!str(v.label,300)||!str(v.path,2000))return null;
+  const e={label:v.label,path:v.path};
+  if(str(v.size,32))e.size=v.size;if(str(v.text,400))e.text=v.text;
+  if(v.parent&&str(v.parent.label,300)&&str(v.parent.path,2000))e.parent={label:v.parent.label,path:v.parent.path};
+  if(v.styles&&typeof v.styles==='object'&&!Array.isArray(v.styles)){const s=Object.entries(v.styles).filter(([k,x])=>str(k,40)&&str(x,200)).slice(0,32);if(s.length)e.styles=Object.fromEntries(s);}
+  if(Array.isArray(v.children)){const c=v.children.filter(x=>str(x,300)).slice(0,11);if(c.length)e.children=c;}
+  return e;
+ }
  // Candidate frames are sandboxed without same-origin, so a message is trusted only by its source window.
  window.addEventListener('message',e=>{
   const d=e.data;if(!REVIEW||!d||d.jstyle!=='pick')return;
   const frame=frames().find(f=>f.contentWindow===e.source);if(!frame)return;
   if(d.type==='ready')syncFrame(frame);
-  else if(d.type==='picked'&&commenting&&d.element&&typeof d.element.path==='string'&&typeof d.element.label==='string')openBubble({id:idOf(frame),element:d.element,rect:d.rect,frame});
+  else if(d.type==='picked'&&commenting){const element=cleanElement(d.element);if(element)openBubble({id:idOf(frame),element,rect:d.rect,frame});}
   else if(d.type==='cancel'){if(pending)closeBubble();else setCommenting(false);}
   else if(d.type==='wheel'&&st.layout==='compare'&&frame.closest('#grid')){const r=frame.getBoundingClientRect(),k=r.width/(frame.offsetWidth||1);boardWheel(Number(d.dx)||0,Number(d.dy)||0,Boolean(d.ctrl),r.left+(Number(d.x)||0)*k,r.top+(Number(d.y)||0)*k);}
  });

@@ -1675,6 +1675,7 @@ test("kit, library and any served file open on the daemon under their own addres
   const library = jstyle(["library", "cards", "--no-open"], { env, timeout: 15000 });
   assert.equal(library.status, 0, library.stderr);
   assert.match(library.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/__skill/assets/extended/index\\.html\\?t=[0-9a-f]+#cards`));
+  assert.equal((await fetch(port, "GET", new URL(/http:\/\/\S+/.exec(library.stderr)[0]).pathname)).status, 200);
   // The skill folder keeps the hub's rules: no dot files, and it is not a project.
   assert.equal((await fetch(port, "GET", "/__skill/.gitignore")).status, 404);
   assert.equal((await fetch(port, "GET", "/__skill/package.json")).status, 200);
@@ -1818,23 +1819,47 @@ test("a borrowed folder stays borrowed when a join, a keep or a removal cannot b
   assert.deepEqual(savedProjects(hub).map((p) => p.slug), [path.basename(kept)]);
 });
 
-test("past 50 projects a borrowed folder goes before any kept project", async (t) => {
-  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+function limitFolders(t) {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-limit-"));
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
-  const folder = (name) => {
+  return (name) => {
     const dir = path.join(parent, name);
     fs.mkdirSync(dir);
     return dir;
   };
+}
+
+test("a borrowed folder never pushes a kept project out: 50 kept projects stay when one more folder is borrowed", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const folder = limitFolders(t);
   const hub = hubChoice(() => {}, { daemon: true });
-  for (let i = 0; i < 49; i += 1) joinProject(hub, folder(`kept${i}`));
-  const { slug: borrowed } = joinProject(hub, folder("borrowed"), { keep: false });
-  // The borrowed folder is the one used last, so the use order alone would drop a kept project.
-  hub.times.get(borrowed).lastUsed = new Date(Date.now() + 60000).toISOString();
-  const { evicted, saved } = joinProject(hub, folder("kept49"));
+  for (let i = 0; i < 50; i += 1) joinProject(hub, folder(`kept${i}`));
+  const { slug, evicted, saved } = joinProject(hub, folder("borrowed"), { keep: false });
   assert.equal(saved, true);
-  assert.deepEqual(evicted, [borrowed]);
+  assert.deepEqual(evicted, []);
+  assert.ok(hub.projects.has(slug));
   assert.equal(savedProjects(hub).length, 50);
-  assert.equal(hub.transient.size, 0);
+});
+
+test("borrowed folders have their own limit of 50, and the oldest borrowed one goes", async (t) => {
+  const { joinProject, savedProjects } = await import("../scripts/serve.mjs");
+  const folder = limitFolders(t);
+  const hub = hubChoice(() => {}, { daemon: true });
+  joinProject(hub, folder("kept"));
+  // The kept project is the one used longest ago, so the use order alone would drop it.
+  hub.times.get("kept").lastUsed = new Date(0).toISOString();
+  const slugs = [];
+  for (let i = 0; i < 50; i += 1) slugs.push(joinProject(hub, folder(`borrowed${i}`), { keep: false }).slug);
+  const { evicted } = joinProject(hub, folder("borrowed50"), { keep: false });
+  assert.deepEqual(evicted, [slugs[0]]);
+  assert.equal(hub.transient.size, 50);
+  assert.deepEqual(savedProjects(hub).map((p) => p.slug), ["kept"]);
+});
+
+test("jstyle daemon stop refuses arguments it does not take", () => {
+  for (const extra of ["--bogus", "8765", "now"]) {
+    const refused = jstyle(["daemon", "stop", extra], { env: daemonEnv(1) });
+    assert.equal(refused.status, 2, extra);
+  }
+  assert.equal(jstyle(["daemon", "stop", "--help"], { env: daemonEnv(1) }).status, 0);
 });

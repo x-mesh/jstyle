@@ -482,6 +482,12 @@ async function daemonWaiters(record) {
 
 async function daemonCommand(argv) {
   if (argv[0] === "stop") {
+    const unknown = argv.slice(1).find((arg) => !["--force", "-h", "--help"].includes(arg));
+    if (unknown) return fail(`daemon stop은 --force만 받습니다: ${unknown}`);
+    if (argv.includes("-h") || argv.includes("--help")) {
+      process.stdout.write(DAEMON_HELP);
+      return 0;
+    }
     const { listRecords } = await import("../scripts/lib/registry.mjs");
     if (!listRecords().some((r) => r.daemon && r.port === DAEMON_PORT)) return fail(`${DAEMON_PORT} 포트에 떠 있는 데몬이 없습니다`, 1);
     return stopCommand([String(DAEMON_PORT), ...argv.slice(1).filter((arg) => arg === "--force")]);

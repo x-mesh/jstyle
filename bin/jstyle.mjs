@@ -2,9 +2,10 @@
 // jstyle command: one entry point for the skill's tools. Every subcommand runs
 // the scripts next to this file, so the installed command and the skill docs
 // always describe the same code.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +32,9 @@ const LAUNCHED_BY = process.argv.includes("--wait") ? waitingProcess() : null;
 const SCRIPTS = path.join(ROOT, "scripts");
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
+// One daemon per user serves every project on this loopback port; JSTYLE_DAEMON_PORT moves it (tests use a free port).
+const DAEMON_PORT = Number(process.env.JSTYLE_DAEMON_PORT) || 8765;
+const DAEMON_READY_MS = 5000;
 
 const color = process.stderr.isTTY && !process.env.NO_COLOR && process.env.TERM !== "dumb";
 const paint = (code) => (text) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);
@@ -50,6 +54,7 @@ usage   jstyle <command> [options]
   kit      컴포넌트 키트를 엽니다
   library  패턴 라이브러리를 엽니다
   hub      여러 페이지의 비교 화면을 한 서버로 모아 띄웁니다
+  daemon   모든 프로젝트를 띄우는 데몬 (보통 hub·explore·serve가 자동으로 띄움)
 
 캡처와 자료
   shoot    화면 크기별 캡처, 연속 프레임, 녹화
@@ -80,6 +85,7 @@ const EXPLORE_HELP = `usage: jstyle explore <inputs...> [--output FILE] [--force
 띄운 비교 화면에서 안을 고르면 의견과 함께 비교 화면 옆 choice.json에 저장됩니다.
 --wait는 띄운 뒤 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 stdout에 쓰고 끝납니다.
 같은 포트에 jstyle hub가 떠 있으면 서버를 띄우지 않고 그 허브에서 기다립니다.
+기본 주소(127.0.0.1:8765)에서는 데몬(jstyle daemon)에 붙고, 떠 있는 데몬이 없으면 분리 실행합니다.
 에이전트는 이 명령을 백그라운드로 실행하고, 끝나면 그 결과로 작업을 이어 갑니다.
 
 띄운 서버는 열린 화면도 요청도 없이 30분이 지나면 닫힙니다(--idle 분, 0은 닫지 않음).
@@ -107,7 +113,7 @@ function runScript(file, args) {
 
 function splitExploreArgs(argv) {
   const build = [];
-  const view = { serve: null, open: true, host: "127.0.0.1", port: 8765, help: false, helpBuild: false };
+  const view = { serve: null, open: true, host: "127.0.0.1", port: DAEMON_PORT, help: false, helpBuild: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = () => {
@@ -168,14 +174,17 @@ const idleFor = (idle, pinged) => idle ?? (pinged ? DEFAULT_IDLE : 0);
 
 async function serveExplorer({ root, page, host, port, open, wait, idle, kind = "serve" }) {
   const { serve, explorerChoice } = await import("../scripts/serve.mjs");
-  if (!wait) {
-    const shared = await sharedHub({ host, port, within: path.join(root, page) });
-    if (shared) return announceHubPage(shared, path.join(root, page), open);
+  const file = path.join(root, page.split("#")[0]);
+  if (explorerChoice(root, page, null)) {
+    // A comparison page goes to the hub on the port, starting the daemon when there is none.
+    const { hub, fellBack } = await hubFor({ host, port, idle });
+    const done = hub ? await (wait ? waitOnHub(hub, { file, open }) : openOnHub(hub, file, open)) : null;
+    if (done !== null) return done;
+    port = await freePortFor(port, fellBack);
   } else {
-    if (!explorerChoice(root, page, null)) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
-    const shared = await sharedHub({ host, port });
-    const joined = shared ? await waitOnHub(shared, { file: path.join(root, page.split("#")[0]), open }) : null;
-    if (joined !== null) return joined;
+    if (wait) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
+    const shared = await sharedHub({ host, port, within: file });
+    if (shared) return announceHubPage(shared, file, open);
     port = await freePortFor(port);
   }
   let picked;
@@ -210,6 +219,9 @@ library의 section은 effects, cards, landing, product-ui 같은 구역 이름�
 jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice.json에 저장됩니다.
 --wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
 같은 포트에 jstyle hub가 떠 있으면 --wait는 서버를 띄우지 않고 그 허브에서 이 비교 화면을 기다립니다.
+기본 주소(127.0.0.1:8765)에서 비교 화면을 띄우면 데몬(jstyle daemon)에 그 폴더를 붙이고 주소를 알린 뒤 끝나며,
+떠 있는 데몬이 없으면 분리 실행하고, 이때 --idle은 적용되지 않습니다. kit과 library는 데몬 포트를 비워 두고 빈 포트를 씁니다.
+비교 화면이 아닌 파일은 데몬을 쓰지 않고 그 포트가 차 있으면 빈 포트를 씁니다.
 비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
 열린 화면 신호를 보내지 않는 kit, library와 다른 파일은 기본으로 직접 끌 때까지 둡니다.
 `;
@@ -219,7 +231,7 @@ async function serveCommand(argv, fixedPage = null) {
   const { parseServeArgs, serve } = await import("../scripts/serve.mjs");
   let options;
   try {
-    options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
+    options = parseServeArgs(argv, { host: "127.0.0.1", port: DAEMON_PORT, open: true });
   } catch (error) {
     return fail(error.message);
   }
@@ -247,6 +259,8 @@ async function serveCommand(argv, fixedPage = null) {
     return fail(`${page.split("#")[0]}가 ${root}에 없습니다`);
   }
   if (!fixedPage) return serveExplorer({ root, page, host: options.host, port: options.port, open: options.open, wait: Boolean(options.wait), idle: options.idle });
+  // The daemon port stays free for the daemon even when it is not running yet; kit and library take a free one.
+  options.port = await freePortFor(options.port, daemonWanted(options.host, options.port));
   try {
     await serve({ root, page, host: options.host, port: options.port, open: options.open, registry: { kind: fixedPage.startsWith("assets/kit") ? "kit" : "library", project: "jstyle", idle: idleFor(options.idle, false) } });
   } catch (error) {
@@ -258,6 +272,10 @@ async function serveCommand(argv, fixedPage = null) {
 const HUB_HELP = `usage: jstyle hub [folder] [--host HOST] [--port PORT] [--no-open] [--wait] [--idle MIN]
 
 folder(기본 .jstyle) 아래의 모든 style-explorer.html을 한 서버로 띄웁니다.
+기본 주소(127.0.0.1:8765)에서는 데몬(jstyle daemon)에 이 폴더를 붙이고 {hub, project, url}을 쓴 뒤 바로 끝납니다.
+떠 있는 데몬이 없으면 분리 실행하고, 5초 안에 준비되지 않으면 이 명령이 빈 포트에 자기 허브를 띄웁니다.
+JSTYLE_NO_DAEMON=1, 다른 --port, loopback이 아닌 --host에서는 이 명령이 자기 허브를 띄웁니다.
+데몬이나 떠 있는 허브에 붙으면 --idle은 적용되지 않습니다.
 프로젝트는 /<프로젝트>/ 아래에 놓이고, 그 첫 화면은 페이지별 회차 목록입니다.
 각 비교 화면 위쪽 막대에서 다른 페이지로 옮겨 갈 수 있습니다.
 어느 비교 화면에서 고르거나 보내도 그 폴더의 choice.json에 저장됩니다.
@@ -276,11 +294,10 @@ jstyle stop <프로젝트>는 허브에서 그 프로젝트만 뺍니다.
 
 // Serves every explorer under a folder from one server, with a hub page at /.
 async function hubCommand(argv) {
-  const { parseServeArgs, serve, hubChoice, addProject, projectList, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
-  const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
+  const { parseServeArgs } = await import("../scripts/serve.mjs");
   let options;
   try {
-    options = parseServeArgs(argv, { host: "127.0.0.1", port: 8765, open: true });
+    options = parseServeArgs(argv, { host: "127.0.0.1", port: DAEMON_PORT, open: true });
   } catch (error) {
     return fail(error.message);
   }
@@ -290,14 +307,21 @@ async function hubCommand(argv) {
   }
   const root = path.resolve(options.page ?? ".jstyle");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return fail(`폴더를 찾을 수 없습니다: ${root}. jstyle explore로 비교 화면을 먼저 만드세요`);
-  const shared = await sharedHub({ host: options.host, port: options.port });
+  const { hub: shared, fellBack } = await hubFor({ host: options.host, port: options.port, idle: options.idle });
   if (shared && !options.wait) return joinHub(shared, root, options.open);
   const joined = shared ? await waitOnHub(shared, { folder: root, open: options.open }) : null;
   if (joined !== null) return joined;
-  if (options.wait) options.port = await freePortFor(options.port);
+  if (options.wait || fellBack) options.port = await freePortFor(options.port, fellBack);
+  return runHub(root, options);
+}
+
+// Runs a hub in this process: for a folder (jstyle hub), or with no folder as the daemon.
+async function runHub(root, options, { daemon = false } = {}) {
+  const { serve, hubChoice, addProject, projectList, restoreProjects, savedProjects } = await import("../scripts/serve.mjs");
+  const { hubStoreFile, readHubStore, writeHubStore } = await import("../scripts/lib/hubstore.mjs");
   let picked;
   const pick = new Promise((resolve) => { picked = resolve; });
-  const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
+  const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait), daemon });
   choice.onEvicted = (evicted) => process.stderr.write(`${yellow("!")} 프로젝트가 상한을 넘어 가장 오래 쓰지 않은 ${evicted.join(", ")}를 뺐습니다\n`);
   // A hub on a fixed port keeps its projects for the next start there; --wait and a random port are one-off.
   const store = !options.wait && options.port ? hubStoreFile(options.host, options.port) : null;
@@ -313,18 +337,19 @@ async function hubCommand(argv) {
     if (restored.length) process.stderr.write(`${dim(`저장된 프로젝트 ${restored.length}개를 다시 붙였습니다: ${restored.join(", ")}`)}\n`);
     for (const gone of dropped) process.stderr.write(`${dim(`사라졌거나 띄울 수 없는 폴더를 목록에서 뺐습니다: ${gone}`)}\n`);
   }
-  const slug = addProject(choice, root);
+  const slug = root ? addProject(choice, root) : null;
   // The record names the first remaining project, so ps and stop never point at a project the hub let go of.
   const hubExtra = (record) => {
     const projects = projectList(choice);
     const [first] = projects;
-    const extra = { token: choice.token, projects: projects.map(({ slug, root }) => ({ slug, root })) };
-    if (!record || record.projects?.[0]?.slug === first.slug) return extra;
+    const extra = { token: choice.token, projects: projects.map(({ slug, root }) => ({ slug, root })), ...(daemon ? { daemon: true } : {}) };
+    // The daemon's address is its bare root, which lists whatever projects it has.
+    if (daemon || !record || record.projects?.[0]?.slug === first.slug) return extra;
     const url = new URL(record.url);
     url.pathname = `/${encodeURIComponent(first.slug)}/`;
     return { ...extra, project: first.project, root: first.root, url: url.href };
   };
-  const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
+  const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra, busy: () => choice.waiters.size > 0, ...(daemon ? { project: "daemon" } : {}) };
   // Nothing is saved until this process holds the port, so a start that fails leaves the list of the hub that holds it.
   let saving = false;
   // Returns false when the list could not be written, so a removal can be undone.
@@ -345,7 +370,7 @@ async function hubCommand(argv) {
   choice.onUsed = save;
   let server;
   try {
-    server = await serve({ root, page: `${encodeURIComponent(slug)}/`, host: options.host, port: options.port, open: options.open, choice, registry });
+    server = await serve({ root: root ?? daemonFolder(), page: slug ? `${encodeURIComponent(slug)}/` : "", host: options.host, port: options.port, open: options.open, choice, registry });
   } catch (error) {
     return fail(error.message, 1);
   }
@@ -372,6 +397,32 @@ async function hubCommand(argv) {
   server.closeAllConnections();
   server.close();
   return 0;
+}
+
+const DAEMON_HELP = `usage: jstyle daemon [--port PORT] [--idle MIN]
+
+모든 프로젝트를 127.0.0.1:<port>(기본 8765, JSTYLE_DAEMON_PORT) 한 서버로 띄우는 데몬입니다.
+보통은 직접 실행하지 않습니다. hub, explore --serve, 비교 화면 serve가 필요할 때 분리 실행합니다.
+프로젝트 목록은 hubs/127.0.0.1-<port>.json에서 되살리고, 출력은 daemon/daemon.log에 남습니다.
+대기자도 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 끝납니다.
+jstyle stop <프로젝트>는 그 프로젝트만 빼고, jstyle stop <port>는 데몬을 끕니다.
+`;
+
+async function daemonCommand(argv) {
+  const { parseServeArgs } = await import("../scripts/serve.mjs");
+  let options;
+  try {
+    options = parseServeArgs(argv, { host: "127.0.0.1", port: DAEMON_PORT, open: false });
+  } catch (error) {
+    return fail(error.message);
+  }
+  if (options.help) {
+    process.stdout.write(DAEMON_HELP);
+    return 0;
+  }
+  if (options.pageGiven || options.root || options.wait || options.host !== "127.0.0.1") return fail("daemon은 폴더, --wait, --host를 받지 않습니다. 127.0.0.1에서만 띄웁니다");
+  fs.mkdirSync(daemonFolder(), { recursive: true, mode: 0o700 });
+  return runHub(null, { ...options, open: false }, { daemon: true });
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -408,10 +459,95 @@ function isInside(root, file) {
 
 // Without a hub to wait on, --wait starts its own server; when a jstyle server
 // that takes no waiters holds the port, it takes any free one.
-async function freePortFor(port) {
-  if (!port) return port;
+async function freePortFor(port, always = false) {
+  if (!port || always) return 0;
   const { listRecords } = await import("../scripts/lib/registry.mjs");
   return listRecords().some((r) => r.port === port) ? 0 : port;
+}
+
+function daemonFolder() {
+  const home = process.env.JSTYLE_HOME || path.join(os.homedir(), ".jstyle");
+  return path.join(home, "daemon");
+}
+
+// The daemon is used unless the user opts out or asks for another address or port.
+function daemonWanted(host, port) {
+  return !process.env.JSTYLE_NO_DAEMON && (host === "127.0.0.1" || host === "localhost") && port === DAEMON_PORT;
+}
+
+// The hub to use on this port: a running one, or a daemon started now.
+// fellBack means the daemon could not start, so the caller serves on a free port.
+async function hubFor({ host, port, idle }) {
+  const found = await runningOrNewHub({ host, port });
+  if (found.hub && idle !== undefined) process.stderr.write(`${dim(`--idle은 떠 있는 허브(${port})에는 적용되지 않습니다. 그 허브의 설정을 따릅니다`)}\n`);
+  return found;
+}
+
+async function runningOrNewHub({ host, port }) {
+  const shared = await sharedHub({ host, port });
+  if (shared) return { hub: shared, fellBack: false };
+  if (!daemonWanted(host, port)) return { hub: null, fellBack: false };
+  const { listRecords } = await import("../scripts/lib/registry.mjs");
+  // Another jstyle server (another version, a --wait server, a kit run without the daemon) keeps the port.
+  if (listRecords().some((r) => r.port === port)) {
+    process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: 다른 jstyle 서버가 ${port} 포트를 쓰고 있습니다. 이 명령의 서버를 빈 포트로 띄웁니다\n`);
+    return { hub: null, fellBack: true };
+  }
+  const started = await startDaemon(port);
+  if (started.hub) return { hub: started.hub, fellBack: false };
+  process.stderr.write(`${yellow("!")} 데몬을 쓰지 않습니다: ${started.reason}. 이 명령의 서버로 띄웁니다\n`);
+  return { hub: null, fellBack: true };
+}
+
+// Starts `jstyle daemon` detached, logging to daemon/daemon.log, and waits until
+// a hub of this version answers on the port. When two runs start one each, the
+// one that opens the port wins and the other exits; either run then finds the winner.
+async function startDaemon(port) {
+  const { listRecords } = await import("../scripts/lib/registry.mjs");
+  const dir = daemonFolder();
+  const log = path.join(dir, "daemon.log");
+  let child;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if ((fs.statSync(log, { throwIfNoEntry: false })?.size ?? 0) > 1024 * 1024) fs.renameSync(log, `${log}.1`);
+    // The log holds the address line with the token, so it stays private.
+    const fd = fs.openSync(log, "a", 0o600);
+    fs.chmodSync(log, 0o600);
+    child = spawn(process.execPath, [fileURLToPath(import.meta.url), "daemon", "--port", String(port)], { detached: true, stdio: ["ignore", fd, fd], windowsHide: true, env: { ...process.env, NO_COLOR: "1" } });
+    fs.closeSync(fd);
+  } catch (error) {
+    return { reason: `띄우지 못했습니다(${error.message})` };
+  }
+  let exitedAt = 0;
+  child.on("exit", () => { exitedAt = Date.now(); });
+  child.on("error", () => { exitedAt = Date.now(); });
+  child.unref();
+  const deadline = Date.now() + DAEMON_READY_MS;
+  while (Date.now() < deadline) {
+    const hub = listRecords().find((r) => joinable(r) && r.port === port && r.version === VERSION);
+    if (hub && (await answersAs(hub, 500))) return { hub };
+    // A daemon that exited a second ago and left no hub behind will not come.
+    if (exitedAt && Date.now() - exitedAt > 1000) return { reason: `데몬이 준비되기 전에 끝났습니다(${log})` };
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  // A daemon that opens the port after this run has moved on would sit beside this run's own server.
+  if (!exitedAt) child.kill();
+  return { reason: `${DAEMON_READY_MS / 1000}초 안에 준비되지 않았습니다(${log})` };
+}
+
+// A comparison page on a hub: join its folder like jstyle hub does, then print the page's address.
+async function openOnHub(hub, file, open) {
+  const projectRoot = hubFolderFor(hub, file);
+  const joined = await postJson(hub, "/__jstyle/projects", { root: projectRoot });
+  if (joined.status !== 200) {
+    process.stderr.write(`${yellow("!")} 떠 있는 허브(${hub.port})에 ${projectRoot}를 붙이지 못했습니다(${joined.body?.error ?? (joined.status || "연결 실패")}). 이 명령의 서버로 띄웁니다\n`);
+    return null;
+  }
+  const rel = path.relative(fs.realpathSync(projectRoot), fs.realpathSync(file)).split(path.sep).map(encodeURIComponent).join("/");
+  const url = hubUrl(hub, `/${encodeURIComponent(joined.body.slug)}/${rel}`);
+  process.stderr.write(`${green("✓")} 떠 있는 허브(${hub.port})에서 엽니다\n  ${url}\n`);
+  if (open) openUrl(url);
+  return 0;
 }
 
 // The address a recorded server answers on: a wildcard server also answers on 127.0.0.1.
@@ -574,7 +710,7 @@ async function psCommand(argv) {
   for (const r of records) {
     const idle = r.idle > 0 ? `${r.idle}분 유휴 시 종료` : r.wait ? "선택을 받으면 종료" : "직접 끌 때까지";
     const name = Array.isArray(r.projects) ? r.projects.map((p) => p.slug).join(", ") : r.project ?? "";
-    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.kind ?? "?").padEnd(8)}${name}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
+    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.daemon ? "daemon" : r.kind ?? "?").padEnd(8)}${name}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
     const home = process.env.HOME || "";
     const short = (dir) => (home && dir?.startsWith(home + path.sep) ? "~" + dir.slice(home.length) : dir ?? "");
     const where = Array.isArray(r.projects) ? r.projects.map((p) => short(p.root)) : [short(r.root)];
@@ -619,7 +755,7 @@ async function stopCommand(argv) {
   let stopped = 0;
   for (const r of records) {
     // A hub that serves other projects too only lets go of this one.
-    if (target !== "all" && String(r.port) !== target && joinable(r) && r.projects.length > 1 && (await answersAs(r))) {
+    if (target !== "all" && String(r.port) !== target && joinable(r) && (r.daemon || r.projects.length > 1) && (await answersAs(r))) {
       const reply = await postJson(r, "/__jstyle/projects", { remove: target });
       if (reply.status === 200) {
         stopped += 1;
@@ -730,6 +866,8 @@ async function main(argv) {
       return serveCommand(rest, "assets/extended/index.html");
     case "hub":
       return hubCommand(rest);
+    case "daemon":
+      return daemonCommand(rest);
     case "shoot":
       return runScript("shoot.mjs", rest);
     case "media":

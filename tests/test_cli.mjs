@@ -5,7 +5,7 @@ import net from "node:net";
 import { createServer as httpServer, request } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { CHOICE_FILE, CHOICE_PATH, addProject, createServer, explorerChoice, hubChoice, hubProject } from "../scripts/serve.mjs";
@@ -13,6 +13,8 @@ import { CHOICE_FILE, CHOICE_PATH, addProject, createServer, explorerChoice, hub
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Servers started by these tests record themselves; keep that out of the real ~/.jstyle.
 process.env.JSTYLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-home-"));
+// No detached daemon unless a test asks for one with daemonEnv(); servers stay children of the test.
+process.env.JSTYLE_NO_DAEMON = "1";
 const CLI = path.join(ROOT, "bin", "jstyle.mjs");
 
 function jstyle(args, options = {}) {
@@ -1277,4 +1279,210 @@ test("hub waiters end with a project that leaves, and stay when the removal cann
   assert.equal(answer.status, 410);
   assert.equal(JSON.parse(answer.body).reason, "project");
   assert.equal((await poll(kept)).status, 204);
+});
+
+// Daemon tests run a detached daemon on a free port. It outlives the CLI that
+// started it, so every test kills it by pid and the file sweeps what is left.
+const DAEMON_SKIP = process.platform === "win32" && "detached daemons and their signals differ on Windows";
+
+function daemonEnv(port, extra = {}) {
+  const env = { ...process.env, NO_COLOR: "1", JSTYLE_DAEMON_PORT: String(port) };
+  delete env.JSTYLE_NO_DAEMON;
+  return { ...env, ...extra };
+}
+
+function daemonRecords(env) {
+  return JSON.parse(spawnSync(process.execPath, [CLI, "ps", "--json"], { encoding: "utf8", env }).stdout).filter((r) => r.daemon);
+}
+
+function killDaemons(port = null) {
+  const dir = path.join(process.env.JSTYLE_HOME, "servers");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    try {
+      const record = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+      if (record.daemon && (port === null || record.port === port)) process.kill(record.pid, "SIGKILL");
+    } catch {
+      // Gone already.
+    }
+  }
+}
+after(() => killDaemons());
+
+function runAsync(t, args, env) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [CLI, ...args], { env });
+    t.after(() => child.kill("SIGKILL"));
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (data) => { stdout += data; });
+    child.stderr.on("data", (data) => { stderr += data; });
+    child.on("exit", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+test("hub starts a daemon on the daemon port, returns, and later runs share it", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const started = jstyle(["hub", first, "--no-open"], { env, timeout: 15000 });
+  assert.equal(started.status, 0, started.stderr);
+  const reply = JSON.parse(started.stdout.trim());
+  assert.equal(reply.hub, port);
+  assert.equal(reply.project, path.basename(first));
+  const [daemon, ...others] = daemonRecords(env);
+  assert.equal(others.length, 0);
+  assert.equal(daemon.port, port);
+  assert.equal(daemon.host, "127.0.0.1");
+  assert.equal(daemon.kind, "hub");
+  const joined = jstyle(["hub", second, "--no-open"], { env, timeout: 15000 });
+  assert.equal(joined.status, 0, joined.stderr);
+  assert.equal(JSON.parse(joined.stdout.trim()).hub, port);
+  assert.deepEqual(daemonRecords(env).map((r) => [r.pid, r.projects.length]), [[daemon.pid, 2]]);
+  assert.match(jstyle(["ps"], { env }).stdout, new RegExp(`${port}\\s+daemon`));
+  const log = path.join(process.env.JSTYLE_HOME, "daemon", "daemon.log");
+  assert.match(fs.readFileSync(log, "utf8"), /Serving/);
+  if (process.platform !== "win32") assert.equal(fs.statSync(log).mode & 0o777, 0o600);
+  // A comparison page outside the daemon's projects joins its folder and opens there.
+  const outside = buildExplorer(t);
+  const opened = jstyle(["serve", path.join(outside, "style-explorer.html"), "--no-open"], { env, timeout: 15000 });
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.match(opened.stderr, new RegExp(`127\\.0\\.0\\.1:${port}/${path.basename(outside)}/style-explorer\\.html\\?t=${daemon.token}`));
+  assert.equal(daemonRecords(env)[0].projects.length, 3);
+  assert.equal(jstyle(["stop", path.basename(outside)], { env }).status, 0);
+  // --wait becomes a waiter on the daemon.
+  const waiter = spawn(process.execPath, [CLI, "serve", path.join(second, "admin", "explore", "01", "style-explorer.html"), "--wait", "--no-open"], { env });
+  t.after(() => waiter.kill("SIGKILL"));
+  let stdout = "";
+  waiter.stdout.on("data", (data) => { stdout += data; });
+  const exit = new Promise((resolve) => waiter.on("exit", (code) => resolve(code)));
+  assert.equal((await waitForWaiter(waiter)).port, port);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": daemon.token };
+  await fetch(port, "POST", CHOICE_PATH, { headers, body: JSON.stringify({ page: `/${path.basename(second)}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(await exit, 0);
+  assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)).id, "candidate-1");
+  // Taking every project out keeps the daemon; stopping its port ends it.
+  for (const root of [first, second]) assert.equal(jstyle(["stop", path.basename(root)], { env }).status, 0);
+  assert.deepEqual(daemonRecords(env).map((r) => [r.pid, r.projects.length]), [[daemon.pid, 0]]);
+  assert.equal((await fetch(port, "GET", "/")).status, 200);
+  assert.equal(jstyle(["stop", String(port)], { env }).status, 0);
+  assert.deepEqual(daemonRecords(env), []);
+});
+
+test("two runs that start a daemon at once end up on one daemon", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const roots = [buildPages(t), buildPages(t)];
+  const runs = await Promise.all(roots.map((root) => runAsync(t, ["hub", root, "--no-open"], env)));
+  for (const run of runs) assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(runs.map((run) => JSON.parse(run.stdout.trim()).hub), [port, port]);
+  const daemons = daemonRecords(env);
+  assert.equal(daemons.length, 1);
+  assert.deepEqual(daemons[0].projects.map((p) => p.slug).sort(), roots.map((root) => path.basename(root)).sort());
+});
+
+test("no daemon with JSTYLE_NO_DAEMON, another --port or a non-loopback --host", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const root = buildPages(t);
+  const foreground = async (args, env) => {
+    const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", ...args], { env });
+    t.after(() => child.kill("SIGKILL"));
+    const seen = await waitForUrl(child);
+    child.kill("SIGKILL");
+    await new Promise((resolve) => child.on("exit", resolve));
+    return seen;
+  };
+  assert.equal((await foreground([], daemonEnv(port, { JSTYLE_NO_DAEMON: "1" }))).port, port);
+  const other = await freePort();
+  assert.equal((await foreground(["--port", String(other)], daemonEnv(port))).port, other);
+  assert.equal((await foreground(["--host", "0.0.0.0"], daemonEnv(port))).port, port);
+  assert.deepEqual(daemonRecords(daemonEnv(port)), []);
+});
+
+test("--wait serves on its own free port when something else holds the daemon port", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const squatter = httpServer((request, response) => response.end("not jstyle"));
+  await new Promise((resolve) => squatter.listen(port, "127.0.0.1", resolve));
+  t.after(() => squatter.close());
+  const folder = buildExplorer(t);
+  const env = daemonEnv(port);
+  const waiter = spawn(process.execPath, [CLI, "serve", path.join(folder, "style-explorer.html"), "--wait", "--no-open"], { env });
+  t.after(() => waiter.kill("SIGKILL"));
+  let stdout = "";
+  let stderr = "";
+  waiter.stdout.on("data", (data) => { stdout += data; });
+  waiter.stderr.on("data", (data) => { stderr += data; });
+  const exit = new Promise((resolve) => waiter.on("exit", (code) => resolve(code)));
+  const own = await waitForUrl(waiter);
+  assert.notEqual(own.port, port);
+  assert.match(stderr, /데몬을 쓰지 않습니다/);
+  await fetch(own.port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": own.token }, body: JSON.stringify({ id: "candidate-1" }) });
+  assert.equal(await exit, 0);
+  assert.equal(JSON.parse(stdout.trim().split("\n").at(-1)).id, "candidate-1");
+  assert.deepEqual(daemonRecords(env), []);
+});
+
+function servedPort(t, args, env) {
+  const child = spawn(process.execPath, [CLI, ...args], { env });
+  t.after(() => child.kill("SIGKILL"));
+  let stderr = "";
+  return new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = /Serving .* at http:\/\/127\.0\.0\.1:(\d+)\//.exec(stderr);
+      if (match) resolve(Number(match[1]));
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+}
+
+test("kit and library leave the daemon port free, and hub moves off a port another jstyle server holds", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  for (const command of ["kit", "library"]) assert.notEqual(await servedPort(t, [command, "--no-open"], env), port, `${command} takes the daemon port`);
+  const root = buildPages(t);
+  const started = jstyle(["hub", root, "--no-open"], { env, timeout: 15000 });
+  assert.equal(started.status, 0, started.stderr);
+  assert.equal(JSON.parse(started.stdout.trim()).hub, port);
+  assert.equal(jstyle(["stop", String(port)], { env }).status, 0);
+  // A kit run without the daemon holds the port until it is stopped; a hub then takes a free port instead of failing.
+  assert.equal(await servedPort(t, ["kit", "--no-open"], daemonEnv(port, { JSTYLE_NO_DAEMON: "1" })), port);
+  assert.notEqual(await servedPort(t, ["hub", buildPages(t), "--no-open"], env), port);
+  assert.deepEqual(daemonRecords(env), []);
+});
+
+test("jstyle daemon refuses --root", () => {
+  const refused = jstyle(["daemon", "--root", os.tmpdir()], { env: daemonEnv(1) });
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /daemon은 폴더/);
+});
+
+test("a daemon stays up while a waiter is registered and idles out after it leaves", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  const env = daemonEnv(port);
+  const root = buildPages(t);
+  // Foreground here, so the test owns the process; --idle 0.03 is under 2 seconds, far under the 60-second waiter gap.
+  const daemon = spawn(process.execPath, [CLI, "daemon", "--port", String(port), "--idle", "0.03"], { env });
+  t.after(() => daemon.kill("SIGKILL"));
+  const exit = new Promise((resolve) => daemon.on("exit", (code) => resolve(code)));
+  const { token } = await waitForUrl(daemon);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const { slug } = JSON.parse((await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root }) })).body);
+  const { id } = JSON.parse((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: slug, page: null }) })).body);
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  assert.equal(daemon.exitCode, null, "the daemon idled out with a waiter registered");
+  assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${id}`, { headers })).status, 200);
+  assert.equal(await exit, 0);
+  assert.deepEqual(daemonRecords(env), []);
 });

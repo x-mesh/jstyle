@@ -9,8 +9,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-// Read at start: by the time a server listens, a short-lived launcher may already be gone.
-const LAUNCHED_BY = process.ppid;
+// A --wait server serves the agent (or terminal) waiting for it: the nearest
+// ancestor that is not a shell. A launching shell often exits at once
+// (`nohup … &`), so it is not the one to watch, and it is read at start,
+// while that shell may still be there to walk through. If the shell is gone
+// before this runs, nothing is watched and the server waits for a pick.
+const SHELLS = /^-?(sh|bash|zsh|dash|ksh|fish|nohup|env|timeout|setsid)$/;
+function waitingProcess() {
+  if (process.platform === "win32") return null;
+  let pid = process.ppid;
+  for (let depth = 0; depth < 8 && pid > 1; depth += 1) {
+    const out = spawnSync("ps", ["-o", "ppid=,comm=", "-p", String(pid)], { encoding: "utf8" });
+    const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(out.stdout ?? "");
+    if (!match) return null;
+    if (!SHELLS.test(path.basename(match[2]))) return pid;
+    pid = Number(match[1]);
+  }
+  return null;
+}
+const LAUNCHED_BY = process.argv.includes("--wait") ? waitingProcess() : null;
 const SCRIPTS = path.join(ROOT, "scripts");
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
@@ -65,7 +82,8 @@ const EXPLORE_HELP = `usage: jstyle explore <inputs...> [--output FILE] [--force
 에이전트는 이 명령을 백그라운드로 실행하고, 끝나면 그 결과로 작업을 이어 갑니다.
 
 띄운 서버는 열린 화면도 요청도 없이 30분이 지나면 닫힙니다(--idle 분, 0은 닫지 않음).
---wait 서버는 선택을 받거나, 띄운 프로세스가 끝나면 닫힙니다.
+--wait 서버는 선택을 받거나, 기다리는 프로세스(셸이 아닌 가장 가까운 상위 프로세스)가
+끝나면 닫힙니다. 선택 없이 닫히면 stdout에 아무것도 쓰지 않고 종료 코드 1로 끝납니다.
 떠 있는 서버와 주소는 jstyle ps, 끄기는 jstyle stop입니다.
 
 manifest 필드와 생성 옵션: jstyle explore --help-build
@@ -141,9 +159,11 @@ async function explore(argv) {
 
 // Serves a page; an explorer page also accepts the picked direction. With wait,
 // the first pick is printed as one JSON line and the server stops.
-// A server that someone browses closes after this many idle minutes; a --wait server waits for its agent instead.
+// A comparison page or hub that someone browses closes after this many idle
+// minutes; open pages ping it. A --wait server waits for its agent instead, and
+// pages without the ping (kit, library, any other file) stay until stopped.
 const DEFAULT_IDLE = 30;
-const idleFor = (idle, wait) => idle ?? (wait ? 0 : DEFAULT_IDLE);
+const idleFor = (idle, pinged) => idle ?? (pinged ? DEFAULT_IDLE : 0);
 
 async function serveExplorer({ root, page, host, port, open, wait, idle, kind = "serve" }) {
   const { serve, explorerChoice } = await import("../scripts/serve.mjs");
@@ -153,7 +173,7 @@ async function serveExplorer({ root, page, host, port, open, wait, idle, kind = 
   if (wait && !choice) return fail(`${path.join(root, page)}는 jstyle explore로 만든 비교 화면이 아니어서 --wait를 쓸 수 없습니다`);
   let server;
   try {
-    server = await serve({ root, page, host, port, open, choice, registry: { kind, wait, idle: idleFor(idle, wait), parent: LAUNCHED_BY } });
+    server = await serve({ root, page, host, port, open, choice, registry: { kind, wait, idle: idleFor(idle, !wait && Boolean(choice)), parent: LAUNCHED_BY } });
   } catch (error) {
     return fail(error.message, 1);
   }
@@ -179,7 +199,8 @@ library의 section은 effects, cards, landing, product-ui 같은 구역 이름�
 주소만 입력해도 이 페이지로 이동하므로 다른 기기에서도 http://<host>:<port>/ 로 열 수 있습니다.
 jstyle explore로 만든 비교 화면을 띄우면 고른 안이 그 옆 choice.json에 저장됩니다.
 --wait는 첫 선택을 기다렸다가 고른 안을 JSON 한 줄로 쓰고 끝납니다.
-열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
+비교 화면은 열린 화면도 요청도 없이 --idle 분(기본 30, 0은 닫지 않음)이 지나면 서버를 닫습니다.
+열린 화면 신호를 보내지 않는 kit, library와 다른 파일은 기본으로 직접 끌 때까지 둡니다.
 `;
 
 // fixedPage is set for kit and library, which always serve the jstyle folder.
@@ -252,7 +273,7 @@ async function hubCommand(argv) {
   const choice = hubChoice(root, (record, file) => picked({ record, file }), { once: Boolean(options.wait) });
   let server;
   try {
-    server = await serve({ root, page: "", host: options.host, port: options.port, open: options.open, choice, registry: { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, Boolean(options.wait)), parent: LAUNCHED_BY } });
+    server = await serve({ root, page: "", host: options.host, port: options.port, open: options.open, choice, registry: { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY } });
   } catch (error) {
     return fail(error.message, 1);
   }
@@ -296,7 +317,7 @@ async function psCommand(argv) {
   }
   for (const r of records) {
     const idle = r.idle > 0 ? `${r.idle}분 유휴 시 종료` : r.wait ? "선택을 받으면 종료" : "직접 끌 때까지";
-    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${r.kind.padEnd(8)}${r.project}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
+    process.stdout.write(`${cyan(String(r.port).padEnd(6))}${String(r.kind ?? "?").padEnd(8)}${r.project ?? ""}  ${dim(`${ago(r.started)} 전 시작 · 마지막 요청 ${ago(r.lastActivity)} 전 · ${idle}`)}\n`);
     const home = process.env.HOME || "";
     const where = home && r.root?.startsWith(home + path.sep) ? "~" + r.root.slice(home.length) : r.root;
     process.stdout.write(`      ${r.url}\n      ${dim(where ?? "")}\n`);
@@ -311,10 +332,10 @@ jstyle 서버를 끕니다. 포트 번호, 프로젝트 이름(jstyle ps에 보�
 `;
 
 // Asks the port which process answers, so a reused pid never ends another program.
-function answersAs(record) {
+function answersAs(record, timeout = 3000) {
   return new Promise((resolve) => {
     const host = record.host === "0.0.0.0" || record.host === "::" ? "127.0.0.1" : record.host;
-    const request = http.request({ host, port: record.port, path: "/__jstyle/alive", method: "GET", timeout: 1500 }, (response) => {
+    const request = http.request({ host, port: record.port, path: "/__jstyle/alive", method: "GET", timeout }, (response) => {
       response.resume();
       resolve(response.headers["x-jstyle-pid"] === String(record.pid));
     });
@@ -331,13 +352,21 @@ async function stopCommand(argv) {
     return target ? 0 : 2;
   }
   const { listRecords, removeRecord, isAlive } = await import("../scripts/lib/registry.mjs");
-  const records = listRecords().filter((r) => target === "all" || String(r.port) === target || r.project === target);
+  const byPort = target === "all" || /^\d+$/.test(target);
+  const records = listRecords().filter((r) => target === "all" || String(r.port) === target || (!byPort && r.project === target));
   if (!records.length) return fail(`끌 jstyle 서버가 없습니다: ${target}. jstyle ps로 확인하세요`, 1);
+  // Folders in different places can share a name; a name that matches several servers ends none of them.
+  if (!byPort && records.length > 1) return fail(`${target} 이름의 서버가 ${records.length}개입니다(포트 ${records.map((r) => r.port).join(", ")}). jstyle stop <포트>로 하나씩 끄세요`, 1);
   let stopped = 0;
   for (const r of records) {
     if (!(await answersAs(r))) {
-      process.stderr.write(`${yellow("!")} ${r.port}: 기록된 jstyle 서버가 응답하지 않아 건드리지 않았습니다(기록만 지움)\n`);
-      removeRecord(r.pid);
+      // A server that is busy or paused keeps its record, so ps can still show it.
+      if (isAlive(r.pid)) {
+        process.stderr.write(`${yellow("!")} ${r.port}: 프로세스 ${r.pid}가 jstyle 서버로 응답하지 않아 건드리지 않았습니다\n`);
+      } else {
+        removeRecord(r.pid);
+        process.stderr.write(`${dim("·")} ${r.port}: 이미 끝난 서버의 기록을 지웠습니다\n`);
+      }
       continue;
     }
     try {
@@ -345,12 +374,21 @@ async function stopCommand(argv) {
     } catch {
       // Ended on its own meanwhile.
     }
-    for (let i = 0; i < 20 && isAlive(r.pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    // An ended server stays visible to kill(pid, 0) until its parent reaps it, so a port that stopped answering also counts.
+    let ended = false;
+    for (let i = 0; i < 30 && !ended; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      ended = !isAlive(r.pid) || !(await answersAs(r, 300));
+    }
+    if (!ended) {
+      process.stderr.write(`${yellow("!")} ${r.port}: 종료 신호를 보냈지만 프로세스 ${r.pid}가 아직 살아 있습니다\n`);
+      continue;
+    }
     removeRecord(r.pid);
     stopped += 1;
     process.stderr.write(`${green("✓")} ${r.port} ${r.kind} ${r.project} 종료\n`);
   }
-  return stopped ? 0 : 1;
+  return stopped === records.length ? 0 : 1;
 }
 
 function doctor(argv) {

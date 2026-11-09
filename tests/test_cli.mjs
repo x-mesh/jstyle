@@ -380,19 +380,63 @@ test("stop ends a recorded server and ps drops records of ended ones", async (t)
   assert.equal(fs.existsSync(path.join(dir, "999999.json")), false);
 });
 
-test("a --wait server closes when the process that started it is gone", { skip: process.platform === "win32" && "parent reparenting is POSIX" }, async (t) => {
+test("a --wait server outlives the shell that launched it and closes with its agent", { skip: process.platform === "win32" && "the waiting process is found with ps" }, async (t) => {
   const folder = buildExplorer(t);
   const page = path.join(folder, "style-explorer.html");
-  // The shell starts the server, stays alive while it starts (as an agent session does), then ends.
-  const shell = spawnSync("/bin/sh", ["-c", `"${process.execPath}" "${CLI}" serve "${page}" --wait --no-open --port 0 >/dev/null 2>&1 & echo $!; sleep 1`], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });
-  const pid = Number(shell.stdout.trim());
-  assert.ok(pid > 0, shell.stderr);
+  // The agent runs a shell that starts the server with nohup … & and exits shortly after.
+  const agentScript = `
+    const { spawnSync } = require("node:child_process");
+    const shell = spawnSync("/bin/sh", ["-c", ${JSON.stringify(`nohup "${process.execPath}" "${CLI}" serve "${page}" --wait --no-open --port 0 >/dev/null 2>&1 & echo $!; sleep 0.8`)}], { encoding: "utf8" });
+    process.stdout.write(shell.stdout);
+    setInterval(() => {}, 1000);`;
+  const agent = spawn(process.execPath, ["-e", agentScript], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => agent.kill("SIGKILL"));
+  const pid = await new Promise((resolve) => agent.stdout.once("data", (data) => resolve(Number(String(data).trim()))));
+  assert.ok(pid > 0);
   t.after(() => { try { process.kill(pid, "SIGKILL"); } catch {} });
+  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  assert.ok(alive(), "the --wait server closed although the agent still runs");
+  agent.kill("SIGKILL");
   let gone = false;
   for (let i = 0; i < 80 && !gone; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    try { process.kill(pid, 0); } catch { gone = true; }
+    gone = !alive();
   }
-  assert.ok(gone, "the --wait server kept running after its parent ended");
+  assert.ok(gone, "the --wait server kept running after its agent ended");
   assert.ok(!JSON.parse(jstyle(["ps", "--json"]).stdout).some((r) => r.pid === pid));
+});
+
+test("a --wait server that closes without a pick fails with empty stdout", (t) => {
+  const folder = buildExplorer(t);
+  const run = jstyle(["serve", path.join(folder, "style-explorer.html"), "--wait", "--no-open", "--port", "0", "--idle", "0.02"], { timeout: 20000 });
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(run.stdout, "");
+});
+
+test("stop leaves a process that does not answer as that server, and refuses a name shared by two servers", async (t) => {
+  const folder = buildExplorer(t);
+  const child = spawn(process.execPath, [CLI, "serve", path.join(folder, "style-explorer.html"), "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const exit = new Promise((resolve) => child.on("exit", (code, signal) => resolve(code ?? signal)));
+  const { port } = await waitForUrl(child);
+  const dir = path.join(process.env.JSTYLE_HOME, "servers");
+  // A record whose pid is this test process but whose port answers as the server: stop must not signal this process.
+  const fake = { pid: process.pid, port, host: "127.0.0.1", kind: "serve", project: "twin", started: new Date().toISOString(), lastActivity: new Date().toISOString(), url: `http://127.0.0.1:${port}/` };
+  fs.writeFileSync(path.join(dir, `${process.pid}.json`), JSON.stringify(fake));
+  t.after(() => fs.rmSync(path.join(dir, `${process.pid}.json`), { force: true }));
+  const refused = jstyle(["stop", "twin"]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /응답하지 않아/);
+  assert.ok(fs.existsSync(path.join(dir, `${process.pid}.json`)), "a live process lost its record");
+  // Two servers named the same: a name stops neither.
+  const real = JSON.parse(fs.readFileSync(path.join(dir, `${child.pid}.json`), "utf8"));
+  fs.writeFileSync(path.join(dir, `${child.pid}.json`), JSON.stringify({ ...real, project: "twin" }));
+  const shared = jstyle(["stop", "twin"]);
+  assert.equal(shared.status, 1);
+  assert.match(shared.stderr, /2개/);
+  // SIGINT ends the server and removes its record.
+  child.kill("SIGINT");
+  assert.ok([130, "SIGINT"].includes(await exit));
+  assert.equal(fs.existsSync(path.join(dir, `${child.pid}.json`)), false);
 });

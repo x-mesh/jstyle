@@ -8,7 +8,7 @@ import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { removeRecord, writeRecord } from "./lib/registry.mjs";
+import { isAlive, removeRecord, writeRecord } from "./lib/registry.mjs";
 
 const MIME = JSON.parse(fs.readFileSync(new URL("./lib/mime-types.json", import.meta.url), "utf8")).types;
 const WILDCARD = new Set(["0.0.0.0", "::", ""]);
@@ -452,6 +452,11 @@ export function serve({ root, page, host = "127.0.0.1", port = 8765, open = true
         server.close();
         process.exit(143);
       });
+      // A closed terminal sends SIGHUP; exiting through it still removes the record.
+      process.once("SIGHUP", () => {
+        server.close();
+        process.exit(129);
+      });
       if (registry) touch = track({ server, root, page, host, local, other, out, registry });
       resolve(server);
     });
@@ -496,11 +501,12 @@ function track({ server, root, page, host, local, other, out, registry }) {
       // ps then shows an older activity time; the server keeps running.
     }
   };
+  // A --wait server that closes without a pick fails, so the agent does not read an empty result as success.
   const shutdown = (message) => {
     out.write(`${message}\n`);
     server.closeAllConnections();
     server.close();
-    process.exit(0);
+    process.exit(registry.wait ? 1 : 0);
   };
   if (registry.idle > 0) {
     const limit = registry.idle * 60000;
@@ -508,12 +514,10 @@ function track({ server, root, page, host, local, other, out, registry }) {
       if (Date.now() - last > limit) shutdown(`${registry.idle}분 동안 요청이 없어 서버를 닫습니다`);
     }, Math.max(200, Math.min(30000, limit / 4))).unref();
   }
-  if (registry.wait) {
-    // An agent waiting on --wait started this server; if it is gone, nobody will read the pick.
-    // A parent of 1 means init or launchd started it directly, so there is no launcher to watch.
-    const parent = registry.parent ?? process.ppid;
+  if (registry.wait && registry.parent > 1) {
+    // registry.parent is the process waiting on --wait; once it is gone, nobody will read the pick.
     const check = () => {
-      if (parent !== 1 && process.ppid !== parent) shutdown("이 서버를 띄운 프로세스가 끝나 서버를 닫습니다");
+      if (!isAlive(registry.parent)) shutdown(`기다리던 프로세스 ${registry.parent}가 끝나 서버를 닫습니다`);
     };
     check();
     setInterval(check, 2000).unref();
@@ -525,7 +529,7 @@ const HELP = `usage: serve.mjs [page] [--root DIR] [--host HOST] [--port PORT] [
 
 Serve DIR (default: the jstyle folder) with caching disabled and open page in it.
 The bare root URL redirects to page, so other devices can open http://<host>:<port>/.
-The server closes after --idle minutes (default 30, 0 never) with no open page and no request.
+With --idle MIN the server closes after MIN minutes with no request (default: never).
 `;
 
 export function parseServeArgs(argv, defaults) {
@@ -576,7 +580,7 @@ async function main() {
     return 2;
   }
   try {
-    await serve({ ...options, root, registry: { kind: "serve", idle: options.idle ?? 30 } });
+    await serve({ ...options, root, registry: { kind: "serve", idle: options.idle ?? 0 } });
   } catch (error) {
     process.stderr.write(`serve.mjs: error: ${error.message}\n`);
     return 1;

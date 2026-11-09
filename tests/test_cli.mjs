@@ -747,6 +747,11 @@ test("restoring saved projects skips bad slugs, unservable folders and repeats, 
   assert.deepEqual(restored, ["kept"]);
   assert.equal(dropped.length, 6);
   assert.deepEqual(savedProjects(hub), [{ slug: "kept", root: kept, added: "2026-01-01T00:00:00.000Z", lastUsed: "2026-01-02T00:00:00.000Z" }]);
+  // A long folder name makes a long slug, and that slug must come back too.
+  const longName = "l".repeat(120);
+  const longHub = hubChoice(() => {});
+  const longSlug = addProject(longHub, folder(longName));
+  assert.deepEqual(restoreProjects(hubChoice(() => {}), savedProjects(longHub)).restored, [longSlug]);
   for (let n = 0; n < MAX_PROJECTS; n += 1) addProject(hub, folder(`p${n}`));
   assert.equal(hub.projects.size, MAX_PROJECTS);
   assert.equal(hub.projects.has("kept"), false);

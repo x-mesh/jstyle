@@ -541,7 +541,8 @@ export function addProject(hub, root) {
   return slug;
 }
 
-const SLUG = /^[\p{L}\p{N}_][\p{L}\p{N}._-]{0,99}$/u;
+// The shape addProject makes; a saved slug outside it was not written by this code.
+const SLUG = /^[\p{L}\p{N}_][\p{L}\p{N}._-]*$/u;
 
 // Puts back projects a hub saved, under the slugs they had. A folder that is
 // gone or may no longer be served is left out and reported.

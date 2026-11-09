@@ -1486,3 +1486,117 @@ test("a daemon stays up while a waiter is registered and idles out after it leav
   assert.equal(await exit, 0);
   assert.deepEqual(daemonRecords(env), []);
 });
+
+// An older daemon on the daemon port, run in the foreground so the test owns it.
+async function oldDaemon(t, port, extra = {}) {
+  const env = daemonEnv(port, { JSTYLE_VERSION_OVERRIDE: "0.0.1", ...extra });
+  const child = spawn(process.execPath, [CLI, "daemon", "--port", String(port)], { env });
+  t.after(() => child.kill("SIGKILL"));
+  const exit = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+  const { token } = await waitForUrl(child);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  const join = async (root) => JSON.parse((await fetch(port, "POST", "/__jstyle/projects", { headers, body: JSON.stringify({ root }) })).body).slug;
+  const wait = async (slug) => JSON.parse((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: slug, page: null }) })).body).id;
+  return { child, exit, token, headers, join, wait };
+}
+
+test("a daemon of another version with no waiter hands over to a new daemon with its projects", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const old = await oldDaemon(t, port);
+  const first = buildPages(t);
+  const slug = await old.join(first);
+  const second = buildPages(t);
+  const run = jstyle(["hub", second, "--no-open"], { env, timeout: 20000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(JSON.parse(run.stdout.trim()).hub, port);
+  assert.equal(await old.exit, 0);
+  const [daemon, ...more] = daemonRecords(env);
+  assert.equal(more.length, 0);
+  assert.notEqual(daemon.pid, old.child.pid);
+  assert.notEqual(daemon.version, "0.0.1");
+  assert.equal(daemon.api, 1);
+  assert.deepEqual(daemon.projects.map((p) => p.slug).sort(), [slug, path.basename(second)].sort());
+});
+
+test("a daemon of another version with a waiter stays until the waiter ends and is used while its api matches", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const old = await oldDaemon(t, port);
+  const slug = await old.join(buildPages(t));
+  const id = await old.wait(slug);
+  const second = buildPages(t);
+  const run = jstyle(["hub", second, "--no-open"], { env, timeout: 20000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stderr, /대기자 1/);
+  assert.equal(old.child.exitCode, null);
+  assert.deepEqual(daemonRecords(env).map((r) => [r.pid, r.projects.length]), [[old.child.pid, 2]]);
+  // Once its last waiter leaves, the old daemon ends on its own.
+  assert.equal((await fetch(port, "DELETE", `/__jstyle/waiters/${id}`, { headers: old.headers })).status, 200);
+  assert.equal(await old.exit, 0);
+  const next = jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 });
+  assert.equal(next.status, 0, next.stderr);
+  const [daemon] = daemonRecords(env);
+  assert.notEqual(daemon.version, "0.0.1");
+  assert.equal(daemon.projects.length, 3);
+});
+
+test("a daemon of another api with a waiter makes the run serve by itself", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const old = await oldDaemon(t, port, { JSTYLE_API_OVERRIDE: "99" });
+  await old.wait(await old.join(buildPages(t)));
+  const own = spawn(process.execPath, [CLI, "hub", buildPages(t), "--no-open"], { env: daemonEnv(port) });
+  t.after(() => own.kill("SIGKILL"));
+  let stderr = "";
+  own.stderr.on("data", (data) => { stderr += data; });
+  const seen = await waitForUrl(own);
+  assert.notEqual(seen.port, port);
+  assert.match(stderr, /데몬을 쓰지 않습니다/);
+  assert.equal(old.child.exitCode, null);
+});
+
+test("a hub from before the daemon on the daemon port is taken over with its token and addresses", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const plain = daemonEnv(port, { JSTYLE_NO_DAEMON: "1" });
+  const hub = spawn(process.execPath, [CLI, "hub", first, "--no-open"], { env: plain });
+  t.after(() => hub.kill("SIGKILL"));
+  const hubExit = new Promise((resolve) => hub.on("exit", (code, signal) => resolve(code ?? signal)));
+  const { token } = await waitForUrl(hub);
+  assert.equal(jstyle(["hub", second, "--no-open"], { env: plain }).status, 0);
+  const third = buildPages(t);
+  const run = jstyle(["hub", third, "--no-open"], { env, timeout: 20000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.ok([143, "SIGTERM"].includes(await hubExit));
+  const [daemon] = daemonRecords(env);
+  assert.equal(daemon.token, token);
+  assert.deepEqual(daemon.projects.map((p) => p.slug), [first, second, third].map((root) => path.basename(root)));
+  // An open tab goes on with the same token and address.
+  const slug = path.basename(first);
+  assert.equal((await fetch(port, "GET", `/__jstyle/hub.json?page=${encodeURIComponent(`/${slug}/`)}`)).status, 200);
+  const sent = await fetch(port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": token }, body: JSON.stringify({ page: `/${slug}/admin/explore/01/style-explorer.html`, id: "candidate-1" }) });
+  assert.equal(sent.status, 200, sent.body);
+});
+
+test("a hub from before the daemon with an agent waiting on it is used, not taken over", { skip: DAEMON_SKIP, timeout: 60000 }, async (t) => {
+  const port = await freePort();
+  t.after(() => killDaemons(port));
+  const env = daemonEnv(port);
+  const first = buildPages(t);
+  const hub = spawn(process.execPath, [CLI, "hub", first, "--no-open"], { env: daemonEnv(port, { JSTYLE_NO_DAEMON: "1" }) });
+  t.after(() => hub.kill("SIGKILL"));
+  const { token } = await waitForUrl(hub);
+  const headers = { "Content-Type": "application/json", "X-Jstyle-Token": token };
+  assert.equal((await fetch(port, "POST", "/__jstyle/waiters", { headers, body: JSON.stringify({ project: path.basename(first), page: null }) })).status, 200);
+  const run = jstyle(["hub", buildPages(t), "--no-open"], { env, timeout: 20000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stderr, /대기자 1개/);
+  assert.equal(hub.exitCode, null, "a hub with a waiting agent was stopped");
+  assert.deepEqual(daemonRecords(env), []);
+});

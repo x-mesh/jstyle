@@ -287,7 +287,17 @@ async function hubCommand(argv) {
   const pick = new Promise((resolve) => { picked = resolve; });
   const choice = hubChoice((record, file) => picked({ record, file }), { once: Boolean(options.wait) });
   const slug = addProject(choice, root);
-  const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: () => ({ token: choice.token, projects: projectList(choice).map(({ slug, root }) => ({ slug, root })) }) };
+  // The record names the first remaining project, so ps and stop never point at a project the hub let go of.
+  const hubExtra = (record) => {
+    const projects = projectList(choice);
+    const [first] = projects;
+    const extra = { token: choice.token, projects: projects.map(({ slug, root }) => ({ slug, root })) };
+    if (!record || record.projects?.[0]?.slug === first.slug) return extra;
+    const url = new URL(record.url);
+    url.pathname = `/${encodeURIComponent(first.slug)}/`;
+    return { ...extra, project: first.project, root: first.root, url: url.href };
+  };
+  const registry = { kind: "hub", wait: Boolean(options.wait), idle: idleFor(options.idle, !options.wait), parent: LAUNCHED_BY, extra: hubExtra };
   choice.onProjects = () => registry.refresh?.();
   let server;
   try {
@@ -313,7 +323,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 async function sharedHub({ host, port, within = null }) {
   if (!LOOPBACK_HOSTS.has(host) || !port) return null;
   const { listRecords } = await import("../scripts/lib/registry.mjs");
-  const hub = listRecords().find((r) => r.kind === "hub" && !r.wait && r.port === port && r.token && Array.isArray(r.projects));
+  const hub = listRecords().find((r) => joinable(r) && r.port === port);
   if (!hub) return null;
   if (within && !hub.projects.some((p) => isInside(p.root, within))) return null;
   if (hub.version !== VERSION) {
@@ -321,6 +331,11 @@ async function sharedHub({ host, port, within = null }) {
     return null;
   }
   return (await answersAs(hub)) ? hub : null;
+}
+
+// Joining and leaving talk to the hub on 127.0.0.1, so only a hub listening on loopback can be shared.
+function joinable(record) {
+  return record.kind === "hub" && !record.wait && Boolean(record.token) && Array.isArray(record.projects) && LOOPBACK_HOSTS.has(record.host);
 }
 
 function isInside(root, file) {
@@ -466,7 +481,7 @@ async function stopCommand(argv) {
   let stopped = 0;
   for (const r of records) {
     // A hub that serves other projects too only lets go of this one.
-    if (target !== "all" && String(r.port) !== target && r.projects?.length > 1 && r.token && (await answersAs(r))) {
+    if (target !== "all" && String(r.port) !== target && joinable(r) && r.projects.length > 1 && (await answersAs(r))) {
       const reply = await postJson(r, "/__jstyle/projects", { remove: target });
       if (reply.status === 200) {
         stopped += 1;

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import { isIP } from "node:net";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,6 +275,18 @@ export function hubProject(root) {
 }
 
 // A file reached through a link outside the hub folder is not part of the hub, even if it is an explorer.
+const DENIED = new Set(["EACCES", "EPERM"]);
+
+function hiddenPath(urlPath) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    return true;
+  }
+  return decoded.split(/[\\/]/).some((part) => part.startsWith("."));
+}
+
 function insideRoot(root, file) {
   try {
     const top = fs.realpathSync(root);
@@ -325,18 +338,23 @@ export function hubList(root) {
   return entries.sort((a, b) => b.mtime - a.mtime);
 }
 
-// A page that another site loads into the browser could otherwise read a
-// loopback server by pointing its own name at 127.0.0.1 (DNS rebinding), so a
-// request that arrives on a loopback address must name a loopback host.
-// Requests on another address (--host with a Tailscale or LAN address) come
-// through names the user chose, and are not checked.
+// A page that another site loads into the browser could otherwise read this
+// server by pointing its own name at one of its addresses (DNS rebinding).
+// On loopback only loopback names and this machine's name pass. On another
+// address (--host with 0.0.0.0, a LAN or Tailscale address) a rebinding name
+// must resolve in public DNS, so IP literals, single-label names (Tailscale
+// MagicDNS), .local, .ts.net and this machine's name pass, and any other
+// dotted name is refused.
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 function allowedHost(request) {
-  if (!LOOPBACK_ADDRESSES.has(request.socket.localAddress)) return true;
   const header = String(request.headers.host ?? "").toLowerCase();
-  const name = header.startsWith("[") ? header.slice(1, header.indexOf("]")) : header.replace(/:\d+$/, "");
+  const literal = header.startsWith("[");
+  const name = literal ? header.slice(1, header.indexOf("]")) : header.replace(/:\d+$/, "");
   const own = hostname().toLowerCase();
-  return ["localhost", "127.0.0.1", "::1", own, own.replace(/\.local$/, "")].includes(name);
+  const ownNames = [own, own.replace(/\.local$/, "")];
+  if (LOOPBACK_ADDRESSES.has(request.socket.localAddress)) return ["localhost", "127.0.0.1", "::1", ...ownNames].includes(name);
+  if (literal ? isIP(name) === 6 : isIP(name) === 4) return true;
+  return !name.includes(".") || name.endsWith(".local") || name.endsWith(".ts.net") || ownNames.includes(name);
 }
 
 // jstyle's own endpoints are called by the page the server sent, so a request
@@ -402,7 +420,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
       if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
       if (at.rest === "/") return send(200, { "Content-Type": "text/html; charset=utf-8" }, fs.readFileSync(HUB_PAGE));
-      return serveFile(at.root, at.rest, url.pathname);
+      return serveFile(at.root, at.rest, url.pathname, true);
     }
     if (request.method !== "GET" && request.method !== "HEAD") return send(501, { "Content-Type": "text/plain" }, "Unsupported method\n");
     // The served folder rarely has an index.html, so a bare host URL opened on
@@ -411,21 +429,32 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
     if (url.pathname === "/") return send(302, { Location: withQuery("/" + page, url.search) });
     return serveFile(root, url.pathname, url.pathname);
 
-    function serveFile(base, rest, shown) {
-    const target = localPath(base, rest);
-    let info;
-    try {
-      info = fs.statSync(target);
-    } catch {
-      return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
-    }
-    if (info.isDirectory()) {
-      if (!shown.endsWith("/")) return send(301, { Location: shown + "/" + url.search });
-      const index = ["index.html", "index.htm"].map((name) => path.join(target, name)).find((item) => fs.existsSync(item));
-      if (!index) return send(200, { "Content-Type": "text/html; charset=utf-8" }, listing(shown, target));
-      return sendFile(index);
-    }
-    return sendFile(target);
+    function serveFile(base, rest, shown, guarded = false) {
+      const missing = () => send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
+      // One unreadable file must not end a server that other pages and projects share.
+      try {
+        const target = localPath(base, rest);
+        // A hub takes any project folder, so dot files (.env, .git) and links that leave the folder stay hidden.
+        if (guarded && (hiddenPath(rest) || !insideRoot(base, target))) return missing();
+        let info;
+        try {
+          info = fs.statSync(target);
+        } catch (error) {
+          if (DENIED.has(error?.code)) throw error;
+          return missing();
+        }
+        if (info.isDirectory()) {
+          if (!shown.endsWith("/")) return send(301, { Location: shown + "/" + url.search });
+          const index = ["index.html", "index.htm"].map((name) => path.join(target, name)).find((item) => fs.existsSync(item));
+          if (!index) return send(200, { "Content-Type": "text/html; charset=utf-8" }, listing(shown, target));
+          return sendFile(index);
+        }
+        return sendFile(target);
+      } catch (error) {
+        if (response.headersSent) return response.destroy();
+        const status = DENIED.has(error?.code) ? 403 : 500;
+        return send(status, { "Content-Type": "text/plain; charset=utf-8" }, status === 403 ? "Permission denied\n" : "Could not read the file\n");
+      }
     }
 
     function sendFile(file) {
@@ -641,7 +670,7 @@ function track({ server, root, page, host, local, other, out, registry }) {
   }
   // A hub rewrites its record when projects are added or removed.
   registry.refresh = () => {
-    Object.assign(record, registry.extra?.());
+    Object.assign(record, registry.extra?.(record));
     try {
       writeRecord(record);
     } catch {

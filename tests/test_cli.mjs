@@ -18,9 +18,9 @@ function jstyle(args, options = {}) {
   return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1" }, ...options });
 }
 
-function fetch(port, method, pathname, { headers = {}, body } = {}) {
+function fetch(port, method, pathname, { headers = {}, body, host = "127.0.0.1" } = {}) {
   return new Promise((resolve, reject) => {
-    const req = request({ host: "127.0.0.1", port, method, path: pathname, headers }, (response) => {
+    const req = request({ host, port, method, path: pathname, headers }, (response) => {
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString("utf8") }));
@@ -527,4 +527,108 @@ test("the hub takes folders only with its token and refuses requests from other 
   assert.equal((await fetch(port, "GET", "/__jstyle/alive", { headers: { "Sec-Fetch-Site": "same-origin" } })).status, 204);
   // Static files stay readable from a sandboxed candidate frame, whose requests are cross-site.
   assert.equal((await fetch(port, "GET", `/${path.basename(root)}/admin/explore/01/a.html`, { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 200);
+});
+
+// A LAN address of this machine; link-local addresses are left out because they may not route back here.
+const LAN_ADDRESS = Object.values(os.networkInterfaces()).flat().find((a) => a?.family === "IPv4" && !a.internal && !a.address.startsWith("169.254."))?.address;
+
+function waitForServing(child) {
+  let stderr = "";
+  return new Promise((resolve, reject) => {
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      const match = /Serving .* at http:\/\/([^:/\s]+):(\d+)\/\S*\?t=([0-9a-f]+)/.exec(stderr);
+      if (match) resolve({ host: match[1], port: Number(match[2]), token: match[3] });
+    });
+    child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+  });
+}
+
+test("a hub answers 403 for a file it cannot read and keeps serving", { skip: process.platform === "win32" || process.getuid?.() === 0, timeout: 30000 }, async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-locked-"));
+  const locked = path.join(root, "locked.txt");
+  const shut = path.join(root, "shut");
+  let child = null;
+  // One hook in a fixed order: removing the folder fails until the modes are back, and a failed hook skips the ones after it.
+  t.after(() => {
+    child?.kill("SIGKILL");
+    fs.chmodSync(locked, 0o600);
+    fs.chmodSync(shut, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  fs.writeFileSync(locked, "secret");
+  fs.mkdirSync(shut);
+  fs.chmodSync(locked, 0o000);
+  fs.chmodSync(shut, 0o000);
+  child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  const { port } = await waitForUrl(child);
+  const slug = path.basename(root);
+  assert.equal((await fetch(port, "GET", `/${slug}/locked.txt`)).status, 403);
+  assert.equal((await fetch(port, "GET", `/${slug}/shut/`)).status, 403);
+  assert.equal((await fetch(port, "GET", "/__jstyle/alive")).status, 204);
+});
+
+test("a hub hides dot files and links that leave the project", { timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-outside-"));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "secret");
+  fs.writeFileSync(path.join(root, ".env"), "TOKEN=1");
+  fs.mkdirSync(path.join(root, ".cache"));
+  fs.writeFileSync(path.join(root, ".cache", "a.txt"), "cached");
+  fs.symlinkSync(outside, path.join(root, "away"));
+  fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "secret.txt"));
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port } = await waitForUrl(child);
+  const slug = path.basename(root);
+  for (const hidden of [".env", ".cache/a.txt", "away/secret.txt", "secret.txt"]) {
+    assert.equal((await fetch(port, "GET", `/${slug}/${hidden}`)).status, 404, hidden);
+  }
+  assert.equal((await fetch(port, "GET", `/${slug}/admin/explore/01/a.html`)).status, 200);
+});
+
+test("a hub on a LAN address is not shared; another project starts its own server", { skip: !LAN_ADDRESS && "no LAN address", timeout: 30000 }, async (t) => {
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const port = await freePort();
+  const lan = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--host", LAN_ADDRESS, "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => lan.kill("SIGKILL"));
+  await waitForServing(lan);
+  const own = spawn(process.execPath, [CLI, "hub", second, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => own.kill("SIGKILL"));
+  const started = await waitForServing(own);
+  assert.equal(started.host, "127.0.0.1");
+  assert.equal(started.port, port);
+});
+
+test("a request on a LAN address must name an IP, a single-label, .local or .ts.net host", { skip: !LAN_ADDRESS && "no LAN address", timeout: 30000 }, async (t) => {
+  const root = buildPages(t);
+  const child = spawn(process.execPath, [CLI, "hub", root, "--no-open", "--host", "0.0.0.0", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  const { port } = await waitForUrl(child);
+  const page = `/${path.basename(root)}/admin/explore/01/a.html`;
+  const at = (name) => fetch(port, "GET", page, { host: LAN_ADDRESS, headers: { Host: `${name}:${port}` } }).then((r) => r.status);
+  assert.equal(await at("evil.example"), 403);
+  assert.equal(await at("rebind.attacker.example.com"), 403);
+  for (const name of ["mac-studio-t", LAN_ADDRESS, "foo.tail1234.ts.net", "studio.local", os.hostname(), "[fe80::1]"]) assert.equal(await at(name), 200, name);
+  // Loopback keeps its own rule.
+  assert.equal((await fetch(port, "GET", page, { headers: { Host: `mac-studio-t:${port}` } })).status, 403);
+});
+
+test("removing the project a hub started with points its record at a remaining project", { timeout: 30000 }, async (t) => {
+  const first = buildPages(t);
+  const second = buildPages(t);
+  const port = await freePort();
+  const child = spawn(process.execPath, [CLI, "hub", first, "--no-open", "--port", String(port)], { env: { ...process.env, NO_COLOR: "1" } });
+  t.after(() => child.kill("SIGKILL"));
+  await waitForUrl(child);
+  assert.equal(jstyle(["hub", second, "--no-open", "--port", String(port)]).status, 0);
+  const stopped = jstyle(["stop", path.basename(first)]);
+  assert.equal(stopped.status, 0, stopped.stderr);
+  const record = JSON.parse(jstyle(["ps", "--json"]).stdout).find((r) => r.pid === child.pid);
+  assert.equal(record.project, path.basename(second));
+  assert.equal(record.root, fs.realpathSync(second));
+  assert.equal(new URL(record.url).pathname, `/${path.basename(second)}/`);
+  assert.equal((await fetch(port, "GET", new URL(record.url).pathname)).status, 200);
 });

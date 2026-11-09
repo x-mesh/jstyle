@@ -923,8 +923,8 @@ test("a hub lists the pages and an explorer opened from it gets a page menu", { 
   assert.equal(joined.status, 0, joined.stderr);
   const projects = f.runBrowserProbe("sum", "chrome-projects", `${base.origin}/?t=${base.token}`);
   assert.equal(projects.status, 0, projects.stderr);
-  assert.match(projects.stdout, /2/);
   assert.match(projects.stdout, /projects|프로젝트/);
+  assert.deepEqual(projects.stdout.match(/\d+/g), ["2"], projects.stdout);
 });
 
 test("portable single file and HTML payload", (t) => {

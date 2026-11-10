@@ -71,6 +71,7 @@ usage   jstyle <command> [options]
   ps       떠 있는 jstyle 서버와 주소 보기
   stop     jstyle 서버 끄기 (포트, 프로젝트 또는 all)
   doctor   Node·브라우저·설치 위치 확인
+  update   최신 버전 확인과 업데이트
   version  버전 표시
 
 각 명령의 옵션: jstyle <command> --help
@@ -1006,6 +1007,131 @@ async function stopCommand(argv) {
   return stopped === records.length ? 0 : 1;
 }
 
+// JSTYLE_UPDATE_URL points update at another copy of main (tests serve one locally).
+const UPDATE_URL = (process.env.JSTYLE_UPDATE_URL || "https://raw.githubusercontent.com/x-mesh/jstyle/main").replace(/\/+$/, "");
+const UPDATE_TIMEOUT_MS = 10000;
+const NPX_INSTALL = "npx skills add x-mesh/jstyle -g -s jstyle";
+
+const UPDATE_HELP = `usage: jstyle update [--check] [--force]
+
+GitHub main의 버전과 지금 버전을 비교하고, 다르면 main의 install.sh를 받아 실행합니다.
+install.sh는 PATH의 에이전트(claude, codex)마다 스킬을 업데이트하고 jstyle 명령을 다시 연결합니다.
+
+  --check  버전만 비교하고 설치하지 않습니다
+  --force  버전이 같거나 main이 더 이전 버전이어도 설치합니다
+
+떠 있는 이전 버전 데몬은 다음 hub·explore·serve 실행 때 새 버전 데몬으로 바뀝니다.
+새 스킬 문서는 새로 시작한 에이전트 세션부터 읽습니다.
+git으로 받은 폴더의 jstyle은 업데이트하지 않습니다. 그 폴더에서 git pull을 실행하세요.
+Windows에서는 ${NPX_INSTALL}로 업데이트합니다.
+`;
+
+async function fetchUpdateFile(name) {
+  const response = await fetch(`${UPDATE_URL}/${name}`, { signal: AbortSignal.timeout(UPDATE_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
+  return response.text();
+}
+
+function installedVersion(root = ROOT) {
+  return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+}
+
+// The copy that the jstyle command on JSTYLE_BIN_DIR runs, which install.sh links last.
+function linkedVersion() {
+  const link = path.join(process.env.JSTYLE_BIN_DIR || path.join(os.homedir(), ".local", "bin"), "jstyle");
+  try {
+    return installedVersion(path.resolve(path.dirname(fs.realpathSync(link)), ".."));
+  } catch {
+    return null;
+  }
+}
+
+// Two prereleases of one version are left undecided, so update installs main as before.
+function newerThan(a, b) {
+  const parse = (version) => /^(\d+)\.(\d+)\.(\d+)(-\S+)?$/.exec(version);
+  const [x, y] = [parse(a), parse(b)];
+  if (!x || !y) return false;
+  const index = [1, 2, 3].find((i) => Number(x[i]) !== Number(y[i]));
+  if (index) return Number(x[index]) > Number(y[index]);
+  return !x[4] && Boolean(y[4]);
+}
+
+async function updateCommand(argv) {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    process.stdout.write(UPDATE_HELP);
+    return 0;
+  }
+  const unknown = argv.find((arg) => arg !== "--check" && arg !== "--force");
+  if (unknown) {
+    fail(`알 수 없는 옵션: ${unknown}`);
+    hint("help", "jstyle update --help");
+    return 2;
+  }
+  const check = argv.includes("--check");
+  const force = argv.includes("--force");
+  // install.sh writes the copy that npx skills manages; a checkout would be left as it is while the command moved away from it.
+  if (!check && fs.existsSync(path.join(ROOT, ".git"))) {
+    return fail(`${ROOT}는 git으로 받은 폴더입니다. 그 폴더에서 git pull을 실행하세요`);
+  }
+  let latest;
+  try {
+    latest = JSON.parse(await fetchUpdateFile("package.json")).version;
+  } catch (error) {
+    return fail(`최신 버전을 확인하지 못했습니다(${UPDATE_URL}): ${error.message}`, 1);
+  }
+  if (typeof latest !== "string" || !latest) return fail(`${UPDATE_URL}/package.json에 version이 없습니다`, 1);
+  process.stdout.write(`현재 jstyle ${VERSION}\n최신 jstyle ${latest}\n`);
+  if (latest === VERSION && !force) {
+    process.stdout.write(`${green("✓")} 최신 버전입니다\n`);
+    return 0;
+  }
+  if (newerThan(VERSION, latest) && !force) {
+    process.stdout.write(`${yellow("!")} 이 jstyle이 main보다 새 버전입니다. main 버전으로 내리려면 jstyle update --force를 실행하세요\n`);
+    return 0;
+  }
+  if (check) {
+    if (latest !== VERSION) hint("update", "jstyle update");
+    return 0;
+  }
+  if (process.platform === "win32" || spawnSync("bash", ["-c", "exit 0"]).status !== 0) {
+    fail("install.sh를 실행할 bash가 없습니다");
+    hint("update", NPX_INSTALL);
+    return 1;
+  }
+  let script;
+  try {
+    script = await fetchUpdateFile("install.sh");
+  } catch (error) {
+    return fail(`install.sh를 받지 못했습니다(${UPDATE_URL}): ${error.message}`, 1);
+  }
+  // Run from a file: piped to bash, install.sh would take a jstyle checkout in the current folder as its source.
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-update-"));
+  let result;
+  try {
+    fs.writeFileSync(path.join(folder, "install.sh"), script);
+    result = spawnSync("bash", [path.join(folder, "install.sh")], { stdio: "inherit" });
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+  if (result.error) return fail(`install.sh를 실행하지 못했습니다: ${result.error.message}`, 1);
+  if (result.status !== 0) return fail(`install.sh가 실패했습니다(종료 코드 ${result.status ?? result.signal})`, 1);
+  const now = installedVersion();
+  if (now !== latest) {
+    // install.sh picks ~/.agents or ~/.claude by whether codex is on PATH, so it can write a copy other than this one.
+    const linked = linkedVersion();
+    if (linked === latest) {
+      process.stdout.write(`${yellow("!")} jstyle 명령은 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
+      hint("check", "jstyle doctor");
+      return 0;
+    }
+    fail(`업데이트 뒤에도 jstyle ${linked ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
+    hint("check", "jstyle doctor");
+    return 1;
+  }
+  process.stdout.write(`${green("✓")} ${now === VERSION ? `jstyle ${now} 다시 설치` : `jstyle ${VERSION} → ${now}`}\n`);
+  return 0;
+}
+
 function doctor(argv) {
   const json = argv.includes("--json");
   const checks = [];
@@ -1094,8 +1220,10 @@ async function main(argv) {
       return stopCommand(rest);
     case "doctor":
       return doctor(rest);
+    case "update":
+      return updateCommand(rest);
     default: {
-      const names = ["explore", "hub", "ps", "stop", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "eval", "doctor", "version"];
+      const names = ["explore", "hub", "ps", "stop", "serve", "kit", "library", "shoot", "media", "image", "measure", "check", "eval", "doctor", "update", "version"];
       const near = names.find((name) => name.startsWith(command.slice(0, 2)));
       fail(`알 수 없는 명령: ${command}`);
       if (near) hint("try", `jstyle ${near}`);

@@ -7,6 +7,7 @@
 아래 스크립트는 `node <skill>/bin/jstyle.mjs <하위 명령>`으로도 부를 수 있으며 인자를 그대로 넘깁니다.
 `shoot`은 `shoot.mjs`, `media`는 `curate-media.mjs`, `image`는 `prep-image.mjs`, `measure`는 `measure_reference.mjs`, `check`는 `check.mjs`입니다.
 Node·브라우저·설치 위치는 `jstyle doctor`로 확인합니다.
+설치된 jstyle의 업데이트는 `jstyle update`로 합니다. git으로 받은 폴더에서는 `git pull`을 씁니다.
 Node 22 또는 Chrome·Chromium·Edge가 없으면 환경의 다른 브라우저 도구로 같은 자료를 남깁니다.
 
 ## 캡처와 녹화

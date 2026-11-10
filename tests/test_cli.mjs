@@ -96,13 +96,157 @@ test("other paths are served as files without caching and cannot leave the root"
 test("help, version and unknown commands follow the exit code contract", () => {
   const help = jstyle(["--help"]);
   assert.equal(help.status, 0);
-  for (const name of ["explore", "serve", "shoot", "media", "image", "measure", "doctor"]) assert.match(help.stdout, new RegExp(`\\n  ${name} `));
+  for (const name of ["explore", "serve", "shoot", "media", "image", "measure", "doctor", "update"]) assert.match(help.stdout, new RegExp(`\\n  ${name} `));
   assert.match(jstyle(["version"]).stdout, /^jstyle \S+\n$/);
   const unknown = jstyle(["explor"]);
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /알 수 없는 명령: explor/);
   assert.match(unknown.stderr, /try: jstyle explore/);
   assert.equal(jstyle([]).status, 2);
+});
+
+// spawnSync would block the stub server below, so update runs as a child the test awaits.
+function jstyleAt(cli, args, env, cwd = undefined) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [cli, ...args], { cwd, env: { ...process.env, NO_COLOR: "1", ...env } });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (data) => (stdout += data));
+    child.stderr.on("data", (data) => (stderr += data));
+    child.on("exit", (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+// An installed copy: npx skills copies the files without .git.
+function installedCopy(t, version) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-installed-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "bin"));
+  fs.copyFileSync(CLI, path.join(root, "bin", "jstyle.mjs"));
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ version }));
+  return root;
+}
+
+async function updateServer(t, files) {
+  const asked = [];
+  const server = httpServer((req, res) => {
+    asked.push(req.url);
+    const body = files[req.url];
+    res.writeHead(body === undefined ? 404 : 200).end(body);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  return { url: `http://127.0.0.1:${server.address().port}`, asked };
+}
+
+test("update refuses a git checkout before it asks for the latest version", () => {
+  const run = jstyle(["update"], { env: { ...process.env, NO_COLOR: "1", JSTYLE_UPDATE_URL: "http://127.0.0.1:9" } });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /git으로 받은 폴더입니다\. 그 폴더에서 git pull을 실행하세요/);
+  assert.doesNotMatch(run.stderr, /최신 버전을 확인하지 못했습니다/);
+});
+
+test("update --check compares versions and installs nothing", async (t) => {
+  const root = installedCopy(t, "0.1.0");
+  const cli = path.join(root, "bin", "jstyle.mjs");
+  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 9" });
+  const newer = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: remote.url });
+  assert.equal(newer.status, 0, newer.stderr);
+  assert.match(newer.stdout, /현재 jstyle 0\.1\.0\n최신 jstyle 0\.2\.0\n/);
+  assert.match(newer.stderr, /update: jstyle update/);
+  assert.deepEqual(remote.asked, ["/package.json"]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version, "0.1.0");
+
+  const same = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_TEST_VERSION: "0.2.0" });
+  assert.match(same.stdout, /최신 버전입니다/);
+
+  const prerelease = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_TEST_VERSION: "0.2.0-rc.1" });
+  assert.match(prerelease.stderr, /update: jstyle update/);
+
+  const offline = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: "http://127.0.0.1:9" });
+  assert.equal(offline.status, 1);
+  assert.match(offline.stderr, /최신 버전을 확인하지 못했습니다/);
+});
+
+test("update runs main's install.sh when the version differs or with --force", { skip: process.platform === "win32" && "install.sh needs bash" }, async (t) => {
+  const root = installedCopy(t, "0.1.0");
+  const cli = path.join(root, "bin", "jstyle.mjs");
+  const install = `printf '{"version":"0.2.0"}' > "$JSTYLE_FAKE_ROOT/package.json"\necho "installer ran from $(dirname "$0")"\n`;
+  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": install });
+  // A jstyle checkout in the current folder must not become the installer's source.
+  const run = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_FAKE_ROOT: root }, ROOT);
+  assert.equal(run.status, 0, run.stderr);
+  const ranFrom = /installer ran from (\S*jstyle-update-\S+)/.exec(run.stdout);
+  assert.ok(ranFrom, run.stdout);
+  assert.equal(fs.existsSync(ranFrom[1]), false);
+  assert.match(run.stdout, /✓ jstyle 0\.1\.0 → 0\.2\.0/);
+  assert.deepEqual(remote.asked, ["/package.json", "/install.sh"]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version, "0.2.0");
+
+  const again = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_FAKE_ROOT: root });
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /최신 버전입니다/);
+  assert.deepEqual(remote.asked, ["/package.json", "/install.sh", "/package.json"]);
+
+  const forced = await jstyleAt(cli, ["update", "--force"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_FAKE_ROOT: root });
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.match(forced.stdout, /✓ jstyle 0\.2\.0 다시 설치/);
+  assert.deepEqual(remote.asked.slice(3), ["/package.json", "/install.sh"]);
+});
+
+test("update reports an installer that fails or leaves this copy behind", { skip: process.platform === "win32" && "install.sh needs bash" }, async (t) => {
+  const root = installedCopy(t, "0.1.0");
+  const cli = path.join(root, "bin", "jstyle.mjs");
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-bin-"));
+  t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  const files = { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 3\n" };
+  const remote = await updateServer(t, files);
+  const env = { JSTYLE_UPDATE_URL: remote.url, JSTYLE_BIN_DIR: bin };
+  const failed = await jstyleAt(cli, ["update"], env);
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, /install\.sh가 실패했습니다\(종료 코드 3\)/);
+
+  files["/install.sh"] = "exit 0\n";
+  const stale = await jstyleAt(cli, ["update"], env);
+  assert.equal(stale.status, 1, stale.stdout);
+  assert.match(stale.stderr, /업데이트 뒤에도 jstyle 0\.1\.0입니다/);
+  assert.doesNotMatch(stale.stdout, /✓ jstyle 0\.1\.0 →/);
+
+  // install.sh linked the command to a copy elsewhere, the way it does when it picks ~/.claude over ~/.agents.
+  const elsewhere = installedCopy(t, "0.2.0");
+  fs.symlinkSync(path.join(elsewhere, "bin", "jstyle.mjs"), path.join(bin, "jstyle"));
+  const moved = await jstyleAt(cli, ["update"], env);
+  assert.equal(moved.status, 0, moved.stderr);
+  assert.match(moved.stdout, /jstyle 명령은 최신 버전\(0\.2\.0\)을 실행하지만 .* 아직 jstyle 0\.1\.0입니다/);
+  assert.match(moved.stderr, /check: jstyle doctor/);
+});
+
+test("update without bash names the npx command and installs nothing", async (t) => {
+  const cli = path.join(installedCopy(t, "0.1.0"), "bin", "jstyle.mjs");
+  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 9\n" });
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-nopath-"));
+  t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
+  // Windows takes this branch by platform; elsewhere a PATH without bash does.
+  const run = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url, PATH: empty });
+  assert.equal(run.status, 1, run.stdout);
+  assert.match(run.stderr, /install\.sh를 실행할 bash가 없습니다/);
+  assert.match(run.stderr, /update: npx skills add x-mesh\/jstyle -g -s jstyle/);
+  assert.deepEqual(remote.asked, ["/package.json"]);
+});
+
+test("update does not go back to an older main without --force", async (t) => {
+  const files = { "/install.sh": "exit 9\n" };
+  const remote = await updateServer(t, files);
+  for (const [mine, main] of [["0.3.0", "0.2.0"], ["0.10.0", "0.9.0"], ["0.3.0", "0.3.0-rc.1"]]) {
+    const cli = path.join(installedCopy(t, mine), "bin", "jstyle.mjs");
+    files["/package.json"] = JSON.stringify({ version: main });
+    for (const args of [["update"], ["update", "--check"]]) {
+      const run = await jstyleAt(cli, args, { JSTYLE_UPDATE_URL: remote.url });
+      assert.equal(run.status, 0, run.stderr);
+      assert.match(run.stdout, /main보다 새 버전입니다\. main 버전으로 내리려면 jstyle update --force/, `${mine} over ${main}`);
+    }
+  }
+  assert.equal(remote.asked.filter((url) => url === "/install.sh").length, 0);
 });
 
 test("explore builds without serving when it is not run from a terminal", (t) => {

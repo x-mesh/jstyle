@@ -227,8 +227,8 @@ test("update reports an installer that fails or leaves this copy behind", { skip
   assert.match(wrapped.stdout, /최신 버전\(0\.2\.0\)을 실행하지만/);
   fs.rmSync(path.join(first, "jstyle"));
 
-  // A jstyle that does not answer version gives no version to report.
-  fs.writeFileSync(path.join(first, "jstyle"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  // A jstyle whose version run fails gives no version to report, even if it printed one.
+  fs.writeFileSync(path.join(first, "jstyle"), "#!/bin/sh\necho 'jstyle 0.2.0'\nexit 1\n", { mode: 0o755 });
   const silent = await jstyleAt(cli, ["update"], env);
   assert.equal(silent.status, 1, silent.stdout);
   assert.ok(silent.stderr.includes(`${path.join(first, "jstyle")}의 버전은 확인하지 못했습니다`), silent.stderr);

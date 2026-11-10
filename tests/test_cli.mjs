@@ -221,6 +221,19 @@ test("update reports an installer that fails or leaves this copy behind", { skip
   assert.match(moved.stderr, /check: jstyle doctor/);
 });
 
+test("update without bash names the npx command and installs nothing", async (t) => {
+  const cli = path.join(installedCopy(t, "0.1.0"), "bin", "jstyle.mjs");
+  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 9\n" });
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-nopath-"));
+  t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
+  // Windows takes this branch by platform; elsewhere a PATH without bash does.
+  const run = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url, PATH: empty });
+  assert.equal(run.status, 1, run.stdout);
+  assert.match(run.stderr, /install\.sh를 실행할 bash가 없습니다/);
+  assert.match(run.stderr, /update: npx skills add x-mesh\/jstyle -g -s jstyle/);
+  assert.deepEqual(remote.asked, ["/package.json"]);
+});
+
 test("update does not go back to an older main without --force", async (t) => {
   const files = { "/install.sh": "exit 9\n" };
   const remote = await updateServer(t, files);

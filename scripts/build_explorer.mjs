@@ -1001,12 +1001,20 @@ function loadManifestData(raw, manifestPath, { includeManifest }) {
       if (!isBool(baseline)) problems.push(`${where}baseline은 true 또는 false여야 합니다`);
       const mixed = ["source", "url", "kind", "interactive"].filter((name) => candidate.has(name));
       const cellMap = candidate.has("screens") ? candidate.get("screens") : null;
-      if (mixed.length || cellMap === null) {
+      if (mixed.length) {
         problems.push(`${where}맨 위에 screens가 있으면 source, url, kind, interactive는 screens 안의 칸에 씁니다. 예: "screens": {"목록": {"source": "a/list.html"}}`);
+      } else if (cellMap === null) {
+        problems.push(`${where}맨 위에 screens가 있으면 안마다 screens가 필요합니다. 예: "screens": {"목록": {"source": "a/list.html"}}`);
       } else if (!isDict(cellMap)) {
         problems.push(`${where}screens는 페이지 이름을 키로 쓰는 객체여야 합니다. 예: {"목록": {"source": "a/list.html"}}`);
       } else if (screens) {
-        const given = new Map([...cellMap.entries()].map(([name, cell]) => [isStr(name) ? pyStrip(name) : name, cell]));
+        // Keys are matched after trimming, so two keys that trim alike would drop one cell without a word.
+        const given = new Map();
+        for (const [key, cell] of cellMap.entries()) {
+          const name = isStr(key) ? pyStrip(key) : key;
+          if (given.has(name)) problems.push(`${where}screens의 페이지 이름 "${name}"이 겹칩니다`);
+          given.set(name, cell);
+        }
         for (const name of given.keys()) {
           if (!screens.includes(name)) problems.push(`${where}screens의 "${name}"은 맨 위 screens에 없습니다. 쓸 수 있는 이름: ${screens.join(", ")}`);
         }

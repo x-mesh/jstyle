@@ -20,7 +20,7 @@ To install the skill and the `jstyle` command for all projects, run this command
 curl -fsSL https://raw.githubusercontent.com/x-mesh/jstyle/main/install.sh | bash
 ```
 
-The script installs the skill for each agent it finds and links `~/.local/bin/jstyle` to the installed skill. To use a different folder, set `JSTYLE_BIN_DIR`. In a local copy, run `./install.sh`. Run the script again to update.
+The script installs the skill for each agent it finds and links `~/.local/bin/jstyle` to the installed skill. To use a different folder, set `JSTYLE_BIN_DIR`. In a local copy, run `./install.sh`. To update, run `jstyle update`. The command runs the latest `install.sh` from `main`.
 
 ### Install only the skill
 
@@ -46,7 +46,7 @@ To install from a local copy, run `npx skills add .` in that folder.
 
 ### Use the command
 
-The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. `install.sh` installs the command. Run `jstyle doctor` to check the installation.
+The comparison page generator, the screenshot tool, and the image tools are also available as the `jstyle` command. `install.sh` installs the command. Run `jstyle doctor` to check the installation. Run `jstyle update --check` to compare the installed version with `main`.
 
 `jstyle doctor` checks Node, the browser, and the location of the command. Run `jstyle --help` to see all commands.
 If you do not install the command, run `node bin/jstyle.mjs <command>` in the skill folder.

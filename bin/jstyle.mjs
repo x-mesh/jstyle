@@ -1046,12 +1046,14 @@ function linkedVersion() {
   }
 }
 
+// Two prereleases of one version are left undecided, so update installs main as before.
 function newerThan(a, b) {
-  const parse = (version) => /^(\d+)\.(\d+)\.(\d+)/.exec(version)?.slice(1).map(Number);
+  const parse = (version) => /^(\d+)\.(\d+)\.(\d+)(-\S+)?$/.exec(version);
   const [x, y] = [parse(a), parse(b)];
   if (!x || !y) return false;
-  const index = x.findIndex((part, i) => part !== y[i]);
-  return index >= 0 && x[index] > y[index];
+  const index = [1, 2, 3].find((i) => Number(x[i]) !== Number(y[i]));
+  if (index) return Number(x[index]) > Number(y[index]);
+  return !x[4] && Boolean(y[4]);
 }
 
 async function updateCommand(argv) {

@@ -160,6 +160,9 @@ test("update --check compares versions and installs nothing", async (t) => {
   const same = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_TEST_VERSION: "0.2.0" });
   assert.match(same.stdout, /최신 버전입니다/);
 
+  const prerelease = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: remote.url, JSTYLE_TEST_VERSION: "0.2.0-rc.1" });
+  assert.match(prerelease.stderr, /update: jstyle update/);
+
   const offline = await jstyleAt(cli, ["update", "--check"], { JSTYLE_UPDATE_URL: "http://127.0.0.1:9" });
   assert.equal(offline.status, 1);
   assert.match(offline.stderr, /최신 버전을 확인하지 못했습니다/);
@@ -219,15 +222,18 @@ test("update reports an installer that fails or leaves this copy behind", { skip
 });
 
 test("update does not go back to an older main without --force", async (t) => {
-  const root = installedCopy(t, "0.3.0");
-  const cli = path.join(root, "bin", "jstyle.mjs");
-  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 9\n" });
-  for (const args of [["update"], ["update", "--check"]]) {
-    const run = await jstyleAt(cli, args, { JSTYLE_UPDATE_URL: remote.url });
-    assert.equal(run.status, 0, run.stderr);
-    assert.match(run.stdout, /main보다 새 버전입니다\. main 버전으로 내리려면 jstyle update --force/);
+  const files = { "/install.sh": "exit 9\n" };
+  const remote = await updateServer(t, files);
+  for (const [mine, main] of [["0.3.0", "0.2.0"], ["0.10.0", "0.9.0"], ["0.3.0", "0.3.0-rc.1"]]) {
+    const cli = path.join(installedCopy(t, mine), "bin", "jstyle.mjs");
+    files["/package.json"] = JSON.stringify({ version: main });
+    for (const args of [["update"], ["update", "--check"]]) {
+      const run = await jstyleAt(cli, args, { JSTYLE_UPDATE_URL: remote.url });
+      assert.equal(run.status, 0, run.stderr);
+      assert.match(run.stdout, /main보다 새 버전입니다\. main 버전으로 내리려면 jstyle update --force/, `${mine} over ${main}`);
+    }
   }
-  assert.deepEqual(remote.asked, ["/package.json", "/package.json"]);
+  assert.equal(remote.asked.filter((url) => url === "/install.sh").length, 0);
 });
 
 test("explore builds without serving when it is not run from a terminal", (t) => {

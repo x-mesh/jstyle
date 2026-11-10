@@ -1036,14 +1036,16 @@ function installedVersion(root = ROOT) {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 }
 
-// The copy that the jstyle command on JSTYLE_BIN_DIR runs, which install.sh links last.
-function linkedVersion() {
-  const link = path.join(process.env.JSTYLE_BIN_DIR || path.join(os.homedir(), ".local", "bin"), "jstyle");
-  try {
-    return installedVersion(path.resolve(path.dirname(fs.realpathSync(link)), ".."));
-  } catch {
-    return null;
-  }
+function commandOnPath() {
+  const which = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["jstyle"], { encoding: "utf8" });
+  return which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
+}
+
+// Asking the command itself also covers a wrapper script, which has no link to follow.
+function commandVersion(command) {
+  const { JSTYLE_TEST_VERSION, ...env } = process.env;
+  const run = spawnSync(command, ["version"], { encoding: "utf8", env, timeout: UPDATE_TIMEOUT_MS });
+  return /^jstyle (\S+)/.exec(run.stdout ?? "")?.[1] ?? null;
 }
 
 // Two prereleases of one version are left undecided, so update installs main as before.
@@ -1118,13 +1120,17 @@ async function updateCommand(argv) {
   const now = installedVersion();
   if (now !== latest) {
     // install.sh picks ~/.agents or ~/.claude by whether codex is on PATH, so it can write a copy other than this one.
-    const linked = linkedVersion();
-    if (linked === latest) {
-      process.stdout.write(`${yellow("!")} jstyle 명령은 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
+    // Success is what the jstyle found on PATH runs, the command the user types next.
+    const command = commandOnPath();
+    const running = command ? commandVersion(command) : null;
+    if (running === latest) {
+      process.stdout.write(`${yellow("!")} ${command}는 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
       hint("check", "jstyle doctor");
       return 0;
     }
-    fail(`업데이트 뒤에도 jstyle ${linked ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
+    if (!command) fail(`업데이트 뒤에도 ${ROOT}는 jstyle ${now}입니다. PATH에서 jstyle을 찾지 못했습니다. install.sh가 다른 폴더에 설치했을 수 있습니다`, 1);
+    else if (!running) fail(`업데이트 뒤에도 ${ROOT}는 jstyle ${now}이고, ${command}의 버전은 확인하지 못했습니다`, 1);
+    else fail(`업데이트 뒤에도 ${command}는 jstyle ${running}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
     hint("check", "jstyle doctor");
     return 1;
   }
@@ -1144,8 +1150,7 @@ function doctor(argv) {
   } catch (error) {
     add("browser", "warn", error.message);
   }
-  const which = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["jstyle"], { encoding: "utf8" });
-  const onPath = which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
+  const onPath = commandOnPath();
   let pathState = "warn";
   let pathDetail = "PATH에 jstyle 없음";
   let pathFix = "저장소의 install.sh로 설치하거나 node bin/jstyle.mjs를 쓰세요";

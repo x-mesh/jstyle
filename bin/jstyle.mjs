@@ -1045,6 +1045,7 @@ function commandOnPath() {
 function commandVersion(command) {
   const { JSTYLE_TEST_VERSION, ...env } = process.env;
   const run = spawnSync(command, ["version"], { encoding: "utf8", env, timeout: UPDATE_TIMEOUT_MS });
+  if (run.status !== 0) return null;
   return /^jstyle (\S+)/.exec(run.stdout ?? "")?.[1] ?? null;
 }
 

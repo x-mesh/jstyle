@@ -1036,11 +1036,15 @@ function installedVersion(root = ROOT) {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 }
 
-// The copy that the jstyle command on JSTYLE_BIN_DIR runs, which install.sh links last.
-function linkedVersion() {
-  const link = path.join(process.env.JSTYLE_BIN_DIR || path.join(os.homedir(), ".local", "bin"), "jstyle");
+function commandOnPath() {
+  const which = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["jstyle"], { encoding: "utf8" });
+  return which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
+}
+
+// The copy that a jstyle command runs: the command links to <skill>/bin/jstyle.mjs.
+function commandVersion(command) {
   try {
-    return installedVersion(path.resolve(path.dirname(fs.realpathSync(link)), ".."));
+    return installedVersion(path.resolve(path.dirname(fs.realpathSync(command)), ".."));
   } catch {
     return null;
   }
@@ -1118,13 +1122,15 @@ async function updateCommand(argv) {
   const now = installedVersion();
   if (now !== latest) {
     // install.sh picks ~/.agents or ~/.claude by whether codex is on PATH, so it can write a copy other than this one.
-    const linked = linkedVersion();
-    if (linked === latest) {
-      process.stdout.write(`${yellow("!")} jstyle 명령은 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
+    // Success is what the jstyle found on PATH runs, the command the user types next.
+    const command = commandOnPath();
+    const running = command ? commandVersion(command) : null;
+    if (running === latest) {
+      process.stdout.write(`${yellow("!")} ${command}는 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
       hint("check", "jstyle doctor");
       return 0;
     }
-    fail(`업데이트 뒤에도 jstyle ${linked ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
+    fail(`업데이트 뒤에도 ${command ?? ROOT}는 jstyle ${running ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
     hint("check", "jstyle doctor");
     return 1;
   }
@@ -1144,8 +1150,7 @@ function doctor(argv) {
   } catch (error) {
     add("browser", "warn", error.message);
   }
-  const which = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["jstyle"], { encoding: "utf8" });
-  const onPath = which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
+  const onPath = commandOnPath();
   let pathState = "warn";
   let pathDetail = "PATH에 jstyle 없음";
   let pathFix = "저장소의 install.sh로 설치하거나 node bin/jstyle.mjs를 쓰세요";

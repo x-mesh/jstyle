@@ -125,13 +125,17 @@ const COMMENT_KINDS = new Set(["keep", "change"]);
 function choiceRecord(data, body) {
   const candidate = body.id === null ? null : data.candidates.find((item) => item.id === body.id);
   if (candidate === undefined) return null;
+  // A matrix round names the page of every comment; a plain round has no pages to name.
+  const matrix = Array.isArray(data.screens);
   const comments = [];
   for (const comment of body.comments ?? []) {
     const target = data.candidates.find((item) => item.id === comment?.id);
     const element = elementRef(comment?.element);
     const kind = comment?.kind ?? "change";
     if (!target || !element || !COMMENT_KINDS.has(kind) || !shortText(comment.note, MAX_COMMENT) || !comment.note.trim()) return null;
-    comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, kind, note: comment.note, element });
+    const screen = comment.screen;
+    if (matrix ? !(target.screens ?? []).some((cell) => cell.screen === screen) : screen !== undefined) return null;
+    comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, ...(matrix ? { screen } : {}), kind, note: comment.note, element });
   }
   return {
     round: data.round ?? "",
@@ -143,6 +147,7 @@ function choiceRecord(data, body) {
     comments,
     viewport: body.viewport ?? "",
     fingerprint: data.fingerprint ?? "",
+    ...(matrix ? { screens: data.screens } : {}),
     at: new Date().toISOString(),
   };
 }
@@ -449,7 +454,7 @@ export function createServer({ root, page, choice = null, onActivity = null }) {
         return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
       }
       const at = projectAt(choice, url.pathname, { builtin: true });
-      if (!at) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
+      if (!at || (at.builtin && !skillFileShown(at.root, at.rest))) return send(404, { "Content-Type": "text/plain; charset=utf-8" }, "File not found\n");
       usedProject(choice, at.slug);
       if (at.rest === "") return send(301, { Location: url.pathname + "/" + url.search });
       if (at.rest === "/" && !at.builtin) return send(200, { "Content-Type": "text/html; charset=utf-8" }, hubPage());
@@ -547,29 +552,27 @@ export function addProject(hub, root) {
 // evicted lists the projects that left to keep the list at MAX_PROJECTS.
 export function joinProject(hub, root, { keep = true } = {}) {
   const real = fs.realpathSync(root);
-  for (const [slug, known] of hub.projects) {
-    if (known !== real) continue;
-    // A folder that was only borrowed becomes a kept project once something joins it to keep; if that cannot be saved it stays borrowed.
-    if (keep && hub.transient.delete(slug) && hub.onProjects?.() === false) {
-      hub.transient.add(slug);
-      hub.onProjects?.();
-      return { slug: null, evicted: [], saved: false };
-    }
-    return { slug, evicted: [], saved: true };
-  }
-  let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
-  // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
-  base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
-  if (base.startsWith("__")) base = `p${base}`;
-  let slug = base;
-  for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
   const projects = [...hub.projects];
   const times = [...hub.times];
   const borrowed = [...hub.transient];
-  hub.projects.set(slug, real);
-  if (!keep) hub.transient.add(slug);
-  const now = new Date().toISOString();
-  hub.times.set(slug, { added: now, lastUsed: now });
+  let slug = projects.find(([, known]) => known === real)?.[0];
+  if (slug !== undefined) {
+    // A folder that was only borrowed becomes a kept project once something joins it to keep, and counts toward the kept limit.
+    if (!keep || !hub.transient.delete(slug)) return { slug, evicted: [], saved: true };
+    // Keeping it is a use; a new object leaves the snapshot's one for the undo.
+    hub.times.set(slug, { ...hub.times.get(slug), lastUsed: new Date().toISOString() });
+  } else {
+    let base = hubProject(real).project.replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[.-]+/, "");
+    // Cut by code point: a UTF-16 slice can split a letter outside the BMP and break encodeURIComponent.
+    base = Array.from(base).slice(0, MAX_SLUG - 10).join("") || "project";
+    if (base.startsWith("__")) base = `p${base}`;
+    slug = base;
+    for (let n = 2; hub.projects.has(slug); n += 1) slug = `${base}-${n}`;
+    hub.projects.set(slug, real);
+    if (!keep) hub.transient.add(slug);
+    const now = new Date().toISOString();
+    hub.times.set(slug, { added: now, lastUsed: now });
+  }
   // Kept projects (the saved list) and borrowed folders each stay at MAX_PROJECTS: past it the one of the same
   // kind used longest ago goes, so a borrowed folder never pushes a kept project out.
   const sameKind = (name) => hub.transient.has(name) === !keep;
@@ -653,6 +656,13 @@ function projectAt(hub, pathname, { builtin = false } = {}) {
   const own = builtin && !hub.projects.has(slug) ? hub.builtin?.get(slug) : null;
   const root = hub.projects.get(slug) ?? own;
   return root ? { slug, root, rest: slash < 0 ? "" : pathname.slice(slash), builtin: Boolean(own) } : null;
+}
+
+// kit and library pages link only into these; the skill's code, tests and package files stay off the daemon.
+const SKILL_SHOWN = new Set(["assets", "references"]);
+function skillFileShown(root, rest) {
+  const parts = path.relative(root, localPath(root, rest)).split(path.sep);
+  return SKILL_SHOWN.has(parts[0]) || (parts.length === 1 && parts[0] === "README.local.md");
 }
 
 function hubJson(hub, page) {

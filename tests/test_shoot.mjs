@@ -314,6 +314,24 @@ test("explorer directory and manifest dry run", async (t) => {
   includes(await plan(folder, false), "manifest를 읽을 수 없습니다");
 });
 
+test("a matrix manifest is skipped with a warning and other targets still run", async (t) => {
+  const folder = tempDir(t, "jstyle-explore-cli-");
+  const manifest = path.join(folder, "manifest.json");
+  fs.writeFileSync(path.join(folder, "a-list.html"), "<div>List</div>");
+  fs.writeFileSync(manifest, JSON.stringify({ screens: ["List"], candidates: [{ id: "a", screens: { List: { source: "a-list.html" } } }] }));
+  const other = path.join(folder, "other.html");
+  fs.writeFileSync(other, "<div>Other</div>");
+  const mixed = await node([manifest, other, "--dry-run"]);
+  assert.equal(mixed.status, 0, mixed.stderr);
+  assert.deepEqual(JSON.parse(mixed.stdout).target, other);
+  includes(mixed.stderr, "matrix");
+  includes(mixed.stderr, manifest);
+  const alone = await node([manifest, "--dry-run"]);
+  assert.equal(alone.status, 1, alone.stdout);
+  includes(alone.stderr, "matrix");
+  includes(alone.stderr, "페이지 주소나 파일이 없습니다");
+});
+
 test("dry run corpus regressions", async () => {
   // Twenty corpus patterns; project-specific classes, labels and text are neutralized.
   const cases = [

@@ -147,6 +147,55 @@ test("explore --serve serves the built page and stops on SIGINT", async (t) => {
   assert.equal(await exit, process.platform === "win32" ? "SIGINT" : 130);
 });
 
+test("a matrix explorer accepts a comment only for a page its direction has", async (t) => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-cli-"));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  for (const name of ["a-list", "a-detail", "b-list"]) fs.writeFileSync(path.join(folder, `${name}.html`), `<main>${name}</main>`);
+  fs.writeFileSync(path.join(folder, "manifest.json"), JSON.stringify({ screens: ["List", "Detail"], candidates: [
+    { id: "a", name: "Table", screens: { List: { source: "a-list.html" }, Detail: { source: "a-detail.html" } } },
+    { id: "b", name: "Cards", screens: { List: { source: "b-list.html" } } },
+  ] }));
+  const built = jstyle(["explore", path.join(folder, "manifest.json")], { timeout: 30000 });
+  assert.equal(built.status, 0, built.stderr);
+  const choice = explorerChoice(folder, "style-explorer.html", () => {});
+  const server = createServer({ root: folder, page: "style-explorer.html", choice });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const post = (body) => fetch(port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": choice.token }, body: JSON.stringify(body) });
+  const element = { label: "main", path: "body > main" };
+  for (const comment of [{ id: "b", screen: "Detail", note: "x", element }, { id: "a", screen: "Settings", note: "x", element }, { id: "a", note: "x", element }, { id: "a", screen: 1, note: "x", element }]) {
+    const refused = await post({ id: "a", comments: [comment] });
+    assert.equal(refused.status, 400, JSON.stringify(comment));
+    assert.equal(JSON.parse(refused.body).error, "comments");
+  }
+  const ok = await post({ id: "a", comments: [{ id: "b", screen: "List", kind: "keep", note: "Keep the cards", element }] });
+  assert.equal(ok.status, 200, ok.body);
+  const saved = JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8"));
+  assert.equal(saved.id, "a");
+  assert.equal(saved.number, "01");
+  assert.deepEqual(saved.screens, ["List", "Detail"]);
+  assert.deepEqual(saved.comments, [{ id: "b", number: "02", name: "Cards", screen: "List", kind: "keep", note: "Keep the cards", element }]);
+});
+
+test("a plain explorer refuses a comment that names a page", async (t) => {
+  const folder = buildExplorer(t);
+  const choice = explorerChoice(folder, "style-explorer.html", () => {});
+  const server = createServer({ root: folder, page: "style-explorer.html", choice });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const post = (body) => fetch(port, "POST", CHOICE_PATH, { headers: { "Content-Type": "application/json", "X-Jstyle-Token": choice.token }, body: JSON.stringify(body) });
+  const element = { label: "main", path: "body > main" };
+  const refused = await post({ id: "candidate-1", comments: [{ id: "candidate-1", screen: "List", note: "x", element }] });
+  assert.equal(refused.status, 400);
+  const ok = await post({ id: "candidate-1", comments: [{ id: "candidate-1", note: "x", element }] });
+  assert.equal(ok.status, 200);
+  const saved = JSON.parse(fs.readFileSync(path.join(folder, CHOICE_FILE), "utf8"));
+  assert.ok(!("screens" in saved));
+  assert.ok(!("screen" in saved.comments[0]));
+});
+
 test("an explorer page posts the pick back only with its token and a JSON body", async (t) => {
   const folder = buildExplorer(t);
   const picks = [];

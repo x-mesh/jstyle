@@ -125,13 +125,17 @@ const COMMENT_KINDS = new Set(["keep", "change"]);
 function choiceRecord(data, body) {
   const candidate = body.id === null ? null : data.candidates.find((item) => item.id === body.id);
   if (candidate === undefined) return null;
+  // A matrix round names the page of every comment; a plain round has no pages to name.
+  const matrix = Array.isArray(data.screens);
   const comments = [];
   for (const comment of body.comments ?? []) {
     const target = data.candidates.find((item) => item.id === comment?.id);
     const element = elementRef(comment?.element);
     const kind = comment?.kind ?? "change";
     if (!target || !element || !COMMENT_KINDS.has(kind) || !shortText(comment.note, MAX_COMMENT) || !comment.note.trim()) return null;
-    comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, kind, note: comment.note, element });
+    const screen = comment.screen;
+    if (matrix ? !(target.screens ?? []).some((cell) => cell.screen === screen) : screen !== undefined) return null;
+    comments.push({ id: target.id, number: candidateNumber(data, target), name: target.name, ...(matrix ? { screen } : {}), kind, note: comment.note, element });
   }
   return {
     round: data.round ?? "",
@@ -143,6 +147,7 @@ function choiceRecord(data, body) {
     comments,
     viewport: body.viewport ?? "",
     fingerprint: data.fingerprint ?? "",
+    ...(matrix ? { screens: data.screens } : {}),
     at: new Date().toISOString(),
   };
 }

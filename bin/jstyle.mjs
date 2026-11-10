@@ -1041,13 +1041,11 @@ function commandOnPath() {
   return which.status === 0 ? which.stdout.trim().split(/\r?\n/)[0] : null;
 }
 
-// The copy that a jstyle command runs: the command links to <skill>/bin/jstyle.mjs.
+// Asking the command itself also covers a wrapper script, which has no link to follow.
 function commandVersion(command) {
-  try {
-    return installedVersion(path.resolve(path.dirname(fs.realpathSync(command)), ".."));
-  } catch {
-    return null;
-  }
+  const { JSTYLE_TEST_VERSION, ...env } = process.env;
+  const run = spawnSync(command, ["version"], { encoding: "utf8", env, timeout: UPDATE_TIMEOUT_MS });
+  return /^jstyle (\S+)/.exec(run.stdout ?? "")?.[1] ?? null;
 }
 
 // Two prereleases of one version are left undecided, so update installs main as before.
@@ -1130,7 +1128,7 @@ async function updateCommand(argv) {
       hint("check", "jstyle doctor");
       return 0;
     }
-    fail(`업데이트 뒤에도 ${command ?? ROOT}는 jstyle ${running ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
+    fail(`업데이트 뒤에도 ${command ?? ROOT}는 jstyle ${running ?? now}입니다. ${command ? `최신 jstyle ${latest}가 설치되지 않았습니다` : "PATH에서 jstyle을 찾지 못했습니다. install.sh가 다른 폴더에 설치했을 수 있습니다"}`, 1);
     hint("check", "jstyle doctor");
     return 1;
   }

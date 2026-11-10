@@ -219,8 +219,21 @@ test("update reports an installer that fails or leaves this copy behind", { skip
   assert.ok(stale.stderr.includes(`업데이트 뒤에도 ${path.join(first, "jstyle")}는 jstyle 0.1.0입니다`), stale.stderr);
   assert.doesNotMatch(stale.stdout, /✓ jstyle 0\.1\.0 →/);
 
-  // The jstyle on PATH runs the latest copy, the way it does when install.sh picks ~/.claude over ~/.agents.
+  // A wrapper script on PATH has no link to follow; its own version answer counts.
   fs.rmSync(path.join(first, "jstyle"));
+  fs.writeFileSync(path.join(first, "jstyle"), `#!/bin/sh\nexec "${process.execPath}" "${path.join(latest, "bin", "jstyle.mjs")}" "$@"\n`, { mode: 0o755 });
+  const wrapped = await jstyleAt(cli, ["update"], env);
+  assert.equal(wrapped.status, 0, wrapped.stderr);
+  assert.match(wrapped.stdout, /최신 버전\(0\.2\.0\)을 실행하지만/);
+  fs.rmSync(path.join(first, "jstyle"));
+
+  // Without a jstyle on PATH, nothing says which copy the next command runs.
+  const bash = spawnSync("which", ["bash"], { encoding: "utf8" }).stdout.trim();
+  const unseen = await jstyleAt(cli, ["update"], { ...env, PATH: `${linkDir}-none${path.delimiter}${path.dirname(bash)}` });
+  assert.equal(unseen.status, 1, unseen.stdout);
+  assert.match(unseen.stderr, /PATH에서 jstyle을 찾지 못했습니다/);
+
+  // The jstyle on PATH runs the latest copy, the way it does when install.sh picks ~/.claude over ~/.agents.
   const moved = await jstyleAt(cli, ["update"], env);
   assert.equal(moved.status, 0, moved.stderr);
   assert.match(moved.stdout, /jstyle는 최신 버전\(0\.2\.0\)을 실행하지만 .* 아직 jstyle 0\.1\.0입니다/);

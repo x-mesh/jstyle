@@ -1128,7 +1128,9 @@ async function updateCommand(argv) {
       hint("check", "jstyle doctor");
       return 0;
     }
-    fail(`업데이트 뒤에도 ${command ?? ROOT}는 jstyle ${running ?? now}입니다. ${command ? `최신 jstyle ${latest}가 설치되지 않았습니다` : "PATH에서 jstyle을 찾지 못했습니다. install.sh가 다른 폴더에 설치했을 수 있습니다"}`, 1);
+    if (!command) fail(`업데이트 뒤에도 ${ROOT}는 jstyle ${now}입니다. PATH에서 jstyle을 찾지 못했습니다. install.sh가 다른 폴더에 설치했을 수 있습니다`, 1);
+    else if (!running) fail(`업데이트 뒤에도 ${ROOT}는 jstyle ${now}이고, ${command}의 버전은 확인하지 못했습니다`, 1);
+    else fail(`업데이트 뒤에도 ${command}는 jstyle ${running}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
     hint("check", "jstyle doctor");
     return 1;
   }

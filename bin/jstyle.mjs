@@ -1018,7 +1018,7 @@ GitHub main의 버전과 지금 버전을 비교하고, 다르면 main의 instal
 install.sh는 PATH의 에이전트(claude, codex)마다 스킬을 업데이트하고 jstyle 명령을 다시 연결합니다.
 
   --check  버전만 비교하고 설치하지 않습니다
-  --force  버전이 같아도 다시 설치합니다
+  --force  버전이 같거나 main이 더 이전 버전이어도 설치합니다
 
 떠 있는 이전 버전 데몬은 다음 hub·explore·serve 실행 때 새 버전 데몬으로 바뀝니다.
 새 스킬 문서는 새로 시작한 에이전트 세션부터 읽습니다.
@@ -1032,8 +1032,26 @@ async function fetchUpdateFile(name) {
   return response.text();
 }
 
-function installedVersion() {
-  return JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+function installedVersion(root = ROOT) {
+  return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+}
+
+// The copy that the jstyle command on JSTYLE_BIN_DIR runs, which install.sh links last.
+function linkedVersion() {
+  const link = path.join(process.env.JSTYLE_BIN_DIR || path.join(os.homedir(), ".local", "bin"), "jstyle");
+  try {
+    return installedVersion(path.resolve(path.dirname(fs.realpathSync(link)), ".."));
+  } catch {
+    return null;
+  }
+}
+
+function newerThan(a, b) {
+  const parse = (version) => /^(\d+)\.(\d+)\.(\d+)/.exec(version)?.slice(1).map(Number);
+  const [x, y] = [parse(a), parse(b)];
+  if (!x || !y) return false;
+  const index = x.findIndex((part, i) => part !== y[i]);
+  return index >= 0 && x[index] > y[index];
 }
 
 async function updateCommand(argv) {
@@ -1048,6 +1066,7 @@ async function updateCommand(argv) {
     return 2;
   }
   const check = argv.includes("--check");
+  const force = argv.includes("--force");
   // install.sh writes the copy that npx skills manages; a checkout would be left as it is while the command moved away from it.
   if (!check && fs.existsSync(path.join(ROOT, ".git"))) {
     return fail(`${ROOT}는 git으로 받은 폴더입니다. 그 폴더에서 git pull을 실행하세요`);
@@ -1060,8 +1079,12 @@ async function updateCommand(argv) {
   }
   if (typeof latest !== "string" || !latest) return fail(`${UPDATE_URL}/package.json에 version이 없습니다`, 1);
   process.stdout.write(`현재 jstyle ${VERSION}\n최신 jstyle ${latest}\n`);
-  if (latest === VERSION && !argv.includes("--force")) {
+  if (latest === VERSION && !force) {
     process.stdout.write(`${green("✓")} 최신 버전입니다\n`);
+    return 0;
+  }
+  if (newerThan(VERSION, latest) && !force) {
+    process.stdout.write(`${yellow("!")} 이 jstyle이 main보다 새 버전입니다. main 버전으로 내리려면 jstyle update --force를 실행하세요\n`);
     return 0;
   }
   if (check) {
@@ -1093,9 +1116,15 @@ async function updateCommand(argv) {
   const now = installedVersion();
   if (now !== latest) {
     // install.sh picks ~/.agents or ~/.claude by whether codex is on PATH, so it can write a copy other than this one.
-    process.stdout.write(`${yellow("!")} ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했을 수 있습니다\n`);
+    const linked = linkedVersion();
+    if (linked === latest) {
+      process.stdout.write(`${yellow("!")} jstyle 명령은 최신 버전(${latest})을 실행하지만 ${ROOT}는 아직 jstyle ${now}입니다. install.sh가 다른 폴더에 설치했습니다\n`);
+      hint("check", "jstyle doctor");
+      return 0;
+    }
+    fail(`업데이트 뒤에도 jstyle ${linked ?? now}입니다. 최신 jstyle ${latest}가 설치되지 않았습니다`, 1);
     hint("check", "jstyle doctor");
-    return 0;
+    return 1;
   }
   process.stdout.write(`${green("✓")} ${now === VERSION ? `jstyle ${now} 다시 설치` : `jstyle ${VERSION} → ${now}`}\n`);
   return 0;

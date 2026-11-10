@@ -194,18 +194,40 @@ test("update runs main's install.sh when the version differs or with --force", {
 test("update reports an installer that fails or leaves this copy behind", { skip: process.platform === "win32" && "install.sh needs bash" }, async (t) => {
   const root = installedCopy(t, "0.1.0");
   const cli = path.join(root, "bin", "jstyle.mjs");
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "jstyle-bin-"));
+  t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
   const files = { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 3\n" };
   const remote = await updateServer(t, files);
-  const failed = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url });
+  const env = { JSTYLE_UPDATE_URL: remote.url, JSTYLE_BIN_DIR: bin };
+  const failed = await jstyleAt(cli, ["update"], env);
   assert.equal(failed.status, 1);
   assert.match(failed.stderr, /install\.sh가 실패했습니다\(종료 코드 3\)/);
 
   files["/install.sh"] = "exit 0\n";
-  const behind = await jstyleAt(cli, ["update"], { JSTYLE_UPDATE_URL: remote.url });
-  assert.equal(behind.status, 0, behind.stderr);
-  assert.match(behind.stdout, /아직 jstyle 0\.1\.0입니다/);
-  assert.match(behind.stderr, /check: jstyle doctor/);
-  assert.doesNotMatch(behind.stdout, /✓ jstyle 0\.1\.0 →/);
+  const stale = await jstyleAt(cli, ["update"], env);
+  assert.equal(stale.status, 1, stale.stdout);
+  assert.match(stale.stderr, /업데이트 뒤에도 jstyle 0\.1\.0입니다/);
+  assert.doesNotMatch(stale.stdout, /✓ jstyle 0\.1\.0 →/);
+
+  // install.sh linked the command to a copy elsewhere, the way it does when it picks ~/.claude over ~/.agents.
+  const elsewhere = installedCopy(t, "0.2.0");
+  fs.symlinkSync(path.join(elsewhere, "bin", "jstyle.mjs"), path.join(bin, "jstyle"));
+  const moved = await jstyleAt(cli, ["update"], env);
+  assert.equal(moved.status, 0, moved.stderr);
+  assert.match(moved.stdout, /jstyle 명령은 최신 버전\(0\.2\.0\)을 실행하지만 .* 아직 jstyle 0\.1\.0입니다/);
+  assert.match(moved.stderr, /check: jstyle doctor/);
+});
+
+test("update does not go back to an older main without --force", async (t) => {
+  const root = installedCopy(t, "0.3.0");
+  const cli = path.join(root, "bin", "jstyle.mjs");
+  const remote = await updateServer(t, { "/package.json": JSON.stringify({ version: "0.2.0" }), "/install.sh": "exit 9\n" });
+  for (const args of [["update"], ["update", "--check"]]) {
+    const run = await jstyleAt(cli, args, { JSTYLE_UPDATE_URL: remote.url });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /main보다 새 버전입니다\. main 버전으로 내리려면 jstyle update --force/);
+  }
+  assert.deepEqual(remote.asked, ["/package.json", "/package.json"]);
 });
 
 test("explore builds without serving when it is not run from a terminal", (t) => {

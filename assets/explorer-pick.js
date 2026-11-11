@@ -202,6 +202,7 @@
     // Listeners that run after this point still see their own cancel, which decides the replay.
     Object.defineProperty(event, "preventDefault", { value: () => { cancelled = true; } });
     Object.defineProperty(event, "defaultPrevented", { get: () => cancelled });
+    Object.defineProperty(event, "returnValue", { get: () => !cancelled, set: (value) => { if (!value) cancelled = true; } });
     cancel.call(event);
     setTimeout(() => {
       if (!cancelled) location.hash = href.slice(1);

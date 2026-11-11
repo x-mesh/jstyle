@@ -183,6 +183,23 @@
     const r = el.getBoundingClientRect();
     post({ type: "picked", element: summary(el), rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
   }, true);
+  // A srcdoc document resolves "#..." against the explorer's own address, so following such a link
+  // loads the explorer inside this frame. The navigation is stopped here and replayed as a fragment
+  // move within about:srcdoc, unless the candidate's own handlers cancel the click.
+  addEventListener("click", (event) => {
+    if (on) return;
+    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    const href = link?.getAttribute("href");
+    if (!href?.startsWith("#")) return;
+    const cancel = Event.prototype.preventDefault;
+    let cancelled = false;
+    Object.defineProperty(event, "preventDefault", { value: () => { cancelled = true; } });
+    Object.defineProperty(event, "defaultPrevented", { get: () => cancelled });
+    cancel.call(event);
+    setTimeout(() => {
+      if (!cancelled) location.hash = href.slice(1);
+    });
+  }, true);
   addEventListener("keydown", (event) => {
     if (!on || event.key !== "Escape") return;
     swallow(event);

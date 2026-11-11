@@ -184,22 +184,42 @@
     post({ type: "picked", element: summary(el), rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
   }, true);
   // A srcdoc document resolves "#..." against the explorer's own address, so following such a link
-  // loads the explorer inside this frame. The navigation is stopped here and replayed as a fragment
-  // move within about:srcdoc, unless the candidate's own handlers cancel the click.
-  addEventListener("click", (event) => {
-    if (on) return;
+  // loads the explorer inside this frame; a <base href="about:srcdoc"> does not help, because Chrome
+  // still loads the document again. The navigation is stopped and replayed as a fragment move within
+  // about:srcdoc, unless the candidate cancels the click. The decision waits for the bubble phase so
+  // that every way of cancelling (preventDefault, an inline "return false") is already applied.
+  const fragmentOf = (event) => {
     const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
     const href = link?.getAttribute("href");
-    if (!href?.startsWith("#")) return;
+    return href?.startsWith("#") ? href : null;
+  };
+  const held = new WeakSet();
+  function hold(event, href) {
+    if (held.has(event) || event.defaultPrevented) return;
+    held.add(event);
     const cancel = Event.prototype.preventDefault;
     let cancelled = false;
+    // Listeners that run after this point still see their own cancel, which decides the replay.
     Object.defineProperty(event, "preventDefault", { value: () => { cancelled = true; } });
     Object.defineProperty(event, "defaultPrevented", { get: () => cancelled });
     cancel.call(event);
     setTimeout(() => {
       if (!cancelled) location.hash = href.slice(1);
     });
+  }
+  addEventListener("click", (event) => {
+    const href = !on && fragmentOf(event);
+    if (!href) return;
+    // A candidate that stops the click keeps it from reaching the bubble listener below.
+    for (const name of ["stopPropagation", "stopImmediatePropagation"]) {
+      const stop = event[name];
+      Object.defineProperty(event, name, { value: () => { stop.call(event); hold(event, href); } });
+    }
   }, true);
+  addEventListener("click", (event) => {
+    const href = !on && fragmentOf(event);
+    if (href) hold(event, href);
+  });
   addEventListener("keydown", (event) => {
     if (!on || event.key !== "Escape") return;
     swallow(event);

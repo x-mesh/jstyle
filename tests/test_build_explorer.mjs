@@ -779,8 +779,9 @@ for (const interactive of [false, true]) {
     const f = new Fixture(t);
     // A srcdoc frame resolves "#..." against the explorer's address, so following the link as a navigation loads the explorer inside itself.
     const report = interactive ? "<script>addEventListener('scroll',()=>parent.postMessage({probeScroll:scrollY},'*'))</script>" : "";
-    writeText(f.source, '<!doctype html><html><head><style>body{margin:0}a{position:fixed;left:0;width:300px;height:60px;display:block}#top{top:0}#down{top:80px}#stay{top:160px}#far{position:absolute;top:3000px}</style></head>'
-      + `<body><a id="top" href="#">Top</a><a id="down" href="#far">Down</a><a id="stay" href="#far" onclick="event.preventDefault()">Stay</a><p id="far">Far</p>${report}</body></html>`);
+    writeText(f.source, '<!doctype html><html><head><style>body{margin:0}a{position:fixed;left:0;width:300px;height:60px;display:block}#top{top:0}#down{top:80px}#stay{top:160px}#halt{top:240px}#hush{top:320px}#far{position:absolute;top:3000px}</style></head>'
+      + '<body><a id="top" href="#">Top</a><a id="down" href="#far">Down</a><a id="stay" href="#far" onclick="event.preventDefault()">Stay</a>'
+      + `<a id="halt" href="#far" onclick="return false">Halt</a><a id="hush" href="#far" onclick="event.stopPropagation()">Hush</a><p id="far">Far</p>${report}</body></html>`);
     f.data.candidates[0].nativeViewport = "1280x900";
     if (interactive) f.data.candidates[0].interactive = true;
     f.save();
@@ -788,14 +789,14 @@ for (const interactive of [false, true]) {
     const probe = String.raw`<script>
 (async()=>{
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));const wait=async test=>{for(let i=0;i<120&&!test();i++)await sleep(50);return test();};
- let scrolled=0;addEventListener('message',e=>{if(typeof e.data?.probeScroll==='number')scrolled=Math.max(scrolled,e.data.probeScroll);});
+ let scrolled=null;addEventListener('message',e=>{if(typeof e.data?.probeScroll==='number')scrolled=e.data.probeScroll;});
  document.querySelector('[data-layout=loupe]').click();
  await wait(()=>document.querySelector('#loupe .slide.is-current .stage.ready'));await sleep(300);
  const frame=document.querySelector('#loupe .slide.is-current .stage iframe');let loads=0;frame.addEventListener('load',()=>loads++);
  const clicks=[];
- for(const y of [180,100,20]){
+ for(const y of [180,260,340,20,100]){
   const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;window.__probeClick=[rect.left+100*scale,rect.top+y*scale];
-  await wait(()=>!window.__probeClick);await sleep(800);clicks.push([loads,scrolled>0]);
+  await wait(()=>!window.__probeClick);await sleep(800);clicks.push([loads,scrolled===null?null:scrolled>0]);
  }
  const result=document.createElement('pre');result.id='link-result';result.textContent=JSON.stringify(clicks);document.body.append(result);
 })();
@@ -814,8 +815,10 @@ for (const interactive of [false, true]) {
     });
     const probed = f.runBrowserProbe("link-result", `chrome-links-${interactive}`, url);
     assert.equal(probed.status, 0, probed.stderr);
-    // Only the interactive candidate runs its own click handler and reports its scroll position.
-    assert.deepEqual(JSON.parse(probed.stdout), [[0, false], [0, interactive], [0, interactive]]);
+    // Only the interactive candidate runs its own click handlers and reports where it scrolled: the two cancelled links stay put,
+    // a link whose click is stopped still moves down, "#" returns to the top and "#far" moves down again.
+    const at = (scrolled) => (interactive ? scrolled : null);
+    assert.deepEqual(JSON.parse(probed.stdout), [[0, null], [0, null], [0, at(true)], [0, at(false)], [0, at(true)]]);
   });
 }
 

@@ -774,6 +774,68 @@ test("a page opened as a file still takes comments and copies a message for the 
   assert.deepEqual(observed.copied, ["jstyle 비교 결과 · 프로젝트 · 01회\n고른 안 없음\n\n요소 의견\n1. [고침] 01 첫 번째 안 — th\n   위치: body > main > table > thead > tr > th:nth-of-type(2) · \"Status\"\n   의견: 상태 열이 너무 좁음"]);
 });
 
+for (const interactive of [false, true]) {
+  test(`fragment links inside a served ${interactive ? "interactive" : "static"} candidate scroll it instead of loading the explorer into its frame`, { skip: CHROME_SKIP("candidate link checks") }, async (t) => {
+    const f = new Fixture(t);
+    // A srcdoc frame resolves "#..." against the explorer's address, so following the link as a navigation loads the explorer inside itself.
+    const report = interactive ? "<script>addEventListener('message',e=>{if(e.data&&e.data.probeAsk)parent.postMessage({probeScroll:scrollY,hash:location.hash},'*')});"
+      + "addEventListener('click',e=>{if(e.target.id==='veto')e.returnValue=false})</script>" : "";
+    writeText(f.source, '<!doctype html><html><head><style>body{margin:0}a{position:fixed;left:0;width:300px;height:60px;display:block}'
+      + '#top{top:0}#down{top:80px}#stay{top:160px}#halt{top:240px}#hush{top:320px}#veto{top:400px}#mute{top:560px}#far{position:absolute;top:3000px}</style></head>'
+      + '<body><a id="top" href="#">Top</a><a id="down" href="#far">Down</a><a id="stay" href="#far" onclick="event.preventDefault()">Stay</a>'
+      + '<a id="halt" href="#far" onclick="return false">Halt</a><a id="hush" href="#far" onclick="event.stopPropagation()">Hush</a><a id="veto" href="#far">Veto</a>'
+      + '<div><template shadowrootmode="open"><style>a{position:fixed;left:0;top:480px;width:300px;height:60px;display:block}</style><a href="#far">Shade</a></template></div>'
+      + `<a id="mute" href="#far" onclick="event.cancelBubble=true">Mute</a><p id="far">Far</p>${report}</body></html>`);
+    f.data.candidates[0].nativeViewport = "1280x900";
+    if (interactive) f.data.candidates[0].interactive = true;
+    f.save();
+    f.build(true);
+    // The interactive candidate answers where it is; the probe records a click once two answers agree, so a slow host does not cut the move short.
+    const probe = String.raw`<script>
+(async()=>{
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms));const wait=async test=>{for(let i=0;i<120&&!test();i++)await sleep(50);return test();};
+ let reply=null;addEventListener('message',e=>{if(e.data&&typeof e.data.probeScroll==='number')reply=e.data;});
+ document.querySelector('[data-layout=loupe]').click();
+ await wait(()=>document.querySelector('#loupe .slide.is-current .stage.ready'));await sleep(300);
+ // The discovery hint sits over the top of the frame; with wider fonts it covers the "#" link.
+ document.querySelector('#comment-hint .x')?.click();await sleep(100);
+ const frame=document.querySelector('#loupe .slide.is-current .stage iframe');let loads=0;frame.addEventListener('load',()=>loads++);
+ const ask=async()=>{reply=null;frame.contentWindow.postMessage({probeAsk:1},'*');for(let i=0;i<20&&!reply;i++)await sleep(50);return reply&&[reply.probeScroll>0,reply.hash];};
+ const settle=async()=>{let last=await ask();for(let i=0;i<15;i++){await sleep(200);const next=await ask();if(JSON.stringify(next)===JSON.stringify(last))return next;last=next;}return last;};
+ const clicks=[];
+ for(const y of [180,260,420,340,20,500,20,580,20,100]){
+  const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth,at=[rect.left+100*scale,rect.top+y*scale];
+  const hit=document.elementFromPoint(at[0],at[1])===frame;window.__probeClick=at;
+  await wait(()=>!window.__probeClick);
+  if(${interactive})clicks.push([hit,loads,await settle()]);else{await sleep(500);clicks.push([hit,loads,null]);}
+ }
+ const result=document.createElement('pre');result.id='link-result';result.textContent=JSON.stringify(clicks);document.body.append(result);
+})();
+</script>`;
+    writeText(f.output, f.page().replaceAll("</body></html>", () => probe + "</body></html>"));
+    const child = spawn(process.execPath, [path.join(ROOT, "bin", "jstyle.mjs"), "serve", f.output, "--no-open", "--port", "0"], { env: { ...process.env, NO_COLOR: "1" } });
+    t.after(() => child.kill("SIGKILL"));
+    let stderr = "";
+    const url = await new Promise((resolve, reject) => {
+      child.stderr.on("data", (data) => {
+        stderr += data;
+        const match = / at (http:\/\/\S+\?t=[0-9a-f]+)/.exec(stderr);
+        if (match) resolve(match[1]);
+      });
+      child.on("exit", (code) => reject(new Error(`exited ${code}: ${stderr}`)));
+    });
+    const probed = f.runBrowserProbe("link-result", `chrome-links-${interactive}`, url);
+    assert.equal(probed.status, 0, probed.stderr);
+    // Only the interactive candidate runs its own click handlers and reports where it is: the three cancelled links stay put;
+    // a stopped click, a link in a shadow root and a click with cancelBubble still move down; "#" returns to the top each time.
+    const stay = [false, ""];
+    const down = [true, "#far"];
+    const top = [false, ""];
+    const expected = [stay, stay, stay, down, top, down, top, down, top, down];
+    assert.deepEqual(JSON.parse(probed.stdout), expected.map((at) => [true, 0, interactive ? at : null]));
+  });
+}
+
 test("a long element id is clipped to what the server accepts", { skip: CHROME_SKIP("picker clipping checks") }, async (t) => {
   const f = new Fixture(t);
   writeText(f.source, '<!doctype html><html><head><style>body{margin:0}#' + "x".repeat(400) + '{position:absolute;left:0;top:0;width:300px;height:80px;background:#eee}</style></head><body><button id="' + "x".repeat(400) + '">Go</button></body></html>');

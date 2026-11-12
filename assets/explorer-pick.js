@@ -189,7 +189,8 @@
   // about:srcdoc, unless the candidate cancels the click. The decision waits for the bubble phase so
   // that every way of cancelling (preventDefault, an inline "return false") is already applied.
   const fragmentOf = (event) => {
-    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    // The path, not event.target, so that a link inside a shadow root is found too.
+    const link = event.composedPath().find((node) => node instanceof Element && node.matches("a[href]"));
     const href = link?.getAttribute("href");
     return href?.startsWith("#") ? href : null;
   };
@@ -205,7 +206,9 @@
     Object.defineProperty(event, "returnValue", { get: () => !cancelled, set: (value) => { if (!value) cancelled = true; } });
     cancel.call(event);
     setTimeout(() => {
-      if (!cancelled) location.hash = href.slice(1);
+      if (cancelled) return;
+      location.hash = href.slice(1);
+      if (href === "#") scrollTo(0, 0);
     });
   }
   addEventListener("click", (event) => {
@@ -216,6 +219,14 @@
       const stop = event[name];
       Object.defineProperty(event, name, { value: () => { stop.call(event); hold(event, href); } });
     }
+    const bubble = Object.getOwnPropertyDescriptor(Event.prototype, "cancelBubble");
+    Object.defineProperty(event, "cancelBubble", {
+      get: () => bubble.get.call(event),
+      set: (value) => {
+        bubble.set.call(event, value);
+        if (value) hold(event, href);
+      },
+    });
   }, true);
   addEventListener("click", (event) => {
     const href = !on && fragmentOf(event);

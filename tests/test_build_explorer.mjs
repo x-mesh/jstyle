@@ -797,14 +797,17 @@ for (const interactive of [false, true]) {
  let reply=null;addEventListener('message',e=>{if(e.data&&typeof e.data.probeScroll==='number')reply=e.data;});
  document.querySelector('[data-layout=loupe]').click();
  await wait(()=>document.querySelector('#loupe .slide.is-current .stage.ready'));await sleep(300);
+ // The discovery hint sits over the top of the frame; with wider fonts it covers the "#" link.
+ document.querySelector('#comment-hint .x')?.click();await sleep(100);
  const frame=document.querySelector('#loupe .slide.is-current .stage iframe');let loads=0;frame.addEventListener('load',()=>loads++);
  const ask=async()=>{reply=null;frame.contentWindow.postMessage({probeAsk:1},'*');for(let i=0;i<20&&!reply;i++)await sleep(50);return reply&&[reply.probeScroll>0,reply.hash];};
  const settle=async()=>{let last=await ask();for(let i=0;i<15;i++){await sleep(200);const next=await ask();if(JSON.stringify(next)===JSON.stringify(last))return next;last=next;}return last;};
  const clicks=[];
  for(const y of [180,260,420,340,20,500,20,580,20,100]){
-  const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth;window.__probeClick=[rect.left+100*scale,rect.top+y*scale];
+  const rect=frame.getBoundingClientRect(),scale=rect.width/frame.offsetWidth,at=[rect.left+100*scale,rect.top+y*scale];
+  const hit=document.elementFromPoint(at[0],at[1])===frame;window.__probeClick=at;
   await wait(()=>!window.__probeClick);
-  if(${interactive})clicks.push([loads,await settle()]);else{await sleep(500);clicks.push([loads,null]);}
+  if(${interactive})clicks.push([hit,loads,await settle()]);else{await sleep(500);clicks.push([hit,loads,null]);}
  }
  const result=document.createElement('pre');result.id='link-result';result.textContent=JSON.stringify(clicks);document.body.append(result);
 })();
@@ -829,7 +832,7 @@ for (const interactive of [false, true]) {
     const down = [true, "#far"];
     const top = [false, ""];
     const expected = [stay, stay, stay, down, top, down, top, down, top, down];
-    assert.deepEqual(JSON.parse(probed.stdout), expected.map((at) => [0, interactive ? at : null]));
+    assert.deepEqual(JSON.parse(probed.stdout), expected.map((at) => [true, 0, interactive ? at : null]));
   });
 }
 

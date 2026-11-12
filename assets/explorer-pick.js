@@ -206,9 +206,7 @@
     Object.defineProperty(event, "returnValue", { get: () => !cancelled, set: (value) => { if (!value) cancelled = true; } });
     cancel.call(event);
     setTimeout(() => {
-      if (cancelled) return;
-      location.hash = href.slice(1);
-      if (href === "#") scrollTo(0, 0);
+      if (!cancelled) location.hash = href.slice(1);
     });
   }
   addEventListener("click", (event) => {

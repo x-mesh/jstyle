@@ -326,7 +326,9 @@ test("a value the installed kit styles and the project's copy does not names the
   assert.deepEqual(found(report([project({ "vendor/kit.css": FULL_COPY, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
   const product = ".jk-status[data-status=done] { color: var(--jk-ink) } [data-jk-theme=purple] .logo { width: 24px } [data-jk-scheme=dark] .card { width: 24px }";
   assert.deepEqual(found(report([project({ "vendor/kit.css": KIT_COPY, "app.css": product, "index.html": markup })])).filter((f) => f[2] === "missing-in-copy").map((f) => f[4]), ["purple", "dark"]);
-  const spaced = KIT_COPY + ` [ data-jk-theme = purple ] { color: inherit } [data-jk-scheme = "dark"] { color: inherit } .jk-status[ data-status = done ] { color: inherit }`;
+  const commented = KIT_COPY + ` /* [data-jk-theme=purple] { color: inherit } [data-jk-scheme="dark"] { color: inherit } .jk-status[data-status=done] { color: inherit } */ .jk-status { color: inherit }`;
+  assert.deepEqual(found(report([project({ "vendor/kit.css": commented, "index.html": markup })])).filter((f) => f[2] === "missing-in-copy").map((f) => f[4]), ["purple", "dark", "done"]);
+  const spaced = KIT_COPY +` [ data-jk-theme = purple ] { color: inherit } [data-jk-scheme = "dark"] { color: inherit } .jk-status[ data-status = done ] { color: inherit }`;
   assert.deepEqual(found(report([project({ "vendor/kit.css": spaced, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
   const decor = report([project({ "vendor/kit.css": FULL_COPY, "index.html": `<div class="jk-fx-reveal" data-started="true"></div>` })]);
   assert.deepEqual(found(decor), [["index.html", 1, "missing-in-copy", "error", "jk-fx-reveal"], ["index.html", 1, "missing-in-copy", "error", "true"]]);

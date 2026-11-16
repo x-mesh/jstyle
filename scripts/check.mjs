@@ -493,8 +493,9 @@ export function checkClasses(text, { installed, project, hasCopy, known }) {
 // The values a stylesheet styles by attribute: theme and scheme on any element, and per class for
 // selectors such as .jk-status[data-status=doing].
 // "light" has no selector on purpose: it is the default scheme, and kit.md names it.
-function valueRulesOf(css) {
-  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[\\s*data-jk-${name}\\s*=\\s*["']?([\\w-]+)["']?\\s*\\]`, "g"))].map((m) => m[1]));
+function valueRulesOf(source) {
+  const css = blankComments(source);
+  const any =(name) => new Set([...css.matchAll(new RegExp(`\\[\\s*data-jk-${name}\\s*=\\s*["']?([\\w-]+)["']?\\s*\\]`, "g"))].map((m) => m[1]));
   const byClass = new Map();
   for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[\s*(data-[a-z-]+)\s*=\s*["']?([\w-]+)["']?\s*\]/g)) {
     const [, cls, attr, value] = m;

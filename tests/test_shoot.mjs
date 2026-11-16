@@ -1437,6 +1437,41 @@ body::before{content:"";position:absolute;left:0;top:0;width:12px;height:12px;ba
   assert.ok("tightLeading" in lint);
 });
 
+test("--steps-file reads one named bundle a line and joins --steps", async (t) => {
+  const folder = tempDir(t, "jstyle-steps-file-");
+  const file = path.join(folder, "states.txt");
+  fs.writeFileSync(file, "# 설정 화면에서 열어 볼 상태\n\n설정 폼: click .open; wait 300\n저장 실패: click .save\n");
+  const plan = await dry("--steps-file", file, "--steps", "취소: click .cancel");
+  assert.deepEqual(plan.groups.map((group) => [group.name, group.steps.length]), [["설정 폼", 2], ["저장 실패", 1], ["취소", 1]]);
+  assert.match(await dry("--steps-file", path.join(folder, "none.txt"), { ok: false }), /파일이 없습니다/);
+  fs.writeFileSync(file, "# 아직 없음\n");
+  assert.match(await dry("--steps-file", file, { ok: false }), /동작 묶음이 없습니다/);
+});
+
+browserTest("lint counts font sizes and button heights across the page", async (ctx) => {
+  const page = (sizes, heights) => `<!doctype html><html><head><link rel="icon" href="data:,"><style>
+body{margin:0;padding:40px;font:16px/1.6 sans-serif;color:#222}button{display:block;margin:8px 0;padding:0 16px;font:inherit}
+</style></head><body>${sizes.map((px) => `<p style="font-size:${px}px;margin:4px 0">글자 크기 ${px}</p>`).join("")}
+${heights.map((px) => `<button style="height:${px}px">높이 ${px}</button>`).join("")}</body></html>`;
+  writePage(ctx, page([12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 28], [28, 32, 36, 40, 44]));
+  const many = path.join(ctx.folder, "spread");
+  await shoot(ctx, many, "--size", "1280x800");
+  const lint = Object.fromEntries(report(many)[0].lint.map((item) => [item.rule, item]));
+  assert.equal(lint.manyFontSizes?.count, 12, JSON.stringify(lint.manyFontSizes));
+  assert.equal(lint.manyButtonHeights?.count, 5, JSON.stringify(lint.manyButtonHeights));
+  assert.match(lint.manyButtonHeights.examples.join(" "), /28px/);
+
+  writePage(ctx, page([13, 14, 16, 18, 20, 24], [32, 40]));
+  const few = path.join(ctx.folder, "few");
+  await shoot(ctx, few, "--size", "1280x800");
+  assert.deepEqual(report(few)[0].lint.filter((item) => /^many/.test(item.rule)), []);
+
+  writePage(ctx, page([12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 28], [28, 32, 36, 40, 44]).replace("<style>", "<style>:root{--jk-primary:#0abe3a}"));
+  const kitScreen = path.join(ctx.folder, "kit-screen");
+  await shoot(ctx, kitScreen, "--size", "1280x800");
+  assert.deepEqual(report(kitScreen)[0].lint.filter((item) => /^many/.test(item.rule)), []);
+});
+
 browserTest("lint spares css triangles and neutral dividers", async (ctx) => {
   writePage(ctx, `<!doctype html><html><head><link rel="icon" href="data:,"><style>
 body{margin:0;padding:40px;font:16px/1.6 sans-serif;color:#222}

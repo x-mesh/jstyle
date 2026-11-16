@@ -140,6 +140,28 @@ function blankComments(css) {
     .replace(/(^|[^:"'\\])\/\/[^\n]*/g, (m, lead) => lead + " ".repeat(m.length - lead.length));
 }
 
+// Blanks the comments of a script and keeps its length. Strings and template literals are stepped over,
+// so a // inside one (href=//cdn…) does not hide the class names after it.
+function blankScriptComments(text) {
+  let out = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i], next = text[i + 1];
+    if (c === '"' || c === "'" || c === "`") {
+      let end = i + 1;
+      // A quote that does not close on its line is an apostrophe in text, not a string.
+      for (; end < text.length && text[end] !== c && (c === "`" || text[end] !== "\n"); end += 1) if (text[end] === "\\") end += 1;
+      out += text.slice(i, end + 1);
+      i = end;
+    } else if (c === "/" && (next === "/" || next === "*")) {
+      const close = next === "/" ? text.indexOf("\n", i) : text.indexOf("*/", i + 2);
+      const stop = close < 0 ? text.length : next === "/" ? close : close + 2;
+      out += text.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop - 1;
+    } else out += c;
+  }
+  return out;
+}
+
 // Walks a stylesheet and yields declarations with their selector stack.
 // Handles nesting, strings, and ';' inside parentheses such as data: URLs.
 export function declarations(source) {
@@ -489,7 +511,7 @@ function kitBasis({ files, scripts, kitCopies }, read) {
   return kitCopies.find((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)))
     // The same reader the class rule uses, so a class inside clsx() or a condition counts as kit use too.
     ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(read(file)).length > 0)
-    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(blankComments(read(file))).length > 0)
+    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(blankScriptComments(read(file))).length > 0)
     ?? null;
 }
 
@@ -578,7 +600,7 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
     const text = read(file);
     const inFile = [];
     if (styled.has(file)) for (const region of styleRegions(file, text)) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
-    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(styled.has(file) ? text : blankComments(text), classes));
+    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(styled.has(file) ? text : blankScriptComments(text), classes));
     for (const { index, ...rest } of inFile.sort((a, b) => a.index - b.index)) results.push({ file, ...lineCol(text, index), ...rest });
   }
   if (useKit) {

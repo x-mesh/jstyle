@@ -278,6 +278,18 @@ test("a value the kit does not style on a kit class is an error, other elements 
   assert.match(r.findings.find((f) => f.value === "todoo").suggestion, /todo/);
 });
 
+test("unquoted attribute values are read, and a JSX expression is not taken for one", () => {
+  const dir = project({
+    "kit.css": KIT_COPY + " .jk-status { height: 24px }",
+    "index.html": `<div class=jk data-jk-theme=bleu data-jk-scheme=dark><span class=jk-status data-status=progress>진행 중</span><span class=jk-status data-status=done>완료</span></div>`,
+    "App.jsx": `export const A = ({ theme, s }) => <div data-jk-theme={theme}><span className="jk-status" data-status={s} /></div>;`,
+  });
+  assert.deepEqual(found(report([dir])), [
+    ["index.html", 1, "unknown-theme", "error", "bleu"],
+    ["index.html", 1, "unknown-value", "error", "progress"],
+  ]);
+});
+
 test("the kit page itself has no unknown class, and unknown classes are left alone without the kit", () => {
   const page = report([path.join(ROOT, "assets", "kit", "index.html")]);
   assert.equal(page.kit, true);

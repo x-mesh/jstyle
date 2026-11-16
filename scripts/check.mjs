@@ -490,21 +490,14 @@ export function checkClasses(text, { installed, project, hasCopy, known }) {
   return findings;
 }
 
-// The values the kit styles for data-jk-theme and data-jk-scheme, read from its selectors.
+// The values the kit styles by attribute, read once from its selectors: theme and scheme on any element,
+// and per class for selectors such as .jk-status[data-status=doing].
 // "light" has no selector on purpose: it is the default scheme, and kit.md names it.
-function kitAttributeValues() {
+let valueRules = null;
+function kitValueRules() {
+  if (valueRules) return valueRules;
   const css = kitFile("kit.css") + kitFile("decor.css");
-  const values = (name) => new Set([...css.matchAll(new RegExp(`\\[data-jk-${name}="([\\w-]+)"\\]`, "g"))].map((m) => m[1]));
-  return { theme: values("theme"), scheme: new Set([...values("scheme"), "light"]) };
-}
-
-// A literal value in an attribute, a JSX prop or setAttribute(). A value from a variable is not read.
-const KIT_ATTRIBUTE = /\bdata-jk-(theme|scheme)\s*=\s*\{?\s*(["'])([^"'{}$]*)\2|\bsetAttribute\(\s*(["'])data-jk-(theme|scheme)\4\s*,\s*(["'])([^"'{}$]*)\6\s*\)/g;
-
-// Values the kit styles per class, from selectors such as .jk-status[data-status=doing]:
-// Map(class → Map(attribute → Set(values))). Theme and scheme are checked on any element instead.
-function kitClassValues() {
-  const css = kitFile("kit.css") + kitFile("decor.css");
+  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[data-jk-${name}=["']?([\\w-]+)["']?\\]`, "g"))].map((m) => m[1]));
   const byClass = new Map();
   for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[(data-[a-z-]+)=["']?([\w-]+)["']?\]/g)) {
     const [, cls, attr, value] = m;
@@ -513,25 +506,33 @@ function kitClassValues() {
     if (!byClass.get(cls).has(attr)) byClass.get(cls).set(attr, new Set());
     byClass.get(cls).get(attr).add(value);
   }
-  return byClass;
+  valueRules = { theme: any("theme"), scheme: new Set([...any("scheme"), "light"]), byClass };
+  return valueRules;
 }
 
+// An attribute value written as text: quoted, quoted inside a JSX expression, or unquoted as HTML allows.
+// A JSX expression without quotes ({theme}) is a variable and is not read.
+const VALUE = String.raw`(?:\{\s*(["'])([^"'{}$]*)\1\s*\}|(["'])([^"'{}$]*)\3|([\w-]+))`;
+// VALUE holds five groups; `at` is the number of groups before it in the whole pattern.
+const valueOf = (m, at) => m[at + 2] ?? m[at + 4] ?? m[at + 5];
+const KIT_ATTRIBUTE = new RegExp(String.raw`\bdata-jk-(theme|scheme)\s*=\s*${VALUE}|\bsetAttribute\(\s*["']data-jk-(theme|scheme)["']\s*,\s*["']([^"'{}$]*)["']\s*\)`, "g");
 const OPEN_TAG = /<[A-Za-z][\w.-]*\b[^<>]*>/g;
-const TAG_CLASSES = /\bclass(?:Name)?\s*=\s*\{?\s*(["'])([^"']*)\1/;
+const TAG_CLASSES = new RegExp(String.raw`\bclass(?:Name)?\s*=\s*${VALUE}`);
 
 // A data attribute written on the same tag as a kit class that styles it by value.
-function checkClassValues(text) {
-  const byClass = kitClassValues();
+function checkClassValues(text, byClass) {
   const findings = [];
   for (const tag of text.matchAll(OPEN_TAG)) {
-    const classes = (TAG_CLASSES.exec(tag[0])?.[2] ?? "").split(/\s+/).filter((c) => byClass.has(c));
+    const named = TAG_CLASSES.exec(tag[0]);
+    const classes = (named ? valueOf(named, 0) : "").split(/\s+/).filter((c) => byClass.has(c));
     for (const cls of classes) {
       for (const [attr, values] of byClass.get(cls)) {
-        const m = new RegExp(`\\b${attr}\\s*=\\s*\\{?\\s*(["'])([^"'{}$]*)\\1`).exec(tag[0]);
-        if (!m || values.has(m[2])) continue;
-        const near = [...values].find((known) => editDistance(m[2], known) <= TYPO_DISTANCE);
-        findings.push({ level: "error", rule: "unknown-value", index: tag.index + m.index + m[0].lastIndexOf(m[2]), prop: attr, value: m[2],
-          message: `.${cls}의 ${attr}="${m[2]}"는 키트가 정한 값이 아니라 스타일이 적용되지 않습니다.`,
+        const m = new RegExp(String.raw`\b${attr}\s*=\s*${VALUE}`).exec(tag[0]);
+        const value = m && valueOf(m, 0);
+        if (value === undefined || value === null || values.has(value)) continue;
+        const near = [...values].find((known) => editDistance(value, known) <= TYPO_DISTANCE);
+        findings.push({ level: "error", rule: "unknown-value", index: tag.index + m.index + m[0].lastIndexOf(value), prop: attr, value,
+          message: `.${cls}의 ${attr}="${value}"는 키트가 정한 값이 아니라 스타일이 적용되지 않습니다.`,
           suggestion: near ? `가장 가까운 값: ${near}` : `키트가 정한 값: ${[...values].join(", ")}` });
       }
     }
@@ -540,10 +541,10 @@ function checkClassValues(text) {
 }
 
 export function checkAttributes(text) {
-  const valid = kitAttributeValues();
-  const findings = checkClassValues(text);
+  const valid = kitValueRules();
+  const findings = checkClassValues(text, valid.byClass);
   for (const m of text.matchAll(KIT_ATTRIBUTE)) {
-    const name = m[1] ?? m[5], value = m[3] ?? m[7];
+    const name = m[1] ?? m[7], value = m[1] ? valueOf(m, 1) : m[8];
     if (valid[name].has(value)) continue;
     const near = [...valid[name]].find((known) => editDistance(value, known) <= TYPO_DISTANCE);
     // Green is what the kit shows with no theme; there is no selector for it.

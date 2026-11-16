@@ -281,12 +281,13 @@ test("a value the kit does not style on a kit class is an error, other elements 
 test("unquoted attribute values are read, and a JSX expression is not taken for one", () => {
   const dir = project({
     "kit.css": KIT_COPY + " .jk-status { height: 24px }",
-    "index.html": `<div class=jk data-jk-theme=bleu data-jk-scheme=dark><span class=jk-status data-status=progress>진행 중</span><span class=jk-status data-status=done>완료</span></div>`,
+    "index.html": `<div class=jk data-jk-theme=bleu data-jk-scheme=dark><span class=jk-status data-status=progress>진행 중</span><span class=jk-status data-status=done>완료</span></div>\n<div class=jk data-jk-scheme=drak></div>`,
     "App.jsx": `export const A = ({ theme, s }) => <div data-jk-theme={theme}><span className="jk-status" data-status={s} /></div>;`,
   });
   assert.deepEqual(found(report([dir])), [
     ["index.html", 1, "unknown-theme", "error", "bleu"],
     ["index.html", 1, "unknown-value", "error", "progress"],
+    ["index.html", 2, "unknown-scheme", "error", "drak"],
   ]);
 });
 

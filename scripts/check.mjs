@@ -490,29 +490,40 @@ export function checkClasses(text, { installed, project, hasCopy, known }) {
   return findings;
 }
 
-// The values the kit styles by attribute, read once from its selectors: theme and scheme on any element,
-// and per class for selectors such as .jk-status[data-status=doing].
+// The values a stylesheet styles by attribute: theme and scheme on any element, and per class for
+// selectors such as .jk-status[data-status=doing].
 // "light" has no selector on purpose: it is the default scheme, and kit.md names it.
-let valueRules = null;
-function kitValueRules() {
-  if (valueRules) return valueRules;
-  const css = kitFile("kit.css") + kitFile("decor.css");
-  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[data-jk-${name}=["']?([\\w-]+)["']?\\]`, "g"))].map((m) => m[1]));
+function valueRulesOf(css) {
+  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[\\s*data-jk-${name}\\s*=\\s*["']?([\\w-]+)["']?\\s*\\]`, "g"))].map((m) => m[1]));
   const byClass = new Map();
-  for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[(data-[a-z-]+)=["']?([\w-]+)["']?\]/g)) {
+  for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[\s*(data-[a-z-]+)\s*=\s*["']?([\w-]+)["']?\s*\]/g)) {
     const [, cls, attr, value] = m;
     if (attr === "data-jk-theme" || attr === "data-jk-scheme") continue;
     if (!byClass.has(cls)) byClass.set(cls, new Map());
     if (!byClass.get(cls).has(attr)) byClass.get(cls).set(attr, new Set());
     byClass.get(cls).get(attr).add(value);
   }
-  valueRules = { theme: any("theme"), scheme: new Set([...any("scheme"), "light"]), byClass };
-  return valueRules;
+  return { theme: any("theme"), scheme: new Set([...any("scheme"), "light"]), byClass };
 }
 
+// all: what the installed kit styles. kit: what its kit.css styles, to name the file a copy lacks.
+let installedValues = null;
+function kitValueRules() {
+  installedValues ??= { all: valueRulesOf(kitFile("kit.css") + kitFile("decor.css")), kit: valueRulesOf(kitFile("kit.css")) };
+  return installedValues;
+}
+
+const styles = (rules, attr, value, cls) => (cls ? rules.byClass.get(cls)?.get(attr)?.has(value) : rules[attr].has(value)) ?? false;
+
+const missingInCopy = (index, prop, value, file) => ({ level: "error", rule: "missing-in-copy", index, prop, value,
+  message: `${prop}="${value}": 설치된 키트의 ${file}에는 있지만 프로젝트의 키트 사본에는 없어 스타일이 적용되지 않습니다.`,
+  suggestion: `설치된 키트의 ${file} 파일을 프로젝트로 다시 복사하세요.` });
+
 // An attribute value written as text: quoted, quoted inside a JSX expression, or unquoted as HTML allows.
+// An unquoted value runs to whitespace or the end of the tag, so blue.foo is read whole and not as blue.
+// It also stops at "]", where an attribute selector in a script or <style> ([data-jk-theme=blue]) ends.
 // A JSX expression without quotes ({theme}) is a variable and is not read.
-const VALUE = String.raw`(?:\{\s*(["'])([^"'{}$]*)\1\s*\}|(["'])([^"'{}$]*)\3|([\w-]+))`;
+const VALUE = String.raw`(?:\{\s*(["'])([^"'{}$]*)\1\s*\}|(["'])([^"'{}$]*)\3|([^\s"'=<>\x60{}$\]]+))`;
 // VALUE holds five groups; `at` is the number of groups before it in the whole pattern.
 const valueOf = (m, at) => m[at + 2] ?? m[at + 4] ?? m[at + 5];
 const KIT_ATTRIBUTE = new RegExp(String.raw`\bdata-jk-(theme|scheme)\s*=\s*${VALUE}|\bsetAttribute\(\s*["']data-jk-(theme|scheme)["']\s*,\s*["']([^"'{}$]*)["']\s*\)`, "g");
@@ -520,18 +531,23 @@ const OPEN_TAG = /<[A-Za-z][\w.-]*\b[^<>]*>/g;
 const TAG_CLASSES = new RegExp(String.raw`\bclass(?:Name)?\s*=\s*${VALUE}`);
 
 // A data attribute written on the same tag as a kit class that styles it by value.
-function checkClassValues(text, byClass) {
+function checkClassValues(text, { all, kit }, copy) {
   const findings = [];
   for (const tag of text.matchAll(OPEN_TAG)) {
     const named = TAG_CLASSES.exec(tag[0]);
-    const classes = (named ? valueOf(named, 0) : "").split(/\s+/).filter((c) => byClass.has(c));
+    const classes = (named ? valueOf(named, 0) : "").split(/\s+/).filter((c) => all.byClass.has(c));
     for (const cls of classes) {
-      for (const [attr, values] of byClass.get(cls)) {
+      for (const [attr, values] of all.byClass.get(cls)) {
         const m = new RegExp(String.raw`\b${attr}\s*=\s*${VALUE}`).exec(tag[0]);
         const value = m && valueOf(m, 0);
-        if (value === undefined || value === null || values.has(value)) continue;
+        if (value === undefined || value === null) continue;
+        const index = tag.index + m.index + m[0].lastIndexOf(value);
+        if (values.has(value)) {
+          if (copy && !styles(copy, attr, value, cls)) findings.push(missingInCopy(index, attr, value, styles(kit, attr, value, cls) ? "kit.css" : "decor.css"));
+          continue;
+        }
         const near = [...values].find((known) => editDistance(value, known) <= TYPO_DISTANCE);
-        findings.push({ level: "error", rule: "unknown-value", index: tag.index + m.index + m[0].lastIndexOf(value), prop: attr, value,
+        findings.push({ level: "error", rule: "unknown-value", index, prop: attr, value,
           message: `.${cls}의 ${attr}="${value}"는 키트가 정한 값이 아니라 스타일이 적용되지 않습니다.`,
           suggestion: near ? `가장 가까운 값: ${near}` : `키트가 정한 값: ${[...values].join(", ")}` });
       }
@@ -540,17 +556,28 @@ function checkClassValues(text, byClass) {
   return findings;
 }
 
-export function checkAttributes(text) {
-  const valid = kitValueRules();
-  const findings = checkClassValues(text, valid.byClass);
+// copy: what the project's kit copy styles when a copy sits under the inputs;
+// a value the installed kit styles and the copy does not is unstyled on that page.
+export function checkAttributes(text, copy = null) {
+  const installed = kitValueRules(), valid = installed.all;
+  const findings = checkClassValues(text, installed, copy);
   for (const m of text.matchAll(KIT_ATTRIBUTE)) {
     const name = m[1] ?? m[7], value = m[1] ? valueOf(m, 1) : m[8];
-    if (valid[name].has(value)) continue;
+    const index = m.index + m[0].lastIndexOf(value);
+    // A selector such as [data-jk-theme=purple] in a <style> or a script reads the theme and sets nothing,
+    // so a typo in it is reported and a stale copy is not.
+    let before = m.index - 1;
+    while (before >= 0 && /\s/.test(text[before])) before -= 1;
+    const selector = m[1] && text[before] === "[";
+    if (valid[name].has(value)) {
+      if (copy && !selector && !styles(copy, name, value)) findings.push(missingInCopy(index, `data-jk-${name}`, value, styles(installed.kit, name, value) ? "kit.css" : "decor.css"));
+      continue;
+    }
     const near = [...valid[name]].find((known) => editDistance(value, known) <= TYPO_DISTANCE);
     // Green is what the kit shows with no theme; there is no selector for it.
     const suggestion = name === "theme" && value === "green" ? "테마를 지정하지 않으면 초록입니다. 이 속성을 지웁니다."
       : near ? `가장 가까운 값: ${near}` : `키트가 정한 값: ${[...valid[name]].join(", ")}`;
-    findings.push({ level: "error", rule: `unknown-${name}`, index: m.index + m[0].lastIndexOf(value), prop: `data-jk-${name}`, value,
+    findings.push({ level: "error", rule: `unknown-${name}`, index, prop: `data-jk-${name}`, value,
       message: `data-jk-${name}="${value}"는 키트가 정한 값이 아니라 스타일이 적용되지 않습니다.`, suggestion });
   }
   return findings;
@@ -656,13 +683,17 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   const styled = new Set(files);
   const hasCopy = kitCopies.some((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)));
   const copyDeclared = hasCopy ? new Set(kitCopies.flatMap((file) => [...declaredTokens(read(file))])) : null;
-  const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, scan(file)).map((region) => region.css))], hasCopy) : null;
+  const projectCss = useKit ? [...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, scan(file)).map((region) => region.css))] : [];
+  const classes = useKit ? classIndex(projectCss, hasCopy) : null;
+  // A product rule under [data-jk-theme=purple] only reads the theme; the copy has to set its tokens.
+  // A product rule for .jk-status[data-status=done] does style the element, so classes take both.
+  const copyValues = useKit && hasCopy ? { ...valueRulesOf(kitCopies.map(read).join("\n")), byClass: valueRulesOf(projectCss.join("\n")).byClass } : null;
   const results = [];
   for (const file of [...files, ...scripts].sort()) {
     const text = read(file);
     const inFile = [];
     if (styled.has(file)) for (const region of styleRegions(file, scan(file))) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
-    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(scan(file), classes), ...checkAttributes(scan(file)));
+    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(scan(file), classes), ...checkAttributes(scan(file), copyValues));
     for (const { index, ...rest } of inFile.sort((a, b) => a.index - b.index)) results.push({ file, ...lineCol(text, index), ...rest });
   }
   if (useKit) {

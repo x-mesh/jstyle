@@ -83,6 +83,8 @@ test("warnings pass unless --strict, and a clean file passes", () => {
 });
 
 const KIT_COPY = ":root { --jk-green: #0abe3a; --jk-ink: #242a30 } .jk-btn { height: 32px } .jk-btn-primary { color: #fff } .jk-old-thing { gap: 4px }";
+// A current copy: it styles every theme, scheme and status value the installed kit styles.
+const FULL_COPY = fs.readFileSync(path.join(ROOT, "assets", "kit", "kit.css"), "utf8");
 const report = (args) => {
   const result = jstyle([...args, "--json"]);
   return { status: result.status, ...JSON.parse(result.stdout) };
@@ -196,6 +198,7 @@ test("a jk class that the kit does not define is an error with the nearest name"
     ["app.js", 1, "unknown-class", "error", "jk-on"],
     ["app.js", 2, "unknown-class", "error", "jk-nope"],
     ["index.html", 2, "unknown-class", "error", "jk-btn-primery"],
+    ["index.html", 2, "missing-in-copy", "error", "blue"],
     ["notes.js", 1, "unknown-class", "error", "jk-nope"],
     ["notes.js", 2, "unknown-class", "error", "jk-nopx"],
     ["notes.js", 3, "unknown-class", "error", "jk-nopy"],
@@ -246,7 +249,7 @@ test("a script given as a file is read for classes only", () => {
 
 test("a theme or scheme value the kit does not style is an error", () => {
   const dir = project({
-    "kit.css": KIT_COPY,
+    "kit.css": FULL_COPY,
     "index.html": `<div class="jk" data-jk-theme="bleu" data-jk-scheme="drak"><i class="jk-btn"></i></div>\n<div data-jk-theme="purple" data-jk-scheme="light"></div><div data-jk-scheme="dark" data-jk-theme="green"></div>`,
     "App.jsx": `export const A = () => <div data-jk-theme={"lime"} />;\ndocument.documentElement.setAttribute("data-jk-theme", "orang");\nel.setAttribute("data-jk-scheme", mode);`,
   });
@@ -265,7 +268,7 @@ test("a theme or scheme value the kit does not style is an error", () => {
 
 test("a value the kit does not style on a kit class is an error, other elements are left alone", () => {
   const dir = project({
-    "kit.css": KIT_COPY + " .jk-status { height: 24px } .row { gap: 4px }",
+    "kit.css": FULL_COPY + " .row { gap: 4px }",
     "index.html": `<span class="jk-status" data-status="progress">진행 중</span> <span data-status="doing" class="jk-status">진행 중</span>\n<li class="row" data-status="progress"></li><span class="jk-status" data-status="\${s}"></span>`,
     "App.jsx": `export const A = () => <span className="jk-status" data-status={"todoo"}>시작 전</span>;`,
   });
@@ -280,7 +283,7 @@ test("a value the kit does not style on a kit class is an error, other elements 
 
 test("unquoted attribute values are read, and a JSX expression is not taken for one", () => {
   const dir = project({
-    "kit.css": KIT_COPY + " .jk-status { height: 24px }",
+    "kit.css": FULL_COPY,
     "index.html": `<div class=jk data-jk-theme=bleu data-jk-scheme=dark><span class=jk-status data-status=progress>진행 중</span><span class=jk-status data-status=done>완료</span></div>\n<div class=jk data-jk-scheme=drak></div>`,
     "App.jsx": `export const A = ({ theme, s }) => <div data-jk-theme={theme}><span className="jk-status" data-status={s} /></div>;`,
   });
@@ -289,6 +292,55 @@ test("unquoted attribute values are read, and a JSX expression is not taken for 
     ["index.html", 1, "unknown-value", "error", "progress"],
     ["index.html", 2, "unknown-scheme", "error", "drak"],
   ]);
+});
+
+test("an unquoted value is read to the end of the value, not to the first character outside a word", () => {
+  const dir = project({
+    "kit.css": FULL_COPY,
+    "index.html": `<div class=jk data-jk-theme=blue.foo data-jk-scheme=dark.foo><span class=jk-status data-status=done.foo>완료</span></div>\n<div class=jk data-jk-theme=blue data-jk-scheme=dark><span class=jk-status data-status=done>완료</span></div>`,
+  });
+  assert.deepEqual(found(report([dir])), [
+    ["index.html", 1, "unknown-theme", "error", "blue.foo"],
+    ["index.html", 1, "unknown-scheme", "error", "dark.foo"],
+    ["index.html", 1, "unknown-value", "error", "done.foo"],
+  ]);
+  const selectors = project({
+    "kit.css": FULL_COPY,
+    "index.html": `<div class="jk"></div><style>[data-jk-theme=blue] .x { width: 24px }</style>`,
+    "app.js": `document.querySelector("[data-jk-theme=blue]");\nel.matches('[data-jk-scheme=dark] *');`,
+  });
+  assert.deepEqual(found(report([selectors])), []);
+});
+
+test("a value the installed kit styles and the project's copy does not names the file to copy", () => {
+  const markup = `<div class="jk" data-jk-theme="purple" data-jk-scheme="dark"><span class="jk-status" data-status="done">완료</span></div>\n<div class="jk" data-jk-scheme="light" data-jk-theme="bleu"></div>`;
+  const r = report([project({ "vendor/kit.css": KIT_COPY, "index.html": markup })]);
+  assert.deepEqual(found(r), [
+    ["index.html", 1, "missing-in-copy", "error", "purple"],
+    ["index.html", 1, "missing-in-copy", "error", "dark"],
+    ["index.html", 1, "missing-in-copy", "error", "jk-status"],
+    ["index.html", 1, "missing-in-copy", "error", "done"],
+    ["index.html", 2, "unknown-theme", "error", "bleu"],
+  ]);
+  assert.ok(r.findings.filter((f) => f.rule === "missing-in-copy").every((f) => /kit\.css 파일을 프로젝트로 다시 복사/.test(f.suggestion)));
+  assert.deepEqual(found(report([project({ "vendor/kit.css": FULL_COPY, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
+  const product = ".jk-status[data-status=done] { color: var(--jk-ink) } [data-jk-theme=purple] .logo { width: 24px } [data-jk-scheme=dark] .card { width: 24px }";
+  assert.deepEqual(found(report([project({ "vendor/kit.css": KIT_COPY, "app.css": product, "index.html": markup })])).filter((f) => f[2] === "missing-in-copy").map((f) => f[4]), ["purple", "dark"]);
+  const spaced = KIT_COPY + ` [ data-jk-theme = purple ] { color: inherit } [data-jk-scheme = "dark"] { color: inherit } .jk-status[ data-status = done ] { color: inherit }`;
+  assert.deepEqual(found(report([project({ "vendor/kit.css": spaced, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
+  const decor = report([project({ "vendor/kit.css": FULL_COPY, "index.html": `<div class="jk-fx-reveal" data-started="true"></div>` })]);
+  assert.deepEqual(found(decor), [["index.html", 1, "missing-in-copy", "error", "jk-fx-reveal"], ["index.html", 1, "missing-in-copy", "error", "true"]]);
+  assert.ok(decor.findings.every((f) => /decor\.css 파일을 프로젝트로 다시 복사/.test(f.suggestion)));
+  assert.deepEqual(found(report([project({ "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
+});
+
+test("an attribute selector in a style or a script is checked for typos, not against a stale copy", () => {
+  const dir = project({
+    "vendor/kit.css": KIT_COPY,
+    "index.html": `<div class="jk-btn"></div><style>[data-jk-theme=purple] .logo { width: 24px } [ data-jk-scheme="dark" ] .card { width: 24px }\n[\n          data-jk-theme="purple"\n        ] .logo { width: 24px }</style>`,
+    "app.js": `document.querySelector("[data-jk-theme=purple]");\nel.matches('[data-jk-theme=bleu] *');`,
+  });
+  assert.deepEqual(found(report([dir])), [["app.js", 2, "unknown-theme", "error", "bleu"]]);
 });
 
 test("the kit page itself has no unknown class, and unknown classes are left alone without the kit", () => {

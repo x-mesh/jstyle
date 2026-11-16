@@ -15,6 +15,8 @@ Node 22 또는 Chrome·Chromium·Edge가 없으면 환경의 다른 브라우저
 만든 내용을 잠깐 볼 때는 현재 화면 한 장만 찍습니다. 몇 군데를 모아 고친 뒤 찍고, 바뀌지 않은 화면은 거듭 찍지 않습니다.
 마치기 전이나 다른 사람에게 보여 줄 때는 보통 넓은 화면·휴대폰과 대표 동작 1~2개면 충분합니다.
 실제 버튼을 `--steps`로 누릅니다. 캡처 때문에 `?state=...` 같은 경로를 제품에 새로 만들지 않습니다.
+동작 뒤에 나타나는 상태가 여럿이면 한 줄에 `이름: 동작` 하나씩 적은 파일을 `--steps-file`로 넘깁니다. 묶음마다 페이지를 다시 열고, 열지 못한 묶음은 `report.json`에 `failed`로 남기며 나머지를 계속 찍습니다.
+다음 작업에서도 같은 상태를 열어야 하면 이 파일을 테스트나 디자인 문서 옆처럼 Git에 남는 위치에 둡니다. `.jstyle`은 Git에서 빠집니다.
 sticky 헤더나 `100vh`·resize 감시가 있는 작업 화면에는 `--full`을 쓰지 않습니다.
 움직임은 기본적으로 시간 표시가 있는 `--frames`나 실제 조작으로 봅니다.
 실제 속도의 느낌을 판단해야 하고 영상을 재생할 수 있을 때만 `--record`를 씁니다.
@@ -25,6 +27,7 @@ sticky 헤더나 `100vh`·resize 감시가 있는 작업 화면에는 `--full`�
 node <skill>/scripts/shoot.mjs index.html --size desktop,mobile --out shots
 node <skill>/scripts/shoot.mjs index.html --selector ".card" --out shots
 node <skill>/scripts/shoot.mjs index.html --steps "click .open; wait 300" --out shots
+node <skill>/scripts/shoot.mjs index.html --steps-file design/states.txt --out shots
 node <skill>/scripts/shoot.mjs index.html --frames 8 --steps "scroll 600; scroll 600" --out shots
 node <skill>/scripts/shoot.mjs index.html --mark "1=.page-head .btn; 2=.toggle-row" --out shots
 node <skill>/scripts/shoot.mjs --stitch before.png --label 이전 --stitch after.png --label 이후 --out shots
@@ -77,6 +80,7 @@ node <skill>/scripts/curate-media.mjs fetch "<URL>" --out assets/image.png --not
 - 배치: 말줄임표 없이 잘린 글자, 첫 화면에서 다른 글과 줄이 맞지 않는 왼쪽 시작점
 - 조작: 24px보다 작고 주변 간격도 좁은 클릭 대상, 서로 겹친 클릭 대상
 - 키트: 키트를 쓰는 화면에서 키트 색에 없는 글자·바탕·테두리 색. 스타일을 넣지 않은 브라우저 기본 링크·버튼 색도 여기에 나옵니다.
+- 일관성: 키트를 쓰지 않는 화면에서 한 페이지에 쓰인 글자 크기가 12종 이상이거나 버튼 높이가 5종 이상인 경우. 사이트 평가의 [시각 기준](eval/visual.md)과 같은 집계(`style-audit.js`)를 씁니다. 키트를 쓰는 화면은 키트 자체의 크기 종류가 많아 세지 않고 `jstyle check`로 봅니다.
 
 키트 주색 위의 `--jk-on-primary` 글자는 키트가 정한 대비 예외라 적지 않습니다. 글자가 없는 채움(아이콘 타일, 차트 막대)과 `--jk-hue`처럼 키트 컴포넌트가 정한 자리로 고른 색도 적지 않습니다.
 `lint` 항목은 고칠 후보입니다. 취소된 항목처럼 일부러 흐리게 둔 글은 까닭을 결과에 적고 남길 수 있습니다.
@@ -84,14 +88,25 @@ node <skill>/scripts/curate-media.mjs fetch "<URL>" --out assets/image.png --not
 
 ## 스타일 규칙 검사
 
-`jstyle check <스타일 폴더>`는 브라우저 없이 스타일시트와 `<style>`을 읽어 규칙을 어긴 곳을 줄 번호와 함께 적습니다.
-키트를 쓰는 프로젝트에서는 `--jk-*` 토큰 재정의, 직접 쓴 색, 6px 이상 px 모서리를 오류로 봅니다. 키트에 없는 글자 크기, 직접 정한 글꼴, 제품이 만든 색 토큰은 경고입니다.
+`jstyle check <화면 폴더>`는 브라우저 없이 스타일시트와 `<style>`, 마크업의 `style` 속성을 읽어 규칙을 어긴 곳을 줄 번호와 함께 적습니다. 마크업과 js·jsx·ts·tsx에서는 `class`·`className`·`classList`에 적은 `jk-` 클래스 이름을 읽습니다.
+스타일만 있는 폴더가 아니라 마크업과 스크립트가 함께 있는 폴더를 줍니다. 키트 사용은 그 안의 `kit.css` 사본, `--jk-` 토큰, `jk-` 클래스로 판단하고 근거를 요약 줄에 적습니다. `--exclude`로 건너뛴 폴더의 사본도 근거로 봅니다. "키트 사용 안 함"으로 잘못 나오면 `--kit`을 붙입니다.
+키트를 쓰는 프로젝트에서는 `--jk-*` 토큰 재정의, 직접 쓴 색, 6px 이상 모서리(px·rem), 키트에 없는 `jk-` 클래스를 오류로 봅니다. 키트에 없는 글자 크기, 직접 정한 글꼴, 제품이 만든 색 토큰은 경고입니다.
+제품 스타일시트가 키트 클래스의 높이·안쪽 여백·글자·색·테두리·그림자를 바꾼 곳도 경고(`kit-restyle`)입니다. 너비와 바깥 여백 같은 배치는 보지 않습니다. 키트의 크기·모양 변형을 먼저 찾고, 없으면 제품 클래스를 따로 만듭니다.
+안쪽·바깥 여백과 `gap`에 키트 간격 척도(`--jk-space-*`, 2~48px)에 없는 값을 쓴 곳도 경고(`raw-spacing`)입니다. 48px보다 큰 값, 음수, `calc()`는 보지 않습니다.
+`style` 속성에서는 `--jk-hue`처럼 `--`로 시작하는 값과 키트 페이지가 인라인으로 쓰는 값을 허용하고, `<svg>` 안의 `style`은 읽지 않습니다. 키트 페이지의 마크업을 그대로 옮긴 화면은 걸리지 않습니다.
+같은 규칙의 경고는 다섯 건까지 적고 나머지는 개수로 적습니다. 이번에 바꾼 줄의 경고가 줄여 적힌 쪽에 있을 수 있으므로, 개수 줄이 나오면 `--json`의 `findings`에서 바꾼 파일과 줄을 찾습니다.
+`var(--jk-…)`로 읽는 토큰이 키트 어디에도 없으면 오류(`unknown-token`)이고, 설치된 키트에는 있지만 프로젝트의 사본에는 없으면 `missing-in-copy`입니다. 대체값을 함께 쓴 `var(--jk-x, 4px)`는 보지 않습니다.
 오류마다 같은 값이나 가장 가까운 키트 토큰을 알려 줍니다. 가까운 토큰의 색이 눈에 띄게 다르면 역할이 맞는 토큰을 고릅니다.
-키트를 쓰지 않는 프로젝트에서는 토큰 정의 밖에서 직접 쓴 색만 경고합니다. 기존 화면을 고칠 때는 이번에 바꾼 파일의 새 결과만 고치고, 원래 있던 경고를 한꺼번에 정리하지 않습니다.
-JavaScript 안의 인라인 스타일은 읽지 않으므로 그런 화면은 캡처로 확인합니다.
+없는 클래스는 설치된 키트, 프로젝트의 키트 사본, 검사한 스타일시트 어디에도 선택자가 없는 이름입니다. 오타는 가장 가까운 이름을 알려 줍니다. `className={…}` 표현식, `clsx`·`classNames`·`cn`·`cx` 호출, Vue의 `:class`, `${…}` 안의 문자열도 읽습니다. `jk-btn-${size}`처럼 조합한 이름은 그 형태에 맞는 클래스가 하나도 없을 때만 오류입니다. 변수에 담아 넘긴 이름은 읽지 않습니다.
+검사 폴더에 키트 사본이 있으면 설치된 키트에는 있지만 사본에는 없는 클래스도 오류(`missing-in-copy`)로 보고, 다시 복사할 파일을 알려 줍니다. `decor.css`를 붙이지 않고 소개 블록 클래스를 쓴 경우가 여기에 나옵니다.
+키트 사본의 `--jk-` 토큰 값이 설치된 키트와 다르면 사본마다 경고 하나(`copy-differs`)를 적습니다. 버전이 다른 사본인지 직접 고친 사본인지는 구분하지 못하므로 다른 토큰 이름을 보고 판단합니다.
+키트를 쓰지 않는 프로젝트에서는 토큰 정의 밖에서 직접 쓴 색만 경고합니다. `--tokens <토큰 파일>`을 주면 그 파일의 CSS 변수를 기준으로 삼아 직접 쓴 색과 모서리를 오류로, 토큰에 없는 글자 크기와 간격을 경고로 봅니다. 색은 hex 값만 읽고, 모서리는 이름에 `radius`가, 글자 크기는 `font-size`나 `text`가, 간격은 `spac`이 들어간 변수를 읽습니다. 기존 화면을 고칠 때는 이번에 바꾼 파일의 새 결과만 고치고, 원래 있던 경고를 한꺼번에 정리하지 않습니다.
+JavaScript가 넣는 스타일과 JSX의 `style={{…}}`는 읽지 않으므로 그런 화면은 캡처로 확인합니다.
+키트를 쓰는 저장소의 `AGENTS.md`·`CLAUDE.md`·Makefile·package.json·pre-commit·CI에 `jstyle check`가 없으면 요약 뒤에 알림을 적습니다. 종료 코드는 바꾸지 않으며 `--json`에서는 `wired`가 `false`입니다. 연결하는 방법은 [컴포넌트 키트](extended/kit.md)의 "붙이는 방법"에 있습니다.
 
 ```text
 node <skill>/bin/jstyle.mjs check web/ --exclude vendor
+node <skill>/bin/jstyle.mjs check src/ --tokens src/styles/tokens.css
 ```
 
 ## 사이트 평가 자료

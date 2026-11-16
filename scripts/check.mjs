@@ -140,26 +140,18 @@ function blankComments(css) {
     .replace(/(^|[^:"'\\])\/\/[^\n]*/g, (m, lead) => lead + " ".repeat(m.length - lead.length));
 }
 
-// Blanks the comments of a script and keeps its length. Strings and template literals are stepped over,
-// so a // inside one (href=//cdn…) does not hide the class names after it.
-function blankScriptComments(text) {
-  let out = "";
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i], next = text[i + 1];
-    if (c === '"' || c === "'" || c === "`") {
-      let end = i + 1;
-      // A quote that does not close on its line is an apostrophe in text, not a string.
-      for (; end < text.length && text[end] !== c && (c === "`" || text[end] !== "\n"); end += 1) if (text[end] === "\\") end += 1;
-      out += text.slice(i, end + 1);
-      i = end;
-    } else if (c === "/" && (next === "/" || next === "*")) {
-      const close = next === "/" ? text.indexOf("\n", i) : text.indexOf("*/", i + 2);
-      const stop = close < 0 ? text.length : next === "/" ? close : close + 2;
-      out += text.slice(i, stop).replace(/[^\n]/g, " ");
-      i = stop - 1;
-    } else out += c;
-  }
-  return out;
+// <!-- --> in markup, blanked to the same length so offsets hold. A script or style element is stepped over
+// whole, so "<!--" inside a script string does not open a comment.
+// The lookahead keeps a custom element such as <script-panel> from passing for a script element.
+const MARKUP_COMMENT = /<(script|style)(?=[\s>/])[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
+const blankMarkupComments = (text) => text.replace(MARKUP_COMMENT, (part) => (part.startsWith("<!--") ? part.replace(/[^\n]/g, " ") : part));
+
+// The text that class names and style attributes are read from.
+// Script comments stay in: without parsing JavaScript a comment cannot be told from a string or a regex
+// that holds // or /*, and blanking the wrong one hides real class names. A class written in a script
+// comment is therefore read like code, which reports more and never passes a kit project as one without the kit.
+function withoutComments(file, text) {
+  return MARKUP_EXT.has(path.extname(file).toLowerCase()) ? blankMarkupComments(text) : text;
 }
 
 // Walks a stylesheet and yields declarations with their selector stack.
@@ -507,11 +499,11 @@ const STYLE_SIGN = /(?<![\w-])kit\.css\b|var\(--jk-|--jk-[\w-]+\s*:/;
 const SCRIPT_SIGN = /(?:import|require)\b[^\n;]*(?<![\w-])kit\.css\b/;
 
 // Returns the file that shows the kit in use, or null.
-function kitBasis({ files, scripts, kitCopies }, read) {
+function kitBasis({ files, scripts, kitCopies }, read, scan) {
   return kitCopies.find((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)))
     // The same reader the class rule uses, so a class inside clsx() or a condition counts as kit use too.
-    ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(read(file)).length > 0)
-    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(blankScriptComments(read(file))).length > 0)
+    ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(scan(file)).length > 0)
+    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(scan(file)).length > 0)
     ?? null;
 }
 
@@ -582,7 +574,9 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   const { files, scripts, kitCopies } = found;
   const texts = new Map();
   const read = (file) => { if (!texts.has(file)) texts.set(file, fs.readFileSync(file, "utf8")); return texts.get(file); };
-  const basis = opts.kit === null ? kitBasis(found, read) : null;
+  const scans = new Map();
+  const scan = (file) => { if (!scans.has(file)) scans.set(file, withoutComments(file, read(file))); return scans.get(file); };
+  const basis = opts.kit === null ? kitBasis(found, read, scan) : null;
   const useKit = opts.kit ?? basis !== null;
   let kit = loadKitTokens();
   const ownTokens = opts.tokens.length > 0 && !useKit;
@@ -594,13 +588,13 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   const styled = new Set(files);
   const hasCopy = kitCopies.some((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)));
   const copyDeclared = hasCopy ? new Set(kitCopies.flatMap((file) => [...declaredTokens(read(file))])) : null;
-  const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, read(file)).map((region) => region.css))], hasCopy) : null;
+  const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, scan(file)).map((region) => region.css))], hasCopy) : null;
   const results = [];
   for (const file of [...files, ...scripts].sort()) {
     const text = read(file);
     const inFile = [];
-    if (styled.has(file)) for (const region of styleRegions(file, text)) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
-    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(styled.has(file) ? text : blankScriptComments(text), classes));
+    if (styled.has(file)) for (const region of styleRegions(file, scan(file))) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
+    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(scan(file), classes));
     for (const { index, ...rest } of inFile.sort((a, b) => a.index - b.index)) results.push({ file, ...lineCol(text, index), ...rest });
   }
   if (useKit) {

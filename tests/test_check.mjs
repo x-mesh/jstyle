@@ -116,8 +116,33 @@ test("jk classes in JSX alone make a kit project", () => {
     assert.equal(viaHelper.kit, true, jsx);
     assert.equal(viaHelper.errors, 1, jsx);
   }
-  const onlyComment = report([project({ "src/App.jsx": `// 예: className="jk-btn"\nexport default () => <button>저장</button>;`, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
-  assert.equal(onlyComment.kit, false);
+  // Scripts are read whole, comments included: a // or /* inside a regex or a string cannot hide the class after it.
+  for (const jsx of [
+    `const slash = /[//]/; export default () => <button className="jk-btn">저장</button>;`,
+    `const slash = /[ //]/; export default () => <button className="jk-btn">저장</button>;`,
+    `const html = '<i> // 설명 <b className="jk-btn" /></i>';`,
+    `const glob = "src/ /* "; export default () => <button className="jk-btn">저장</button>;`,
+    `// 예: className="jk-btn"\nexport default () => <button>저장</button>;`,
+    `/* 예: <i className="jk-btn" /> */\nexport default () => <button>저장</button>;`,
+  ]) {
+    const whole = report([project({ "src/App.jsx": jsx, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
+    assert.equal(whole.kit, true, jsx);
+    assert.equal(whole.errors, 1, jsx);
+  }
+});
+
+test("markup comments are not read for classes or style attributes", () => {
+  const commented = `<!-- <button class="jk-nope">예시</button> <div style="background:#1a73e8"></div> -->`;
+  const kitPage = report([project({ "kit.css": KIT_COPY, "index.html": `<i class="jk-btn"></i>\n${commented}\n<script>\nconst open = "<!--"; el.className = "jk-nopr"; const close = "-->";\n</script>\n<p>a // b <i class="jk-nops"></i></p>` })]);
+  assert.deepEqual(found(kitPage), [
+    ["index.html", 4, "unknown-class", "error", "jk-nopr"],
+    ["index.html", 6, "unknown-class", "error", "jk-nops"],
+  ]);
+  const custom = report([project({ "kit.css": KIT_COPY, "index.html": `<i class="jk-btn"></i><script-panel>${commented}</script-panel><script></script>` })]);
+  assert.deepEqual(custom.findings, []);
+  const plain = report([project({ "index.html": `${commented}\n<style>.a { color: #123456 }</style>` })]);
+  assert.equal(plain.kit, false);
+  assert.equal(plain.errors, 0);
 });
 
 test("--exclude does not hide the kit copy that proves kit use", () => {
@@ -156,10 +181,9 @@ test("a jk class that the kit does not define is an error with the nearest name"
     "Tabs.tsx": `export const Tabs = () => <div className={"jk-tabz"} id="jk-not-a-class" />;`,
     "notes.js": [
       `// 예: className="jk-nope"`,
-      `/* class="jk-nope2" */`,
-      "export const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`; // class=\"jk-nope3\"",
-      `export const single = 'it\\'s <a href=//cdn.example.com/x class="jk-nopy">'; // class="jk-nope4"`,
-      `export const double = "<a href=//cdn.example.com/x class='jk-nopz'>"; /* class="jk-nope5" */`,
+      "export const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`;",
+      `export const single = 'it\\'s // 설명 <b class="jk-nopy">';`,
+      `/* 예: class="jk-nopz" */`,
     ].join("\n"),
     "app.css": ".jk-custom { color: var(--jk-ink) }",
     "kit.css": KIT_COPY,
@@ -172,9 +196,10 @@ test("a jk class that the kit does not define is an error with the nearest name"
     ["app.js", 1, "unknown-class", "error", "jk-on"],
     ["app.js", 2, "unknown-class", "error", "jk-nope"],
     ["index.html", 2, "unknown-class", "error", "jk-btn-primery"],
-    ["notes.js", 3, "unknown-class", "error", "jk-nopx"],
-    ["notes.js", 4, "unknown-class", "error", "jk-nopy"],
-    ["notes.js", 5, "unknown-class", "error", "jk-nopz"],
+    ["notes.js", 1, "unknown-class", "error", "jk-nope"],
+    ["notes.js", 2, "unknown-class", "error", "jk-nopx"],
+    ["notes.js", 3, "unknown-class", "error", "jk-nopy"],
+    ["notes.js", 4, "unknown-class", "error", "jk-nopz"],
   ]);
   assert.match(r.findings.find((f) => f.value === "jk-btn-primery").suggestion, /jk-btn-primary/);
 });

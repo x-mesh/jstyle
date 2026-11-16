@@ -326,7 +326,21 @@ test("a value the installed kit styles and the project's copy does not names the
   assert.deepEqual(found(report([project({ "vendor/kit.css": FULL_COPY, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
   const product = ".jk-status[data-status=done] { color: var(--jk-ink) } [data-jk-theme=purple] .logo { width: 24px } [data-jk-scheme=dark] .card { width: 24px }";
   assert.deepEqual(found(report([project({ "vendor/kit.css": KIT_COPY, "app.css": product, "index.html": markup })])).filter((f) => f[2] === "missing-in-copy").map((f) => f[4]), ["purple", "dark"]);
+  const spaced = KIT_COPY + ` [ data-jk-theme = purple ] { color: inherit } [data-jk-scheme = "dark"] { color: inherit } .jk-status[ data-status = done ] { color: inherit }`;
+  assert.deepEqual(found(report([project({ "vendor/kit.css": spaced, "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
+  const decor = report([project({ "vendor/kit.css": FULL_COPY, "index.html": `<div class="jk-fx-reveal" data-started="true"></div>` })]);
+  assert.deepEqual(found(decor), [["index.html", 1, "missing-in-copy", "error", "jk-fx-reveal"], ["index.html", 1, "missing-in-copy", "error", "true"]]);
+  assert.ok(decor.findings.every((f) => /decor\.css 파일을 프로젝트로 다시 복사/.test(f.suggestion)));
   assert.deepEqual(found(report([project({ "index.html": markup })])), [["index.html", 2, "unknown-theme", "error", "bleu"]]);
+});
+
+test("an attribute selector in a style or a script is checked for typos, not against a stale copy", () => {
+  const dir = project({
+    "vendor/kit.css": KIT_COPY,
+    "index.html": `<div class="jk-btn"></div><style>[data-jk-theme=purple] .logo { width: 24px } [ data-jk-scheme="dark" ] .card { width: 24px }</style>`,
+    "app.js": `document.querySelector("[data-jk-theme=purple]");\nel.matches('[data-jk-theme=bleu] *');`,
+  });
+  assert.deepEqual(found(report([dir])), [["app.js", 2, "unknown-theme", "error", "bleu"]]);
 });
 
 test("the kit page itself has no unknown class, and unknown classes are left alone without the kit", () => {

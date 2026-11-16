@@ -494,9 +494,9 @@ export function checkClasses(text, { installed, project, hasCopy, known }) {
 // selectors such as .jk-status[data-status=doing].
 // "light" has no selector on purpose: it is the default scheme, and kit.md names it.
 function valueRulesOf(css) {
-  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[data-jk-${name}=["']?([\\w-]+)["']?\\]`, "g"))].map((m) => m[1]));
+  const any = (name) => new Set([...css.matchAll(new RegExp(`\\[\\s*data-jk-${name}\\s*=\\s*["']?([\\w-]+)["']?\\s*\\]`, "g"))].map((m) => m[1]));
   const byClass = new Map();
-  for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[(data-[a-z-]+)=["']?([\w-]+)["']?\]/g)) {
+  for (const m of css.matchAll(/\.(jk-[a-z0-9-]+)\[\s*(data-[a-z-]+)\s*=\s*["']?([\w-]+)["']?\s*\]/g)) {
     const [, cls, attr, value] = m;
     if (attr === "data-jk-theme" || attr === "data-jk-scheme") continue;
     if (!byClass.has(cls)) byClass.set(cls, new Map());
@@ -556,7 +556,7 @@ function checkClassValues(text, { all, kit }, copy) {
   return findings;
 }
 
-// copy: valueRulesOf() of the project's kit copy and stylesheets when a copy sits under the inputs;
+// copy: what the project's kit copy styles when a copy sits under the inputs;
 // a value the installed kit styles and the copy does not is unstyled on that page.
 export function checkAttributes(text, copy = null) {
   const installed = kitValueRules(), valid = installed.all;
@@ -564,8 +564,11 @@ export function checkAttributes(text, copy = null) {
   for (const m of text.matchAll(KIT_ATTRIBUTE)) {
     const name = m[1] ?? m[7], value = m[1] ? valueOf(m, 1) : m[8];
     const index = m.index + m[0].lastIndexOf(value);
+    // A selector such as [data-jk-theme=purple] in a <style> or a script reads the theme and sets nothing,
+    // so a typo in it is reported and a stale copy is not.
+    const selector = m[1] && /\[\s*$/.test(text.slice(Math.max(0, m.index - 8), m.index));
     if (valid[name].has(value)) {
-      if (copy && !styles(copy, name, value)) findings.push(missingInCopy(index, `data-jk-${name}`, value, styles(installed.kit, name, value) ? "kit.css" : "decor.css"));
+      if (copy && !selector && !styles(copy, name, value)) findings.push(missingInCopy(index, `data-jk-${name}`, value, styles(installed.kit, name, value) ? "kit.css" : "decor.css"));
       continue;
     }
     const near = [...valid[name]].find((known) => editDistance(value, known) <= TYPO_DISTANCE);

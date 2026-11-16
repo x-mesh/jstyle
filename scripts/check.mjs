@@ -30,7 +30,7 @@ const HELP = `usage: jstyle check <파일 또는 폴더...> [--json] [--strict] 
   raw-color      키트 토큰 대신 hex·rgb·hsl 색을 직접 씀
   raw-radius     6px 이상 모서리를 --jk-radius-* 대신 px·rem으로 씀
   unknown-class  키트와 검사한 스타일시트 어디에도 없는 jk- 클래스. jk-btn-\${size}처럼 조합한 이름은 맞는 클래스가 하나도 없을 때 잡습니다.
-  missing-in-copy  설치된 키트에는 있지만 검사 폴더의 키트 사본에는 없는 jk- 클래스나 --jk- 토큰
+  missing-in-copy  설치된 키트에는 있지만 검사 폴더의 키트 사본에는 없는 jk- 클래스나 --jk- 토큰. decor.css 사본이 읽는 토큰을 kit.css 사본이 정하지 않은 경우도 여기에 나옵니다.
   unknown-token  키트 어디에도 없는 --jk- 토큰을 var()로 읽음
 경고
   raw-font-size  키트가 쓰는 글자 크기 목록에 없는 px·rem 값
@@ -130,6 +130,8 @@ function styleRegions(file, text) {
 }
 
 export const tokenNames = (css) => new Set(css.match(/--jk-[\w-]+/g) ?? []);
+const declaredTokens = (css) => new Set(declarations(css).filter((d) => d.prop.startsWith("--jk-")).map((d) => d.prop));
+const TOKEN_READ = /var\(\s*(--jk-[\w-]+)\s*\)/g;
 const INLINE_STYLE = /\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const inlineKey = (prop, value) => `${prop}:${value.replace(/\s+/g, " ").trim().toLowerCase()}`;
 
@@ -228,7 +230,10 @@ export function loadKitTokens(file = KIT_CSS) {
   // Every --jk- name the kit writes or reads, with the file to copy it from. Slots such as --jk-hue are only read.
   const tokens = new Map();
   for (const name of ["kit.css", "decor.css", "kit.js"]) for (const token of tokenNames(kitFile(name))) if (!tokens.has(token)) tokens.set(token, name);
-  return { colors, radius, text, space, sizes: [...sizes].sort((a, b) => a - b), classes, inline, tokens };
+  // The names the kit sets a value for. A slot that markup fills (--jk-hue) is read but never set.
+  const declared = new Map();
+  for (const name of ["kit.css", "decor.css"]) for (const token of declaredTokens(kitFile(name))) if (!declared.has(token)) declared.set(token, name);
+  return { colors, radius, text, space, sizes: [...sizes].sort((a, b) => a - b), classes, inline, tokens, declared };
 }
 
 // The tokens of a project without the kit, from the files it names. Only hex colors are read.
@@ -276,8 +281,8 @@ function stripVarFallbacks(value) {
 }
 
 // useKit: hold values to the kit. tokens: hold them to the project's own token set, passed as kit.
-// inline: source is one style attribute. copyTokens: the --jk- names the project's kit copy holds, when it has one.
-export function checkSource(source, { kit, useKit, tokens = false, inline = false, copyTokens = null }) {
+// inline: source is one style attribute. copyDeclared: the --jk- names the project's kit copies set, when it has a copy.
+export function checkSource(source, { kit, useKit, tokens = false, inline = false, copyDeclared = null }) {
   const scaled = useKit || tokens;
   const tokenWord = useKit ? "키트 토큰" : "토큰";
   const findings = [];
@@ -287,13 +292,13 @@ export function checkSource(source, { kit, useKit, tokens = false, inline = fals
     // In a style attribute a custom property fills a slot the component reads (--jk-hue, --value).
     if (inline && (isToken || kit.inline.has(inlineKey(d.prop, d.value)))) continue;
     // A reference without a fallback to a token nothing defines resolves to nothing: padding becomes 0, color is inherited.
-    if (useKit) for (const m of d.value.matchAll(/var\(\s*(--jk-[\w-]+)\s*\)/g)) {
-      const name = m[1], file = kit.tokens.get(name);
-      if (!file && !copyTokens?.has(name)) {
+    if (useKit) for (const m of d.value.matchAll(TOKEN_READ)) {
+      const name = m[1], file = kit.declared.get(name);
+      if (!kit.tokens.has(name) && !copyDeclared?.has(name)) {
         let near = null;
         for (const known of kit.tokens.keys()) { const distance = editDistance(name, known); if (distance <= TYPO_DISTANCE && (!near || distance < near.distance)) near = { known, distance }; }
         add(d, "error", "unknown-token", `키트에 없는 토큰 ${name}입니다.`, near ? `가장 가까운 키트 토큰: ${near.known}` : "키트 페이지(jstyle kit)의 기초 구역에서 이름을 확인하세요.");
-      } else if (file && copyTokens && !copyTokens.has(name)) {
+      } else if (file && copyDeclared && !copyDeclared.has(name)) {
         add(d, "error", "missing-in-copy", `토큰 ${name}: 설치된 키트의 ${file}에는 있지만 프로젝트의 키트 사본에는 없습니다.`, `설치된 키트의 ${file} 파일을 프로젝트로 다시 복사하세요.`);
       }
     }
@@ -475,16 +480,16 @@ function lineCol(text, index) {
   return { line, col: index - last };
 }
 
-const JK_CLASS_SIGN = /\bclass(?:Name)?\s*=\s*\{?\s*["'`][^"'`]*(?<![\w-])jk-[a-z]|\bclassList\.\w+\([^)]*["'`]jk-[a-z]/;
 // "kit.css" is anchored so that uikit.css or toolkit.css does not turn warnings into errors.
-const STYLE_SIGN = new RegExp(`(?<![\\w-])kit\\.css\\b|var\\(--jk-|--jk-[\\w-]+\\s*:|${JK_CLASS_SIGN.source}`);
-const SCRIPT_SIGN = new RegExp(`(?:import|require)\\b[^\\n;]*(?<![\\w-])kit\\.css\\b|${JK_CLASS_SIGN.source}`);
+const STYLE_SIGN = /(?<![\w-])kit\.css\b|var\(--jk-|--jk-[\w-]+\s*:/;
+const SCRIPT_SIGN = /(?:import|require)\b[^\n;]*(?<![\w-])kit\.css\b/;
 
 // Returns the file that shows the kit in use, or null.
 function kitBasis({ files, scripts, kitCopies }, read) {
   return kitCopies.find((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)))
-    ?? files.find((file) => STYLE_SIGN.test(read(file)))
-    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)))
+    // The same reader the class rule uses, so a class inside clsx() or a condition counts as kit use too.
+    ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(read(file)).length > 0)
+    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(blankComments(read(file))).length > 0)
     ?? null;
 }
 
@@ -534,6 +539,17 @@ function copyDiffers(file, text) {
     suggestion: "버전이 다른 사본이면 새로 복사하고, 직접 고친 값이면 되돌린 뒤 data-jk-theme으로 테마를 고르세요." };
 }
 
+// One finding for a kit copy that reads tokens no copy in the project sets: a new decor.css beside an older kit.css.
+function copyUnpaired(file, text, kit, copyDeclared) {
+  if (!["kit.css", "decor.css"].includes(path.basename(file))) return null;
+  const unset = declarations(text).flatMap((d) => [...d.value.matchAll(TOKEN_READ)].filter((m) => kit.declared.has(m[1]) && !copyDeclared.has(m[1])).map((m) => ({ name: m[1], d })));
+  if (!unset.length) return null;
+  const names = [...new Set(unset.map((item) => item.name))];
+  return { level: "error", rule: "missing-in-copy", index: unset[0].d.index, prop: unset[0].d.prop, value: unset[0].d.value,
+    message: `이 키트 사본이 읽는 토큰 ${names.length}개를 프로젝트의 어느 키트 사본도 정하지 않습니다: ${names.slice(0, 5).join(", ")}${names.length > 5 ? " 등" : ""}`,
+    suggestion: "kit.css와 decor.css를 같은 버전으로 함께 다시 복사하세요." };
+}
+
 export function run(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
   let opts;
   try { opts = parseArgs(argv); } catch (error) { stderr.write(`check: ${error.message}\n${HELP}`); return 2; }
@@ -555,20 +571,23 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   }
   const styled = new Set(files);
   const hasCopy = kitCopies.some((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)));
-  const copyTokens = hasCopy ? new Set(kitCopies.flatMap((file) => [...tokenNames(read(file))])) : null;
+  const copyDeclared = hasCopy ? new Set(kitCopies.flatMap((file) => [...declaredTokens(read(file))])) : null;
   const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, read(file)).map((region) => region.css))], hasCopy) : null;
   const results = [];
   for (const file of [...files, ...scripts].sort()) {
     const text = read(file);
     const inFile = [];
-    if (styled.has(file)) for (const region of styleRegions(file, text)) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyTokens })) inFile.push({ ...f, index: region.offset + f.index });
-    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(text, classes));
+    if (styled.has(file)) for (const region of styleRegions(file, text)) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
+    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(styled.has(file) ? text : blankComments(text), classes));
     for (const { index, ...rest } of inFile.sort((a, b) => a.index - b.index)) results.push({ file, ...lineCol(text, index), ...rest });
   }
   if (useKit) {
     for (const file of kitCopies) {
-      const differs = copyDiffers(file, read(file));
-      if (differs) { const { index, ...rest } = differs; results.push({ file, ...lineCol(read(file), index), ...rest }); }
+      for (const finding of [copyDiffers(file, read(file)), copyDeclared && copyUnpaired(file, read(file), kit, copyDeclared)]) {
+        if (!finding) continue;
+        const { index, ...rest } = finding;
+        results.push({ file, ...lineCol(read(file), index), ...rest });
+      }
     }
   }
   const errors = results.filter((r) => r.level === "error").length;

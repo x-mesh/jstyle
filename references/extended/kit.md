@@ -84,7 +84,7 @@ function KitArea({ onChange, children }) {
 
 ## 꾸미기 (`decor.css`)
 
-표지, 빈 화면, 소개 화면에만 쓰는 선택 파일입니다. `kit.css` 뒤에 붙입니다. `decor.css`는 `kit.css`의 간격·색 토큰을 읽으므로 두 파일을 같은 버전으로 함께 복사합니다.
+표지, 빈 화면, 소개 화면에만 쓰는 선택 파일입니다. `kit.css` 뒤에 붙입니다. `decor.css`는 `kit.css`의 간격·색 토큰을 읽으므로 두 파일을 같은 버전으로 함께 복사합니다. 버전이 섞이면 `jstyle check`가 `missing-in-copy` 오류로 알립니다.
 
 - 움직이는 배경 6종: `jk-fx-trail`(강조 테두리), `jk-fx-dots`(점 파동), `jk-fx-gradient`(부드러운 그라데이션), `jk-fx-spotlight`(스포트라이트), `jk-fx-rings`(동심원), `jk-fx-beams`(흐름선). 키트의 밝은 바탕과 카드 위에 그리고, 강조는 `--jk-primary`를 따르므로 `data-jk-theme`으로 색이 바뀝니다. 글 영역 쪽을 흐리게 덮으려면 무대에 `jk-fx-fade`를 더합니다.
 - 시작 효과 3종: `jk-fx-stagger`(작업 행 순차 등장), `jk-fx-curtain`(테마 색 덮개 걷기), `jk-fx-reveal`(문장 드러내기). 무대에 `data-jk-entrance`를 붙이면 한 번 재생하고 마지막 장면에서 멈춥니다.

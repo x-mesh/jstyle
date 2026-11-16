@@ -111,6 +111,13 @@ test("jk classes in JSX alone make a kit project", () => {
   assert.equal(r.kit, true);
   assert.match(r.kitBasis, /App\.jsx$/);
   assert.equal(r.errors, 1);
+  for (const jsx of [`<button className={cn("jk-btn", on && "jk-btn-primary")}>저장</button>`, `<button className={on ? "jk-btn" : "jk-tag"}>저장</button>`]) {
+    const viaHelper = report([project({ "src/App.jsx": `export default () => ${jsx};`, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
+    assert.equal(viaHelper.kit, true, jsx);
+    assert.equal(viaHelper.errors, 1, jsx);
+  }
+  const onlyComment = report([project({ "src/App.jsx": `// 예: className="jk-btn"\nexport default () => <button>저장</button>;`, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
+  assert.equal(onlyComment.kit, false);
 });
 
 test("--exclude does not hide the kit copy that proves kit use", () => {
@@ -147,6 +154,7 @@ test("a jk class that the kit does not define is an error with the nearest name"
       "el.style.setProperty(\"--jk-hue\", 160);",
     ].join("\n"),
     "Tabs.tsx": `export const Tabs = () => <div className={"jk-tabz"} id="jk-not-a-class" />;`,
+    "notes.js": `// 예: className="jk-nope"\n/* class="jk-nope2" */\nexport const ok = 1;`,
     "app.css": ".jk-custom { color: var(--jk-ink) }",
     "kit.css": KIT_COPY,
   });
@@ -291,6 +299,12 @@ test("a token that the kit or the project's copy does not have is an error", () 
   const old = report([project({ "vendor/kit.css": KIT_COPY, "index.html": `<i class="jk-btn"></i>`, "app.css": ".a { padding: var(--jk-space-2-5); color: var(--jk-ink) }" })]);
   assert.deepEqual(found(old).map((f) => [f[0], f[2], f[3]]), [["app.css", "missing-in-copy", "error"]]);
   assert.match(old.findings[0].suggestion, /kit\.css/);
+});
+
+test("a decor copy that reads tokens the kit copy does not set is one error", () => {
+  const mixed = report([project({ "vendor/kit.css": KIT_COPY, "vendor/decor.css": ".jk-lp { padding: var(--jk-space-2-5) var(--jk-space-7); color: var(--jk-ink) }", "index.html": `<i class="jk-btn"></i>` })]);
+  assert.deepEqual(found(mixed).map((f) => [f[0], f[2], f[3]]), [["decor.css", "missing-in-copy", "error"]]);
+  assert.match(mixed.findings[0].message, /2개.*--jk-space-2-5, --jk-space-7/);
 });
 
 test("a kit copy whose token values differ from the installed kit is one warning", () => {

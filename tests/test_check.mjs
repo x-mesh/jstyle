@@ -337,7 +337,7 @@ test("a value the installed kit styles and the project's copy does not names the
 test("an attribute selector in a style or a script is checked for typos, not against a stale copy", () => {
   const dir = project({
     "vendor/kit.css": KIT_COPY,
-    "index.html": `<div class="jk-btn"></div><style>[data-jk-theme=purple] .logo { width: 24px } [ data-jk-scheme="dark" ] .card { width: 24px }</style>`,
+    "index.html": `<div class="jk-btn"></div><style>[data-jk-theme=purple] .logo { width: 24px } [ data-jk-scheme="dark" ] .card { width: 24px }\n[\n          data-jk-theme="purple"\n        ] .logo { width: 24px }</style>`,
     "app.js": `document.querySelector("[data-jk-theme=purple]");\nel.matches('[data-jk-theme=bleu] *');`,
   });
   assert.deepEqual(found(report([dir])), [["app.js", 2, "unknown-theme", "error", "bleu"]]);

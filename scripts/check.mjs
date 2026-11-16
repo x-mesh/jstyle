@@ -566,7 +566,9 @@ export function checkAttributes(text, copy = null) {
     const index = m.index + m[0].lastIndexOf(value);
     // A selector such as [data-jk-theme=purple] in a <style> or a script reads the theme and sets nothing,
     // so a typo in it is reported and a stale copy is not.
-    const selector = m[1] && /\[\s*$/.test(text.slice(Math.max(0, m.index - 8), m.index));
+    let before = m.index - 1;
+    while (before >= 0 && /\s/.test(text[before])) before -= 1;
+    const selector = m[1] && text[before] === "[";
     if (valid[name].has(value)) {
       if (copy && !selector && !styles(copy, name, value)) findings.push(missingInCopy(index, `data-jk-${name}`, value, styles(installed.kit, name, value) ? "kit.css" : "decor.css"));
       continue;

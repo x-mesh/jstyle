@@ -154,7 +154,13 @@ test("a jk class that the kit does not define is an error with the nearest name"
       "el.style.setProperty(\"--jk-hue\", 160);",
     ].join("\n"),
     "Tabs.tsx": `export const Tabs = () => <div className={"jk-tabz"} id="jk-not-a-class" />;`,
-    "notes.js": "// 예: className=\"jk-nope\"\n/* class=\"jk-nope2\" */\nexport const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`; // class=\"jk-nope3\"\n",
+    "notes.js": [
+      `// 예: className="jk-nope"`,
+      `/* class="jk-nope2" */`,
+      "export const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`; // class=\"jk-nope3\"",
+      `export const single = 'it\\'s <a href=//cdn.example.com/x class="jk-nopy">'; // class="jk-nope4"`,
+      `export const double = "<a href=//cdn.example.com/x class='jk-nopz'>"; /* class="jk-nope5" */`,
+    ].join("\n"),
     "app.css": ".jk-custom { color: var(--jk-ink) }",
     "kit.css": KIT_COPY,
   });
@@ -167,6 +173,8 @@ test("a jk class that the kit does not define is an error with the nearest name"
     ["app.js", 2, "unknown-class", "error", "jk-nope"],
     ["index.html", 2, "unknown-class", "error", "jk-btn-primery"],
     ["notes.js", 3, "unknown-class", "error", "jk-nopx"],
+    ["notes.js", 4, "unknown-class", "error", "jk-nopy"],
+    ["notes.js", 5, "unknown-class", "error", "jk-nopz"],
   ]);
   assert.match(r.findings.find((f) => f.value === "jk-btn-primery").suggestion, /jk-btn-primary/);
 });

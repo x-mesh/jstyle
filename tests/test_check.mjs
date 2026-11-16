@@ -244,6 +244,53 @@ test("a script given as a file is read for classes only", () => {
   assert.deepEqual(found(r), [["App.jsx", 1, "unknown-class", "error", "jk-nope"]]);
 });
 
+test("a theme or scheme value the kit does not style is an error", () => {
+  const dir = project({
+    "kit.css": KIT_COPY,
+    "index.html": `<div class="jk" data-jk-theme="bleu" data-jk-scheme="drak"><i class="jk-btn"></i></div>\n<div data-jk-theme="purple" data-jk-scheme="light"></div><div data-jk-scheme="dark" data-jk-theme="green"></div>`,
+    "App.jsx": `export const A = () => <div data-jk-theme={"lime"} />;\ndocument.documentElement.setAttribute("data-jk-theme", "orang");\nel.setAttribute("data-jk-scheme", mode);`,
+  });
+  const r = report([dir]);
+  assert.equal(r.status, 1);
+  assert.deepEqual(found(r), [
+    ["App.jsx", 2, "unknown-theme", "error", "orang"],
+    ["index.html", 1, "unknown-theme", "error", "bleu"],
+    ["index.html", 1, "unknown-scheme", "error", "drak"],
+    ["index.html", 2, "unknown-theme", "error", "green"],
+  ]);
+  assert.match(r.findings.find((f) => f.value === "bleu").suggestion, /blue/);
+  assert.match(r.findings.find((f) => f.value === "green").suggestion, /지정하지 않으면 초록/);
+  assert.deepEqual(report([dir, "--no-kit"]).findings, []);
+});
+
+test("a value the kit does not style on a kit class is an error, other elements are left alone", () => {
+  const dir = project({
+    "kit.css": KIT_COPY + " .jk-status { height: 24px } .row { gap: 4px }",
+    "index.html": `<span class="jk-status" data-status="progress">진행 중</span> <span data-status="doing" class="jk-status">진행 중</span>\n<li class="row" data-status="progress"></li><span class="jk-status" data-status="\${s}"></span>`,
+    "App.jsx": `export const A = () => <span className="jk-status" data-status={"todoo"}>시작 전</span>;`,
+  });
+  const r = report([dir]);
+  assert.deepEqual(found(r), [
+    ["App.jsx", 1, "unknown-value", "error", "todoo"],
+    ["index.html", 1, "unknown-value", "error", "progress"],
+  ]);
+  assert.match(r.findings.find((f) => f.value === "progress").suggestion, /doing, todo, done|doing/);
+  assert.match(r.findings.find((f) => f.value === "todoo").suggestion, /todo/);
+});
+
+test("unquoted attribute values are read, and a JSX expression is not taken for one", () => {
+  const dir = project({
+    "kit.css": KIT_COPY + " .jk-status { height: 24px }",
+    "index.html": `<div class=jk data-jk-theme=bleu data-jk-scheme=dark><span class=jk-status data-status=progress>진행 중</span><span class=jk-status data-status=done>완료</span></div>\n<div class=jk data-jk-scheme=drak></div>`,
+    "App.jsx": `export const A = ({ theme, s }) => <div data-jk-theme={theme}><span className="jk-status" data-status={s} /></div>;`,
+  });
+  assert.deepEqual(found(report([dir])), [
+    ["index.html", 1, "unknown-theme", "error", "bleu"],
+    ["index.html", 1, "unknown-value", "error", "progress"],
+    ["index.html", 2, "unknown-scheme", "error", "drak"],
+  ]);
+});
+
 test("the kit page itself has no unknown class, and unknown classes are left alone without the kit", () => {
   const page = report([path.join(ROOT, "assets", "kit", "index.html")]);
   assert.equal(page.kit, true);

@@ -40,7 +40,7 @@ metadata:
 - 대시보드·편집기·업무 도구: [작업 공간](references/extended/workspaces.md).
 - 여러 페이지·DESIGN.md·규칙 충돌: [디자인 규칙](references/extended/design-system.md).
 - 카드·컴포넌트·펼침: [컴포넌트](references/extended/components.md).
-- 목록·표·설정·일정·승인이 많은 업무용 SaaS 화면, "jstyle 키트"·"키트로"를 언급한 요청, React·Vue 프로젝트에서 키트를 쓰는 화면: [컴포넌트 키트](references/extended/kit.md).
+- 목록·표·설정·일정·승인이 많은 업무용 SaaS 화면, "jstyle 키트"·"키트로"를 언급한 요청, `jstyle check`가 키트 사용으로 판단한 프로젝트, React·Vue 프로젝트에서 키트를 쓰는 화면: [컴포넌트 키트](references/extended/kit.md).
 - 시각·시작 효과: [효과](references/extended/effects.md).
 - B2B SaaS 소개 페이지·어둡고 단정한 랜딩: [SaaS 스타일 시스템](references/extended/saas-system.md).
 - CLI 출력·도움말·진행 표시·TUI: [CLI와 터미널 출력](references/cli.md).
@@ -74,6 +74,10 @@ metadata:
 
 ## 방향 고르기
 
+기존 프로젝트의 화면을 만들거나 고치기 전에 `jstyle check <프로젝트 폴더>`를 한 번 실행해, 요약 줄로 키트를 쓰는 프로젝트인지 봅니다. 명령을 쓸 수 없으면 `kit.css` 사본과 `class="jk-`를 검색합니다.
+키트를 쓰는 프로젝트이거나 사용자가 키트를 지정했으면 키트가 이미 정한 방향입니다. 방향 탐색을 하지 않고 [컴포넌트 키트](references/extended/kit.md)를 따릅니다. 글꼴·색·모서리·간격·컴포넌트 모양은 키트 그대로 쓰고, 고르는 것은 테마·다크 모드·꾸미기·키트 레이아웃뿐입니다. 키트에 없는 컴포넌트는 키트 토큰으로 만듭니다.
+키트는 프로젝트 문서의 다른 값보다 우선하고, 사용자가 키트와 다르게 하라고 명시한 것만 예외입니다. 그 예외는 디자인 문서의 기준 시스템 칸에 적습니다.
+
 새 방향이 필요할 때 [디자인 방향](references/design-direction.md)의 제품 사실·덜어내기·개념·회색 뼈대를 만듭니다.
 소개 화면은 [첫 장면](references/direction-persuasion.md)을, 게임은 [게임](references/play.md)의 대상·상태 목록을 먼저 봅니다.
 사용자가 이미 방향을 골랐다면 그대로 잇고 새 탐색을 시작하지 않습니다.
@@ -86,7 +90,7 @@ metadata:
 유료 포인트는 이번 작업에서 허락받은 경우에만 씁니다.
 
 작업의 목표, 첫 화면의 대상과 버튼, 고른 방향, 주요 상태, 기기와 볼 곳을 프로젝트의 디자인 문서에 짧게 적습니다.
-문서가 없고 새 방향을 정한 작업이면 프로젝트 루트에 `DESIGN.md`를 만들고 결과에 알립니다. 틀은 [디자인 규칙](references/extended/design-system.md)에 있으며, 토큰과 컴포넌트 값은 만든 뒤 확인한 값으로 채웁니다.
+문서가 없고 새 방향을 정하거나 키트를 처음 붙인 작업이면 프로젝트 루트에 `DESIGN.md`를 만들고 결과에 알립니다. 틀은 [디자인 규칙](references/extended/design-system.md)에 있으며, 토큰과 컴포넌트 값은 만든 뒤 확인한 값으로 채웁니다. 키트를 쓰면 기준 시스템 칸을 채우고 키트 규칙은 옮겨 적지 않습니다. 키트를 쓰는 프로젝트에 이 칸이 없으면, 화면을 새로 만드는 작업에서 `DESIGN.md`를 만들거나 칸을 더하고 결과에 알립니다.
 `.jstyle`은 Git에서 빠지므로 다음 작업이 이어받을 방향을 거기에만 두지 않습니다.
 기존 설명이 있으면 필요한 내용만 고칩니다. 작은 변경에는 문서를 새로 만들지 않습니다.
 

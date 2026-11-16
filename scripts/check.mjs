@@ -142,7 +142,8 @@ function blankComments(css) {
 
 // <!-- --> in markup, blanked to the same length so offsets hold. A script or style element is stepped over
 // whole, so "<!--" inside a script string does not open a comment.
-const MARKUP_COMMENT = /<(script|style)\b[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
+// The lookahead keeps a custom element such as <script-panel> from passing for a script element.
+const MARKUP_COMMENT = /<(script|style)(?=[\s>/])[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
 const blankMarkupComments = (text) => text.replace(MARKUP_COMMENT, (part) => (part.startsWith("<!--") ? part.replace(/[^\n]/g, " ") : part));
 
 // The text that class names and style attributes are read from.

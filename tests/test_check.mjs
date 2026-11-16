@@ -123,6 +123,7 @@ test("jk classes in JSX alone make a kit project", () => {
     `const html = '<i> // 설명 <b className="jk-btn" /></i>';`,
     `const glob = "src/ /* "; export default () => <button className="jk-btn">저장</button>;`,
     `// 예: className="jk-btn"\nexport default () => <button>저장</button>;`,
+    `/* 예: <i className="jk-btn" /> */\nexport default () => <button>저장</button>;`,
   ]) {
     const whole = report([project({ "src/App.jsx": jsx, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
     assert.equal(whole.kit, true, jsx);
@@ -137,6 +138,8 @@ test("markup comments are not read for classes or style attributes", () => {
     ["index.html", 4, "unknown-class", "error", "jk-nopr"],
     ["index.html", 6, "unknown-class", "error", "jk-nops"],
   ]);
+  const custom = report([project({ "kit.css": KIT_COPY, "index.html": `<i class="jk-btn"></i><script-panel>${commented}</script-panel><script></script>` })]);
+  assert.deepEqual(custom.findings, []);
   const plain = report([project({ "index.html": `${commented}\n<style>.a { color: #123456 }</style>` })]);
   assert.equal(plain.kit, false);
   assert.equal(plain.errors, 0);
@@ -180,6 +183,7 @@ test("a jk class that the kit does not define is an error with the nearest name"
       `// 예: className="jk-nope"`,
       "export const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`;",
       `export const single = 'it\\'s // 설명 <b class="jk-nopy">';`,
+      `/* 예: class="jk-nopz" */`,
     ].join("\n"),
     "app.css": ".jk-custom { color: var(--jk-ink) }",
     "kit.css": KIT_COPY,
@@ -195,6 +199,7 @@ test("a jk class that the kit does not define is an error with the nearest name"
     ["notes.js", 1, "unknown-class", "error", "jk-nope"],
     ["notes.js", 2, "unknown-class", "error", "jk-nopx"],
     ["notes.js", 3, "unknown-class", "error", "jk-nopy"],
+    ["notes.js", 4, "unknown-class", "error", "jk-nopz"],
   ]);
   assert.match(r.findings.find((f) => f.value === "jk-btn-primery").suggestion, /jk-btn-primary/);
 });

@@ -34,6 +34,7 @@ const HELP = `자주 쓰는 명령:
   --no-sheet            여러 대상을 찍어도 sheet.png를 자동으로 만들지 않습니다.
   --mark "1=<선택자>"   요소에 테두리와 번호를 표시합니다. 번호가 없으면 차례로 붙입니다.
   --steps "<동작>"      여러 번 쓸 수 있습니다. 묶음마다 페이지를 다시 엽니다. 예: "고친 뒤 저장: click .save"
+  --steps-file <파일>   한 줄에 "이름: 동작" 묶음 하나를 적은 파일. 빈 줄과 #으로 시작하는 줄은 건너뜁니다. --steps와 함께 쓸 수 있습니다.
   --record              묶음마다 녹화하고 마지막 동작의 시작·중간·끝 프레임을 남깁니다.
   --entry               --record/--frames와 함께 첫 내용을 열기 전부터 찍습니다.
   --hold <밀리초>       마지막 동작 뒤에 더 찍을 시간. 기본 1200
@@ -189,6 +190,14 @@ function parseSelector(source) {
   if (m) return { kind: "has-text", css: m[1].trim() || "*", value: unquote(m[2] + m[3] + m[2]) };
   return { kind: "css", value };
 }
+// The states to open, kept as a file in the project so that every run opens the same ones.
+function readStepsFile(file) {
+  if (!existsSync(file)) fail(`--steps-file 파일이 없습니다: ${file}`);
+  const bundles = readFileSync(file, "utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+  if (!bundles.length) fail(`--steps-file에 동작 묶음이 없습니다: ${file}. 한 줄에 "이름: 동작" 하나를 적습니다. 예: 설정 폼: click .open`);
+  return bundles;
+}
+
 function parseSteps(text) {
   let name = null;
   let quote = null, stack = [], split = null;
@@ -277,6 +286,7 @@ for (let i = 0; i < args.length; i++) {
       if (!value) fail(`${option}에는 값 하나가 필요합니다. 받은 값: ${a}. 예: ${{ "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key] || `${option} 값`}`);
       suppliedOptions.add(key);
       if (key === "steps") stepsInputs.push(value);
+      else if (key === "steps-file") stepsInputs.push(...readStepsFile(value));
       else if (key === "stitch") stitchInputs.push({ path: value });
       else if (key === "label") {
         if (!stitchInputs.length || stitchInputs.at(-1).label !== undefined) fail(`--label은 --stitch 이미지 바로 뒤에 와야 합니다. 받은 값: ${a} ${value}. 예: --stitch before.png --label "바꾸기 전" --stitch after.png --label "바꾼 뒤"`);
@@ -1045,14 +1055,31 @@ function lintPage() {
   return [...found.values()];
 }
 
-async function lint() {
-  try {
-    return await evaluate(`(${lintPage.toString()})()`);
-  } catch (error) {
-    return [{ rule: "lintError", label: "읽기 쉬움 검사를 끝내지 못했습니다", count: 1, examples: [error.message.slice(0, 160)] }];
-  }
+// The tally the site evaluation uses, so a screen being built and a site being judged are counted the same way.
+const STYLE_AUDIT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "eval", "style-audit.js"), "utf8");
+// From the "weak" column of references/eval/visual.md: 12 or more font sizes, five kinds of button.
+const MANY_FONT_SIZES = 12;
+const MANY_BUTTON_HEIGHTS = 5;
+
+async function styleSpread() {
+  // The kit itself runs on two dozen font sizes and a height for every kind of control, so on a kit screen
+  // these counts describe the kit, not the screen. jstyle check holds kit screens to the kit instead.
+  if (await evaluate(`getComputedStyle(document.documentElement).getPropertyValue("--jk-primary").trim() !== ""`)) return [];
+  const audit = JSON.parse(await evaluate(STYLE_AUDIT));
+  const tally = (list) => list.slice(0, 8).map((item) => `${item.value}×${item.count}`);
+  const hints = [];
+  if (audit.distinct.fontSizes >= MANY_FONT_SIZES) hints.push({ rule: "manyFontSizes", label: "한 페이지에 쓰인 글자 크기", count: audit.distinct.fontSizes, unit: "종", examples: tally(audit.fontSizes) });
+  if (audit.distinct.buttonHeights >= MANY_BUTTON_HEIGHTS) hints.push({ rule: "manyButtonHeights", label: "한 페이지에 쓰인 버튼 높이", count: audit.distinct.buttonHeights, unit: "종", examples: tally(audit.controls.buttonHeights) });
+  return hints;
 }
-const lintLine = (items) => items.map((i) => `${i.label} ${i.count}곳(${i.examples.join(", ")})`).join("; ");
+
+async function lint() {
+  const failed = (error) => [{ rule: "lintError", label: "읽기 쉬움 검사를 끝내지 못했습니다", count: 1, examples: [error.message.slice(0, 160)] }];
+  // Apart, so that a tally that fails does not throw away what the page checks found.
+  const page = await evaluate(`(${lintPage.toString()})()`).catch(failed);
+  return [...page, ...await styleSpread().catch(failed)];
+}
+const lintLine = (items) => items.map((i) => `${i.label} ${i.count}${i.unit ?? "곳"}(${i.examples.join(", ")})`).join("; ");
 
 async function settleAnimations(limit) {
   if (limit <= 0) return 0;

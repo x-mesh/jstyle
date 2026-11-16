@@ -58,6 +58,15 @@ function packaged() {
   return [...out].sort();
 }
 
+test("the kit guide names sections that the kit page has", () => {
+  const page = fs.readFileSync(path.join(ROOT, "assets", "kit", "index.html"), "utf8");
+  const sections = new Set([...page.matchAll(/<section class="doc-section" id="([^"]+)"/g)].map((m) => m[1]));
+  const guide = fs.readFileSync(path.join(ROOT, "references", "extended", "kit.md"), "utf8");
+  const named = [...guide.matchAll(/\| `#([a-z-]+)` \|/g)].map((m) => m[1]);
+  assert.ok(named.length >= 30, `the choosing table has ${named.length} rows`);
+  assert.deepEqual(named.filter((id) => !sections.has(id)), []);
+});
+
 test("packaged text has no Han characters", () => {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   for (const file of packaged()) {

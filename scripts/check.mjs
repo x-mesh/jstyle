@@ -140,26 +140,31 @@ function blankComments(css) {
     .replace(/(^|[^:"'\\])\/\/[^\n]*/g, (m, lead) => lead + " ".repeat(m.length - lead.length));
 }
 
-// Blanks the comments of a script and keeps its length. Strings and template literals are stepped over,
-// so a // inside one (href=//cdn…) does not hide the class names after it.
+const blanked = (text) => text.replace(/[^\n]/g, " ");
+// A comment is told by where it starts, not by lexing the script: a line comment opens a line or follows a
+// space, a block comment follows a space or an opening bracket. A // inside a regex class (/[//]/), a URL or
+// href=//cdn has neither, so nothing after it is lost. What this leaves is read as code, which reports more
+// rather than passing a kit project as one without the kit.
+const SCRIPT_COMMENT = /(^|\s)\/\/[^\n]*|(^|[\s{(,;])\/\*[\s\S]*?\*\//gm;
 function blankScriptComments(text) {
-  let out = "";
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i], next = text[i + 1];
-    if (c === '"' || c === "'" || c === "`") {
-      let end = i + 1;
-      // A quote that does not close on its line is an apostrophe in text, not a string.
-      for (; end < text.length && text[end] !== c && (c === "`" || text[end] !== "\n"); end += 1) if (text[end] === "\\") end += 1;
-      out += text.slice(i, end + 1);
-      i = end;
-    } else if (c === "/" && (next === "/" || next === "*")) {
-      const close = next === "/" ? text.indexOf("\n", i) : text.indexOf("*/", i + 2);
-      const stop = close < 0 ? text.length : next === "/" ? close : close + 2;
-      out += text.slice(i, stop).replace(/[^\n]/g, " ");
-      i = stop - 1;
-    } else out += c;
-  }
-  return out;
+  return text.replace(SCRIPT_COMMENT, (comment, beforeLine, beforeBlock) => {
+    const lead = beforeLine ?? beforeBlock ?? "";
+    return lead + blanked(comment.slice(lead.length));
+  });
+}
+
+// Markup comments, and the script comments inside <script>. Text outside <script> is left alone:
+// "a // b" in a minified page would otherwise blank the rest of the document.
+function blankMarkupComments(text) {
+  return text
+    .replace(/<!--[\s\S]*?-->/g, blanked)
+    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (whole, open, body, close) => open + blankScriptComments(body) + close);
+}
+
+// The text that class names and style attributes are read from. Same length as the file, so offsets hold.
+function withoutComments(file, text) {
+  const ext = path.extname(file).toLowerCase();
+  return SCRIPT_EXT.has(ext) ? blankScriptComments(text) : MARKUP_EXT.has(ext) ? blankMarkupComments(text) : text;
 }
 
 // Walks a stylesheet and yields declarations with their selector stack.
@@ -507,11 +512,11 @@ const STYLE_SIGN = /(?<![\w-])kit\.css\b|var\(--jk-|--jk-[\w-]+\s*:/;
 const SCRIPT_SIGN = /(?:import|require)\b[^\n;]*(?<![\w-])kit\.css\b/;
 
 // Returns the file that shows the kit in use, or null.
-function kitBasis({ files, scripts, kitCopies }, read) {
+function kitBasis({ files, scripts, kitCopies }, read, scan) {
   return kitCopies.find((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)))
     // The same reader the class rule uses, so a class inside clsx() or a condition counts as kit use too.
-    ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(read(file)).length > 0)
-    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(blankScriptComments(read(file))).length > 0)
+    ?? files.find((file) => STYLE_SIGN.test(read(file)) || classUses(scan(file)).length > 0)
+    ?? scripts.find((file) => SCRIPT_SIGN.test(read(file)) || classUses(scan(file)).length > 0)
     ?? null;
 }
 
@@ -582,7 +587,9 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   const { files, scripts, kitCopies } = found;
   const texts = new Map();
   const read = (file) => { if (!texts.has(file)) texts.set(file, fs.readFileSync(file, "utf8")); return texts.get(file); };
-  const basis = opts.kit === null ? kitBasis(found, read) : null;
+  const scans = new Map();
+  const scan = (file) => { if (!scans.has(file)) scans.set(file, withoutComments(file, read(file))); return scans.get(file); };
+  const basis = opts.kit === null ? kitBasis(found, read, scan) : null;
   const useKit = opts.kit ?? basis !== null;
   let kit = loadKitTokens();
   const ownTokens = opts.tokens.length > 0 && !useKit;
@@ -594,13 +601,13 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   const styled = new Set(files);
   const hasCopy = kitCopies.some((file) => path.basename(file) === "kit.css" && /--jk-/.test(read(file)));
   const copyDeclared = hasCopy ? new Set(kitCopies.flatMap((file) => [...declaredTokens(read(file))])) : null;
-  const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, read(file)).map((region) => region.css))], hasCopy) : null;
+  const classes = useKit ? classIndex([...kitCopies.map(read), ...files.flatMap((file) => styleRegions(file, scan(file)).map((region) => region.css))], hasCopy) : null;
   const results = [];
   for (const file of [...files, ...scripts].sort()) {
     const text = read(file);
     const inFile = [];
-    if (styled.has(file)) for (const region of styleRegions(file, text)) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
-    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(styled.has(file) ? text : blankScriptComments(text), classes));
+    if (styled.has(file)) for (const region of styleRegions(file, scan(file))) for (const f of checkSource(region.css, { kit, useKit, tokens: ownTokens, inline: region.inline, copyDeclared })) inFile.push({ ...f, index: region.offset + f.index });
+    if (useKit && (!styled.has(file) || MARKUP_EXT.has(path.extname(file).toLowerCase()))) inFile.push(...checkClasses(scan(file), classes));
     for (const { index, ...rest } of inFile.sort((a, b) => a.index - b.index)) results.push({ file, ...lineCol(text, index), ...rest });
   }
   if (useKit) {

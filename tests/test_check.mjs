@@ -118,6 +118,22 @@ test("jk classes in JSX alone make a kit project", () => {
   }
   const onlyComment = report([project({ "src/App.jsx": `// 예: className="jk-btn"\nexport default () => <button>저장</button>;`, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
   assert.equal(onlyComment.kit, false);
+  // A // inside a regex class is not a comment: the class after it still makes a kit project.
+  const afterRegex = report([project({ "src/App.jsx": `const slash = /[//]/; export default () => <button className="jk-btn">저장</button>;`, "src/app.css": ".toolbar { background: #1a73e8 }" })]);
+  assert.equal(afterRegex.kit, true);
+  assert.equal(afterRegex.errors, 1);
+});
+
+test("markup comments are not read for classes or style attributes", () => {
+  const commented = `<!-- <button class="jk-nope">예시</button> <div style="background:#1a73e8"></div> -->`;
+  const kitPage = report([project({ "kit.css": KIT_COPY, "index.html": `<i class="jk-btn"></i>\n${commented}\n<script>\n// el.className = "jk-nope2";\nel.className = "jk-nopr"; const u = "http://x.test//y";\n</script>\n<p>a // b <i class="jk-nops"></i></p>` })]);
+  assert.deepEqual(found(kitPage), [
+    ["index.html", 5, "unknown-class", "error", "jk-nopr"],
+    ["index.html", 7, "unknown-class", "error", "jk-nops"],
+  ]);
+  const plain = report([project({ "index.html": `${commented}\n<style>.a { color: #123456 }</style>` })]);
+  assert.equal(plain.kit, false);
+  assert.equal(plain.errors, 0);
 });
 
 test("--exclude does not hide the kit copy that proves kit use", () => {
@@ -160,6 +176,9 @@ test("a jk class that the kit does not define is an error with the nearest name"
       "export const link = `<a href=//cdn.example.com/x class=\"jk-nopx\">`; // class=\"jk-nope3\"",
       `export const single = 'it\\'s <a href=//cdn.example.com/x class="jk-nopy">'; // class="jk-nope4"`,
       `export const double = "<a href=//cdn.example.com/x class='jk-nopz'>"; /* class="jk-nope5" */`,
+      "export const label = `${/* className=\"jk-nope6\" */ value}`;",
+      `// 참고 /* 메모`,
+      `export const after = <i className="jk-nopq" />; /* 끝 */`,
     ].join("\n"),
     "app.css": ".jk-custom { color: var(--jk-ink) }",
     "kit.css": KIT_COPY,
@@ -175,6 +194,7 @@ test("a jk class that the kit does not define is an error with the nearest name"
     ["notes.js", 3, "unknown-class", "error", "jk-nopx"],
     ["notes.js", 4, "unknown-class", "error", "jk-nopy"],
     ["notes.js", 5, "unknown-class", "error", "jk-nopz"],
+    ["notes.js", 8, "unknown-class", "error", "jk-nopq"],
   ]);
   assert.match(r.findings.find((f) => f.value === "jk-btn-primery").suggestion, /jk-btn-primary/);
 });
